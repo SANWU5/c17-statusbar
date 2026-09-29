@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <public type="drawable" name="ic_pui_ios_statusbar" id="0x7f010000" />
+    <public type="drawable" name="stat_signal_lte_signal_stacked_primary_0" id="0x7f010001" />
+    <public type="drawable" name="stat_signal_lte_signal_stacked_primary_1" id="0x7f010002" />
+    <public type="drawable" name="stat_signal_lte_signal_stacked_primary_2" id="0x7f010003" />
+    <public type="drawable" name="stat_signal_lte_signal_stacked_primary_3" id="0x7f010004" />
+    <public type="drawable" name="stat_signal_lte_signal_stacked_primary_4" id="0x7f010005" />
+    <public type="drawable" name="stat_signal_lte_signal_stacked_primary_noservice" id="0x7f010006" />
+    <public type="drawable" name="stat_signal_lte_signal_stacked_secondary_0" id="0x7f010007" />
+    <public type="drawable" name="stat_signal_lte_signal_stacked_secondary_1" id="0x7f010008" />
+    <public type="drawable" name="stat_signal_lte_signal_stacked_secondary_2" id="0x7f010009" />
+    <public type="drawable" name="stat_signal_lte_signal_stacked_secondary_3" id="0x7f01000a" />
+    <public type="drawable" name="stat_signal_lte_signal_stacked_secondary_4" id="0x7f01000b" />
+    <public type="drawable" name="stat_signal_lte_signal_stacked_secondary_noservice" id="0x7f01000c" />
+    <public type="drawable" name="stat_signal_soft_signal_stacked_primary_0" id="0x7f01000d" />
+    <public type="drawable" name="stat_signal_soft_signal_stacked_primary_1" id="0x7f01000e" />
+    <public type="drawable" name="stat_signal_soft_signal_stacked_primary_2" id="0x7f01000f" />
+    <public type="drawable" name="stat_signal_soft_signal_stacked_primary_3" id="0x7f010010" />
+    <public type="drawable" name="stat_signal_soft_signal_stacked_primary_4" id="0x7f010011" />
+    <public type="drawable" name="stat_signal_soft_signal_stacked_primary_noservice" id="0x7f010012" />
+    <public type="drawable" name="stat_signal_soft_signal_stacked_secondary_0" id="0x7f010013" />
+    <public type="drawable" name="stat_signal_soft_signal_stacked_secondary_1" id="0x7f010014" />
+    <public type="drawable" name="stat_signal_soft_signal_stacked_secondary_2" id="0x7f010015" />
+    <public type="drawable" name="stat_signal_soft_signal_stacked_secondary_3" id="0x7f010016" />
+    <public type="drawable" name="stat_signal_soft_signal_stacked_secondary_4" id="0x7f010017" />
+    <public type="drawable" name="stat_signal_soft_signal_stacked_secondary_noservice" id="0x7f010018" />
+    <public type="drawable" name="stat_signal_wifi_signal_0" id="0x7f010019" />
+    <public type="drawable" name="stat_signal_wifi_signal_0_os17" id="0x7f01001a" />
+    <public type="drawable" name="stat_signal_wifi_signal_1" id="0x7f01001b" />
+    <public type="drawable" name="stat_signal_wifi_signal_1_os17" id="0x7f01001c" />
+    <public type="drawable" name="stat_signal_wifi_signal_2" id="0x7f01001d" />
+    <public type="drawable" name="stat_signal_wifi_signal_2_os17" id="0x7f01001e" />
+    <public type="drawable" name="stat_signal_wifi_signal_3" id="0x7f01001f" />
+    <public type="drawable" name="stat_signal_wifi_signal_3_os17" id="0x7f010020" />
+    <public type="drawable" name="stat_signal_wifi_signal_4" id="0x7f010021" />
+    <public type="drawable" name="stat_signal_wifi_signal_4_os17" id="0x7f010022" />
+    <public type="string" name="app_name" id="0x7f020000" />
+    <public type="string" name="module_description" id="0x7f020001" />
+    <public type="style" name="AppTheme" id="0x7f030000" />
+</resources>

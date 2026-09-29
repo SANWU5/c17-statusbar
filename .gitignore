@@ -1,0 +1,16 @@
+# GitHub and Android Studio
+.gradle/
+.idea/
+**/build/
+local.properties
+*.apk
+*.aab
+*.idsig
+*.jks
+*.keystore
+*.log
+hs_err_pid*.log
+prefs-*.xml
+*screen*.png
+*device-capture*.png
+test-ui.xml

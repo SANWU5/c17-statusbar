@@ -1,0 +1,7 @@
+PingFang UI SC, original design by Apple.
+Variable font reconstruction: alphaArgon / ACT-02.
+Source: https://github.com/ACT-02/PingFangUI-VF
+Release: 21.4d1e1, PingFangUI.tahoe.26.4.1.wght.wdth.ttc
+SC face; width fixed at normal 100; subset for C17 status bar.
+ASCII, time/date and common carrier characters retained.
+Genuine wght axis 100-900 retained; other characters use system fallback.

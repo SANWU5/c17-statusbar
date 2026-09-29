@@ -1,0 +1,28 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'dev.puitheme.iosstatusbar'
+    compileSdk 35
+    androidResources {
+        noCompress += ['ttf', 'otf', 'ttc']
+    }
+
+    defaultConfig {
+        applicationId 'dev.puitheme.iosstatusbar'
+        minSdk 26
+        targetSdk 35
+        versionCode 24
+        versionName '1.12.2'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    compileOnly 'io.github.libxposed:api:101.0.0'
+}
