@@ -1,5 +1,7 @@
 # 更好的 C17 状态栏 1.12.2
 
+[English](README.en.md)
+
 作者：aiingjie · 包名：`dev.puitheme.iosstatusbar` · libxposed API 101
 
 专为 SystemUI 设计的 LSPosed 状态栏模块。
@@ -28,3 +30,4 @@
 ## 许可证
 
 模块源码按根目录 MIT 许可证发布。内置苹方字体受其单独来源说明约束，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+
