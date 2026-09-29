@@ -1,6 +1,6 @@
 # Better C17 Status Bar 1.12.2
 
-[简体中文](README.md)
+[简体中文](README.md) · [Download APK (1.12.2)](https://github.com/SANWU5/c17-statusbar/releases/latest)
 
 Author: aiingjie · Package: `dev.puitheme.iosstatusbar` · libxposed API 101
 
@@ -28,3 +28,4 @@ Settings are stored locally and read by the module and SystemUI. This repository
 ## License
 
 The module source code is released under the MIT License in [LICENSE](LICENSE). The included PingFang font has separate attribution and licensing details in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [FONT.md](FONT.md).
+
