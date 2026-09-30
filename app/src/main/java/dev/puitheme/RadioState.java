@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 aiingjie
+
 package dev.puitheme;
 
 /** Radio decisions from the same Wi-Fi model used by SystemUI, with a default-route fallback. */

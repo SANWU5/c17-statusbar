@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 aiingjie
+
 package dev.puitheme;
 
 import android.app.Activity;
@@ -39,7 +42,7 @@ import java.util.Locale;
 
 /** Focused groups; real time samples share the same formatter as SystemUI. */
 public final class MainActivity extends Activity {
-    private static final int BG=0xfff5f6fa, CARD=Color.WHITE, INK=0xff172033;
+    private static final int BG=0xfff3f5fa, CARD=Color.WHITE, INK=0xff172033;
     private static final int MUTED=0xff778297, ACCENT=0xff4564ed, FONT_REQUEST=17, LOG_EXPORT_REQUEST=18;
     private static final int CONFIG_EXPORT_REQUEST=19, CONFIG_IMPORT_REQUEST=20;
     private static final Uri SETTINGS_URI=Uri.parse(StatusBarSettings.CONTENT_URI);
@@ -51,6 +54,7 @@ public final class MainActivity extends Activity {
     private int selected=-1;
     private String carrierPanel=CarrierPanels.NOTIFICATION;
     private String qsScene="light";
+    private final java.util.Set<String> expandedFeatures=new java.util.HashSet<>();
     private boolean transferringConfig;
     private String pendingImportUri;
     private boolean resumed, importing, checkingUpdates, checkedUpdatesThisSession;
@@ -134,6 +138,7 @@ public final class MainActivity extends Activity {
             preferences.edit().putBoolean("tiles_blur_enabled",false).apply();
             migrations.edit().putBoolean("native_edge_fade_114",true).apply();
         }
+        if(state!=null&&state.getStringArrayList("expanded_features")!=null)expandedFeatures.addAll(state.getStringArrayList("expanded_features"));
         if(state!=null)selected=Math.max(-1,Math.min(groups.length-1,state.getInt("group",-1)));
         if(state!=null&&CarrierPanels.isPanel(state.getString("carrier_panel")))carrierPanel=state.getString("carrier_panel");
         if(state!=null&&"dark".equals(state.getString("qs_scene")))qsScene="dark";
@@ -150,15 +155,23 @@ public final class MainActivity extends Activity {
             } else root.setPadding(dp(18),dp(12)+insets.getSystemWindowInsetTop(),dp(18),dp(8)+insets.getSystemWindowInsetBottom());
             return insets;
         });
-        LinearLayout brand=row();brand.addView(text("更好的C17状态栏",21,INK,true),new LinearLayout.LayoutParams(0,-2,1));
-        TextView version=text(appVersion(),10,ACCENT,true);version.setPadding(dp(9),dp(5),dp(9),dp(5));version.setBackground(rounded(0xffeaf0ff,10,false));brand.addView(version);
-        root.addView(brand,matchWrap());
-        TextView author=text("作者 aiingjie  ·  自由调整你的状态栏",11,MUTED,false);author.setPadding(0,dp(5),0,dp(14));root.addView(author,matchWrap());
+        LinearLayout brand=row();
+        UiGlyph logo=new UiGlyph(this,"brand",ACCENT);logo.setPadding(dp(6),dp(6),dp(6),dp(6));logo.setBackground(rounded(0xffe9edff,13,false));
+        brand.addView(logo,new LinearLayout.LayoutParams(dp(42),dp(42)));
+        LinearLayout identity=column();identity.setPadding(dp(11),0,dp(8),0);
+        identity.addView(text("更好的C17状态栏",18,INK,true));
+        TextView author=text("aiingjie · 自由调整你的状态栏",10,MUTED,false);author.setPadding(0,dp(4),0,0);identity.addView(author);
+        brand.addView(identity,new LinearLayout.LayoutParams(0,-2,1));
+        TextView version=text(appVersion(),10,ACCENT,true);version.setGravity(Gravity.CENTER);version.setMinHeight(dp(44));
+        version.setPadding(dp(10),dp(4),dp(10),dp(4));version.setContentDescription("当前版本 "+appVersion()+"，点击检查更新");
+        pressable(version,rounded(0xffe9edff,12,false));version.setOnClickListener(v->checkUpdates(true));brand.addView(version);
+        LinearLayout.LayoutParams brandParams=matchWrap();brandParams.bottomMargin=dp(20);root.addView(brand,brandParams);
         tabs=row();root.addView(tabs,matchWrap());
         pageScroll=new ScrollView(this);pageScroll.setFillViewport(false);pageScroll.setVerticalScrollBarEnabled(false);
         editor=column();editor.setPadding(dp(1),dp(12),dp(1),dp(18));pageScroll.addView(editor,matchWrap());
         root.addView(pageScroll,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR|View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         selectGroup(selected);
         if(state!=null&&state.getString("pending_import_uri")!=null) {
@@ -166,7 +179,7 @@ public final class MainActivity extends Activity {
             transferConfig(CONFIG_IMPORT_REQUEST,Uri.parse(pendingImportUri));
         }
     }
-    @Override protected void onSaveInstanceState(Bundle state) { state.putInt("group",selected);state.putString("carrier_panel",carrierPanel);state.putString("qs_scene",qsScene);if(pendingImportUri!=null)state.putString("pending_import_uri",pendingImportUri);super.onSaveInstanceState(state); }
+    @Override protected void onSaveInstanceState(Bundle state) { state.putStringArrayList("expanded_features",new ArrayList<>(expandedFeatures));state.putInt("group",selected);state.putString("carrier_panel",carrierPanel);state.putString("qs_scene",qsScene);if(pendingImportUri!=null)state.putString("pending_import_uri",pendingImportUri);super.onSaveInstanceState(state); }
     @Override protected void onResume() {
         super.onResume();resumed=true;changed();
         if(!checkedUpdatesThisSession) {
@@ -181,13 +194,13 @@ public final class MainActivity extends Activity {
         selected=index;sample=null;updateSummary=null;handler.removeCallbacks(previewTick);tabs.removeAllViews();
         controls.clear();editor.removeAllViews();
         if(index<0) { showOverview();pageScroll.post(()->pageScroll.scrollTo(0,oldScroll));return; }
-        TextView back=text("‹  全部功能",13,ACCENT,true);back.setPadding(dp(12),dp(10),dp(12),dp(10));back.setMinHeight(dp(44));back.setBackground(rounded(0xffeaf0ff,12,false));
+        TextView back=text("‹  全部功能",13,ACCENT,true);back.setPadding(dp(12),dp(10),dp(12),dp(10));back.setMinHeight(dp(44));pressable(back,rounded(0xffe9edff,12,false));
         back.setContentDescription("返回全部功能");back.setOnClickListener(v->selectGroup(-1));tabs.addView(back);
-        TextView precision=text("0.01 精度 · 点击数值输入",10,MUTED,false);precision.setGravity(Gravity.RIGHT);tabs.addView(precision,new LinearLayout.LayoutParams(0,-2,1));
+        TextView precision=text("点击数值 · 精确输入",11,MUTED,false);precision.setGravity(Gravity.RIGHT);tabs.addView(precision,new LinearLayout.LayoutParams(0,-2,1));
         Group group=groups[index];LinearLayout card=column();
-        card.setPadding(dp(15),dp(15),dp(15),dp(15));card.setBackground(rounded(CARD,18,true));editor.addView(card,matchWrap());
+        card.setPadding(dp(16),dp(18),dp(16),dp(16));card.setBackground(rounded(CARD,20,true));editor.addView(card,matchWrap());
         LinearLayout title=row();title.addView(text(group.title,18,INK,true),new LinearLayout.LayoutParams(0,-2,1));
-        Switch master=new Switch(this);master.setChecked(enabled(masterKey(group.key)));master.setContentDescription(group.title+" 总开关");
+        Switch master=styledSwitch(enabled(masterKey(group.key)));master.setContentDescription(group.title+" 总开关");
         master.setOnCheckedChangeListener((button,checked)->{preferences.edit().putBoolean(masterKey(group.key),checked).apply();changed();selectGroup(selected);});title.addView(master);card.addView(title,matchWrap());
         addHint(card,group.detail);if(!enabled(masterKey(group.key)))addHint(card,"本项已停用，当前使用系统显示。开启后应用以下设置。");
         if(group.key.equals("carrier")) {
@@ -233,37 +246,57 @@ public final class MainActivity extends Activity {
     }
     private void showOverview() {
         int count=0;for(Group group:groups)if(enabled(masterKey(group.key)))count++;
-        tabs.addView(text("全部功能",16,INK,true),new LinearLayout.LayoutParams(0,-2,1));tabs.addView(text(count+" / "+groups.length+" 已开启",11,ACCENT,true));
-        String[] shortNames={"实时网速","蜂窝信号","Wi-Fi","网络文字","时间格式","运营商文字","字体","电池","磁贴翻页","磁贴调色"};
-        String[] descriptions={"数字、单位与间距","信号样式与原生角标","图标与数据箭头","5G / 4G / 3G","日期、星期与时段","通知、控制中心与锁屏","系统、苹方或自选","PUI 外观与充电动画","原生滑动与边缘渐隐","全局填充与原生高光"};
-        for(int rowIndex=0;rowIndex<groups.length;rowIndex+=2) {
-            LinearLayout line=row();
-            for(int i=rowIndex;i<Math.min(rowIndex+2,groups.length);i++) {
-                final int target=i;Group group=groups[i];LinearLayout box=column();box.setPadding(dp(13),dp(14),dp(13),dp(11));box.setBackground(rounded(CARD,18,true));
-                box.addView(text(shortNames[i],15,INK,true));TextView detail=text(descriptions[i],10,MUTED,false);detail.setPadding(0,dp(7),0,dp(12));box.addView(detail,matchWrap());
-                LinearLayout bottom=row();TextView enter=text("调整  ›",11,ACCENT,true);enter.setPadding(0,dp(8),0,dp(8));bottom.addView(enter,new LinearLayout.LayoutParams(0,-2,1));
-                Switch master=new Switch(this);master.setChecked(enabled(masterKey(group.key)));master.setContentDescription(group.title+" 总开关");master.setMinHeight(dp(44));
-                master.setOnCheckedChangeListener((button,checked)->{preferences.edit().putBoolean(masterKey(group.key),checked).apply();changed();selectGroup(-1);});bottom.addView(master);box.addView(bottom,matchWrap());
-                box.setContentDescription("打开"+group.title);box.setOnClickListener(v->selectGroup(target));
-                LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-2,1);if(i>rowIndex)params.leftMargin=dp(12);line.addView(box,params);
+        tabs.addView(text("功能总览",17,INK,true),new LinearLayout.LayoutParams(0,-2,1));
+        TextView status=text(count+" / "+groups.length+" 已开启",10,ACCENT,true);status.setPadding(dp(10),dp(6),dp(10),dp(6));
+        status.setBackground(rounded(0xffe9edff,10,false));tabs.addView(status);
+        String[] names={"实时网速","蜂窝信号","Wi-Fi 图标","网络制式","时间格式","运营商文字","字体","电池","磁贴翻页","磁贴调色"};
+        String[] details={"数字、单位、位置与间距","真实信号、单排与角标隐藏","图标位置、大小与箭头隐藏","统一 5G / 4G / 3G","日期、星期与上午下午","通知页、控制中心与锁屏","系统、苹方或自选字体","PUI 外观与充电切换","原生滑动与边缘渐隐","全局填充与原有玻璃高光"};
+        addOverviewSection("状态栏",0,8,names,details);
+        addOverviewSection("下拉面板",8,10,names,details);
+        addConfigTransfer(editor);addUpdates(editor);addDiagnostics(editor);
+        TextView footer=text("GPLv3 · aiingjie",10,MUTED,false);footer.setGravity(Gravity.CENTER);footer.setPadding(0,dp(22),0,dp(8));editor.addView(footer,matchWrap());
+    }
+    private void addOverviewSection(String title,int start,int end,String[] names,String[] details) {
+        addSection(editor,title);boolean wide=getResources().getConfiguration().screenWidthDp>=600;
+        if(wide) {
+            for(int i=start;i<end;i+=2) {
+                LinearLayout pair=row();
+                for(int j=i;j<Math.min(i+2,end);j++) {
+                    LinearLayout.LayoutParams cell=new LinearLayout.LayoutParams(0,-2,1);if(j>i)cell.leftMargin=dp(10);
+                    pair.addView(overviewItem(j,names[j],details[j]),cell);
+                }
+                LinearLayout.LayoutParams p=matchWrap();p.topMargin=dp(8);editor.addView(pair,p);
             }
-            LinearLayout.LayoutParams params=matchWrap();if(rowIndex>0)params.topMargin=dp(12);editor.addView(line,params);
+        } else {
+            LinearLayout section=column();section.setBackground(rounded(CARD,20,true));
+            for(int i=start;i<end;i++) {
+                if(i>start) { View divider=new View(this);divider.setBackgroundColor(0xffedf0f6);LinearLayout.LayoutParams line=new LinearLayout.LayoutParams(-1,dp(1));line.leftMargin=dp(67);line.rightMargin=dp(14);section.addView(divider,line); }
+                section.addView(overviewItem(i,names[i],details[i]),matchWrap());
+            }
+            LinearLayout.LayoutParams p=matchWrap();p.topMargin=dp(5);editor.addView(section,p);
         }
-        addHint(editor,"每项可独立启停。进入项目设置位置、大小、颜色及其他功能；颜色支持 HSB 调色盘。");
-        addConfigTransfer(editor);
-        addUpdates(editor);
-        addDiagnostics(editor);
+    }
+    private LinearLayout overviewItem(int index,String title,String description) {
+        final Group group=groups[index];LinearLayout line=row();line.setPadding(dp(14),dp(12),dp(12),dp(12));line.setMinimumHeight(dp(78));
+        UiGlyph icon=new UiGlyph(this,group.key,ACCENT);icon.setPadding(dp(8),dp(8),dp(8),dp(8));icon.setBackground(rounded(0xffeef1ff,12,false));
+        line.addView(icon,new LinearLayout.LayoutParams(dp(40),dp(40)));
+        LinearLayout copy=column();copy.setPadding(dp(12),0,dp(8),0);copy.addView(text(title,14,INK,true));
+        TextView detail=text(description,10,MUTED,false);detail.setPadding(0,dp(4),0,0);copy.addView(detail,matchWrap());line.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
+        Switch master=styledSwitch(enabled(masterKey(group.key)));master.setContentDescription(group.title+" 总开关");
+        master.setOnCheckedChangeListener((button,checked)->{preferences.edit().putBoolean(masterKey(group.key),checked).apply();changed();selectGroup(-1);});line.addView(master);
+        TextView arrow=text("›",22,0xff9ba7bc,false);arrow.setPadding(dp(7),0,0,0);arrow.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);line.addView(arrow);
+        line.setContentDescription("打开"+group.title);pressable(line,rounded(CARD,18,false));line.setOnClickListener(v->selectGroup(index));return line;
     }
     private String appVersion() {
         try { return getPackageManager().getPackageInfo(getPackageName(),0).versionName; }
-        catch(android.content.pm.PackageManager.NameNotFoundException unavailable) { return "1.14.0"; }
+        catch(android.content.pm.PackageManager.NameNotFoundException unavailable) { return "1.14.1"; }
     }
     private void addQsAppearance(LinearLayout card) {
         addHint(card,"统一应用于 Wi-Fi、数据和其他活动磁贴，以及亮度、音量滑条的已填充部分。");
         LinearLayout scenes=row();scenes.setPadding(0,dp(8),0,dp(12));
         for(String scene:new String[]{"light","dark"}) {
             boolean active=scene.equals(qsScene);TextView choice=text(scene.equals("dark")?"深色主题":"浅色主题",13,active?Color.WHITE:ACCENT,true);
-            choice.setGravity(Gravity.CENTER);choice.setPadding(dp(12),dp(13),dp(12),dp(13));choice.setBackground(rounded(active?ACCENT:0xffedf0fa,12,false));
+            choice.setGravity(Gravity.CENTER);choice.setPadding(dp(12),dp(13),dp(12),dp(13));pressable(choice,rounded(active?ACCENT:0xfff0f2f8,12,false));choice.setSelected(active);
             choice.setContentDescription("编辑"+choice.getText());choice.setOnClickListener(v->{qsScene=scene;selectGroup(selected);});
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);if(scene.equals("dark"))p.leftMargin=dp(8);scenes.addView(choice,p);
         }
@@ -288,7 +321,7 @@ public final class MainActivity extends Activity {
                 canvas.drawOval(circle,paint);canvas.drawRoundRect(fill,dp(12),dp(12),paint);paint.setShader(null);
             }
         };
-        preview.setContentDescription((dark?"深色":"浅色")+"活动填充预览");card.addView(preview,new LinearLayout.LayoutParams(-1,dp(88)));
+        preview.setContentDescription((dark?"深色":"浅色")+"活动填充预览");card.addView(preview,new LinearLayout.LayoutParams(-1,dp(104)));
         addHint(card,"效果示意 · 实际控件沿用系统材质。浅色与深色设置随系统主题自动切换。");
         addSection(card,"活动填充颜色");LinearLayout colors=row();addColor(colors,prefix+"_color","填充颜色",false);addColor(colors,prefix+"_gradient_color","渐变终点",true);card.addView(colors,matchWrap());
         addToggle(card,prefix+"_gradient_enabled","启用渐变");
@@ -298,7 +331,7 @@ public final class MainActivity extends Activity {
     private void addToggle(LinearLayout parent,String key,String label) {
         LinearLayout line=row();line.setPadding(0,dp(8),0,dp(4));line.setMinimumHeight(dp(44));
         line.addView(text(label,12,INK,false),new LinearLayout.LayoutParams(0,-2,1));
-        Switch toggle=new Switch(this);toggle.setChecked(enabled(key));toggle.setContentDescription((key.contains("_dark_")?"深色主题":key.contains("_light_")?"浅色主题":"")+label+"开关");
+        Switch toggle=styledSwitch(enabled(key));toggle.setContentDescription((key.contains("_dark_")?"深色主题":key.contains("_light_")?"浅色主题":"")+label+"开关");
         toggle.setOnCheckedChangeListener((button,checked)->{preferences.edit().putBoolean(key,checked).apply();changed();selectGroup(selected);});line.addView(toggle);parent.addView(line,matchWrap());
     }
     private void addConfigTransfer(LinearLayout parent) {
@@ -320,13 +353,14 @@ public final class MainActivity extends Activity {
         updateSummary=text(checkingUpdates?"正在检查 GitHub 发布版本…":getSharedPreferences("github_update",MODE_PRIVATE).getString("last_message","启动时每天检查一次，也可以手动检查。"),11,MUTED,false);
         updateSummary.setPadding(0,dp(6),0,dp(5));box.addView(updateSummary,matchWrap());
         addAction(box,"检查更新","SANWU5 / c17-statusbar",()->checkUpdates(true));
-        addAction(box,"打开 GitHub 项目","查看源码与正式发布版本",()->openUpdateUrl(GitHubUpdates.REPO_URL));parent.addView(box,matchWrap());
+        addAction(box,"打开 GitHub 项目","查看源码与正式发布版本",()->openUpdateUrl(GitHubUpdates.REPO_URL));
+        addAction(box,"开源许可证","GNU GPLv3",()->showLicense());parent.addView(box,matchWrap());
     }
     private void addDiagnostics(LinearLayout parent) {
         addSection(parent,"维护与日志");
         LinearLayout card=column();card.setPadding(dp(13),dp(12),dp(13),dp(12));card.setBackground(rounded(CARD,18,true));
         LinearLayout line=row();line.addView(text("记录诊断日志",14,INK,true),new LinearLayout.LayoutParams(0,-2,1));
-        Switch toggle=new Switch(this);toggle.setChecked(enabled(StatusBarSettings.DIAGNOSTICS_ENABLED));toggle.setContentDescription("诊断日志开关");
+        Switch toggle=styledSwitch(enabled(StatusBarSettings.DIAGNOSTICS_ENABLED));toggle.setContentDescription("诊断日志开关");
         toggle.setOnCheckedChangeListener((button,checked)->{
             preferences.edit().putBoolean(StatusBarSettings.DIAGNOSTICS_ENABLED,checked).apply();changed();
             ModuleDiagnostics.app(this,"app","Diagnostics enabled; module version="+appVersion());
@@ -342,6 +376,18 @@ public final class MainActivity extends Activity {
                     Toast.makeText(this,"清空失败，请稍后重试",Toast.LENGTH_LONG).show(); }
             }).show());
         parent.addView(card,matchWrap());
+    }
+    private void showLicense() {
+        try(java.io.InputStream input=getAssets().open("licenses/GPL-3.0.txt")) {
+            java.io.InputStreamReader reader=new java.io.InputStreamReader(input,java.nio.charset.StandardCharsets.UTF_8);
+            StringBuilder content=new StringBuilder();char[] buffer=new char[4096];int count;
+            while((count=reader.read(buffer))!=-1)content.append(buffer,0,count);
+            TextView license=text("Copyright (C) 2026 aiingjie\nGPL-3.0-only\n\n"+content,12,INK,false);
+            license.setTextIsSelectable(true);license.setPadding(dp(20),dp(12),dp(20),dp(12));
+            ScrollView scroll=new ScrollView(this);scroll.addView(license,matchWrap());
+            new AlertDialog.Builder(this).setTitle("GNU GPLv3").setView(scroll).setNegativeButton("关闭",null)
+                .setPositiveButton("查看源码",(dialog,which)->openUpdateUrl(GitHubUpdates.REPO_URL)).show();
+        } catch(java.io.IOException unavailable) {openUpdateUrl(GitHubUpdates.REPO_URL+"/blob/main/LICENSE");}
     }
     private void showDiagnostics() {
         new Thread(()->{
@@ -412,12 +458,15 @@ public final class MainActivity extends Activity {
     }
     private void addFeaturePanel(LinearLayout card,Group group) {
         String[][] keys=featureKeys(group.key);if(keys.length==0)return;
-        LinearLayout panel=column();panel.setPadding(dp(10),dp(5),dp(10),dp(8));panel.setBackground(rounded(0xfff5f7fd,12,false));panel.setVisibility(View.GONE);
-        addAction(card,"独立功能开关  ⌄",keys.length+" 个开关 · 点击展开",()->panel.setVisibility(panel.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE));
+        LinearLayout panel=column();panel.setPadding(dp(12),dp(6),dp(12),dp(8));panel.setBackground(rounded(0xfff5f7fc,14,false));panel.setVisibility(expandedFeatures.contains(group.key)?View.VISIBLE:View.GONE);
+        addAction(card,"独立功能开关",keys.length+" 项 · 点击展开或收起",()->{
+            boolean show=panel.getVisibility()!=View.VISIBLE;panel.setVisibility(show?View.VISIBLE:View.GONE);
+            if(show)expandedFeatures.add(group.key);else expandedFeatures.remove(group.key);
+        });
         for(String[] key:keys) {
             LinearLayout line=row();line.setPadding(0,dp(4),0,dp(4));line.setMinimumHeight(dp(46));line.addView(text(key[1],12,INK,false),new LinearLayout.LayoutParams(0,-2,1));
-            Switch toggle=new Switch(this);toggle.setChecked(enabled(key[0]));toggle.setContentDescription(key[1]+"开关");
-            toggle.setOnCheckedChangeListener((button,checked)->{preferences.edit().putBoolean(key[0],checked).apply();changed();});line.addView(toggle);panel.addView(line,matchWrap());
+            Switch toggle=styledSwitch(enabled(key[0]));toggle.setContentDescription(key[1]+"开关");
+            toggle.setOnCheckedChangeListener((button,checked)->{preferences.edit().putBoolean(key[0],checked).apply();changed();if(key[0].equals("tiles_blur_enabled"))selectGroup(selected);});line.addView(toggle);panel.addView(line,matchWrap());
         }
         LinearLayout.LayoutParams params=matchWrap();params.topMargin=dp(6);card.addView(panel,params);
     }
@@ -435,7 +484,7 @@ public final class MainActivity extends Activity {
         for(int i=0;i<values.length;i++) {
             final String panel=values[i];boolean active=panel.equals(carrierPanel);TextView choice=text(labels[i],12,active?Color.WHITE:ACCENT,true);
             choice.setContentDescription("编辑"+labels[i]+"运营商");choice.setGravity(Gravity.CENTER);choice.setPadding(dp(8),dp(13),dp(8),dp(13));
-            choice.setBackground(rounded(active?ACCENT:0xffedf3ff,10,false));choice.setOnClickListener(v->{carrierPanel=panel;selectGroup(selected);pageScroll.post(()->pageScroll.scrollTo(0,0));});
+            pressable(choice,rounded(active?ACCENT:0xfff0f2f8,12,false));choice.setSelected(active);choice.setOnClickListener(v->{carrierPanel=panel;selectGroup(selected);pageScroll.post(()->pageScroll.scrollTo(0,0));});
             LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-2,1);if(i>0)params.leftMargin=dp(6);panels.addView(choice,params);
         }
         card.addView(panels,matchWrap());Group group=carrierGroup();LinearLayout line=row();line.setPadding(0,dp(12),0,dp(4));
@@ -451,7 +500,7 @@ public final class MainActivity extends Activity {
         addColor(colors,CarrierPanels.key(group.key,"color_light"),"浅色背景",false);addColor(colors,CarrierPanels.key(group.key,"color_dark"),"深色背景",true);card.addView(colors,matchWrap());
         addHint(card,"颜色与透明度只作用于此界面，按原生文字颜色自动切换。");addReset(group);
     }
-    private void addSection(LinearLayout card,String title) { TextView label=text(title,13,INK,true);label.setPadding(0,dp(18),0,dp(3));card.addView(label,matchWrap()); }
+    private void addSection(LinearLayout card,String title) { TextView label=text(title,12,MUTED,true);label.setPadding(dp(3),dp(21),0,dp(9));card.addView(label,matchWrap()); }
     private void addSettings(LinearLayout card,Group group) {
         String previous="";
         for(Setting setting:group.settings) {
@@ -461,7 +510,7 @@ public final class MainActivity extends Activity {
     }
     private void addReset(Group group) { addAction(editor,"恢复本组默认值","恢复开关及本组显示参数",()->new AlertDialog.Builder(this).setTitle("恢复"+group.title).setMessage("重置本组设置。").setNegativeButton("取消",null).setPositiveButton("恢复",(dialog,which)->resetGroup(group)).show()); }
     private void addHint(LinearLayout parent,String value) {
-        TextView hint=text(value,11,MUTED,false);hint.setPadding(0,dp(6),0,dp(8));parent.addView(hint,matchWrap());
+        TextView hint=text(value,11,MUTED,false);hint.setLineSpacing(dp(2),1f);hint.setPadding(0,dp(9),0,dp(8));parent.addView(hint,matchWrap());
     }
     private void addBatteryColors(LinearLayout card,String item,String title) {
         TextView heading=text(title,14,INK,true);heading.setPadding(0,dp(14),0,dp(8));card.addView(heading,matchWrap());
@@ -470,16 +519,20 @@ public final class MainActivity extends Activity {
         addColor(choices,item+"_color_dark",label+" · 深色背景",true);card.addView(choices,matchWrap());
     }
     private void addAction(LinearLayout parent,String title,String detail,Runnable action) {
-        LinearLayout box=column();box.setPadding(dp(12),dp(12),dp(12),dp(12));box.setBackground(rounded(0xffedf3ff,12,false));
-        box.addView(text(title,13,ACCENT,true));if(!detail.isEmpty())box.addView(text(detail,11,MUTED,false));
-        box.setOnClickListener(v->action.run());LinearLayout.LayoutParams params=matchWrap();params.topMargin=dp(8);parent.addView(box,params);
+        LinearLayout box=row();box.setPadding(dp(13),dp(13),dp(12),dp(13));box.setMinimumHeight(dp(58));
+        LinearLayout copy=column();copy.addView(text(title,13,INK,true));
+        if(!detail.isEmpty()) { TextView subtitle=text(detail,11,MUTED,false);subtitle.setPadding(0,dp(5),dp(5),0);copy.addView(subtitle,matchWrap()); }
+        box.addView(copy,new LinearLayout.LayoutParams(0,-2,1));
+        TextView arrow=text("›",22,0xff9ba7bc,false);arrow.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);box.addView(arrow);
+        pressable(box,rounded(0xfff5f7fc,13,false));box.setContentDescription(title+(detail.isEmpty()?"":"，"+detail));box.setOnClickListener(v->action.run());
+        LinearLayout.LayoutParams params=matchWrap();params.topMargin=dp(8);parent.addView(box,params);
     }
     private void addChoice(LinearLayout card,String key,String[] values,String[] labels) {
         LinearLayout choices=row();String stored=string(key);
         for(int i=0;i<values.length;i++) {
             final String value=values[i];TextView choice=text(labels[i],11,value.equals(stored)?Color.WHITE:ACCENT,true);
             choice.setGravity(Gravity.CENTER);choice.setPadding(dp(6),dp(12),dp(6),dp(12));choice.setMinHeight(dp(44));
-            choice.setBackground(rounded(value.equals(stored)?ACCENT:0xffedf3ff,10,false));
+            pressable(choice,rounded(value.equals(stored)?ACCENT:0xfff0f2f8,12,false));choice.setSelected(value.equals(stored));
             choice.setOnClickListener(v->{
                 if(key.equals(StatusBarSettings.FONT_MODE)&&value.equals("custom")&&string(StatusBarSettings.FONT_REVISION).isEmpty()) { pickFont();return; }
                 preferences.edit().putString(key,value).apply();changed();selectGroup(selected);
@@ -492,7 +545,7 @@ public final class MainActivity extends Activity {
         addChoice(card,StatusBarSettings.FONT_MODE,new String[]{"system","pingfang","custom"},new String[]{"跟随系统","苹方","自选字体"});
         addHint(card,"内置苹方仅保留数字、英文、标点和时间常用中文字，粗细 100–900；其余字符由系统补齐。自选字体的真实字重范围取决于文件。");
         addAction(card,importing?"正在导入字体…":"导入 TTF / OTF / TTC",string(StatusBarSettings.FONT_NAME),()->{if(!importing)pickFont();});
-        sample=text("09月29日 周二 下午 5G KB/s",20,INK,false);sample.setPadding(0,dp(20),0,dp(8));card.addView(sample,matchWrap());
+        sample=text("09:41  周三  5G  KB/s",20,INK,false);sample.setPadding(0,dp(20),0,dp(8));card.addView(sample,matchWrap());
         addHint(card,"字体文件复制到模块内部，原文件移动后仍可使用。");updateSample();
     }
     private void addFormat(LinearLayout card,String key) {
@@ -501,7 +554,7 @@ public final class MainActivity extends Activity {
     }
     private void addSample(LinearLayout card) {
         TextView label=text("当前内容预览",10,MUTED,false);label.setPadding(0,dp(12),0,dp(4));card.addView(label,matchWrap());
-        sample=text("",18,INK,false);sample.setPadding(dp(10),dp(10),dp(10),dp(10));sample.setBackground(rounded(BG,10,false));card.addView(sample,matchWrap());
+        sample=text("",18,INK,false);sample.setPadding(dp(10),dp(10),dp(10),dp(10));sample.setBackground(rounded(BG,14,false));card.addView(sample,matchWrap());
     }
     private void chooseFormat(String key) {
         String[] patterns={"HH:mm","HH:mm:ss","{上午下午} hh:mm","{时段} HH:mm","M月d日 {周} HH:mm","yyyy年MM月dd日 {星期} HH:mm","MM/dd HH:mm"};
@@ -652,16 +705,18 @@ public final class MainActivity extends Activity {
         handler.postDelayed(previewTick,TimeFormat.nextDelay(System.currentTimeMillis(),TimeFormat.hasSeconds(pattern)));
     }
     private void addSlider(LinearLayout card, Setting setting) {
+        LinearLayout box=column();box.setPadding(dp(10),dp(10),dp(10),dp(6));box.setBackground(rounded(0xfff7f8fc,14,false));
+        LinearLayout.LayoutParams boxParams=matchWrap();boxParams.topMargin=dp(8);card.addView(box,boxParams);
         LinearLayout labels = row();
-        labels.setPadding(0, dp(10), 0, 0);
+        labels.setPadding(dp(2),0,0,dp(4));
         labels.addView(text(setting.title, 13, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
         TextView value = text("", 12, ACCENT, true);
         value.setGravity(Gravity.CENTER);
-        value.setMinWidth(dp(95));
+        value.setMinWidth(dp(92));value.setMaxWidth(dp(156));value.setMinHeight(dp(44));
         value.setPadding(dp(8), dp(7), dp(8), dp(7));
-        value.setBackground(rounded(0xffedf3ff, 10, false));
+        pressable(value,rounded(0xffe9edff,10,false));
         labels.addView(value, new LinearLayout.LayoutParams(-2, -2));
-        card.addView(labels, matchWrap());
+        box.addView(labels,matchWrap());
         LinearLayout adjust = row();
         TextView minus = stepButton("−");
         TextView plus = stepButton("+");
@@ -671,10 +726,10 @@ public final class MainActivity extends Activity {
         bar.setThumbTintList(android.content.res.ColorStateList.valueOf(ACCENT));
         bar.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0xffdce3ef));
         bar.setContentDescription(groups[selected].title + " " + setting.title);
-        adjust.addView(minus, new LinearLayout.LayoutParams(dp(34), dp(36)));
-        adjust.addView(bar, new LinearLayout.LayoutParams(0, dp(36), 1));
-        adjust.addView(plus, new LinearLayout.LayoutParams(dp(34), dp(36)));
-        card.addView(adjust, matchWrap());
+        adjust.addView(minus,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        adjust.addView(bar,new LinearLayout.LayoutParams(0,dp(44),1));
+        adjust.addView(plus,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        box.addView(adjust,matchWrap());
         SliderControl control = new SliderControl(setting, bar, value);
         controls.add(control);
         control.set(StatusBarSettings.settingNumber(preferences.getAll(), setting.key, setting.fallback()), false);
@@ -755,26 +810,16 @@ public final class MainActivity extends Activity {
         });confirm.show();
     }
 
-    private void addColor(LinearLayout parent, String key, String title, boolean margin) {
-        int color = color(key);
-        LinearLayout box = column();
-        box.setPadding(dp(10), dp(9), dp(10), dp(9));
-        box.setBackground(rounded(margin ? 0xff202936 : 0xfff4f6fa, 12, false));
-        box.addView(text(title, 11, margin ? 0xffc5cede : MUTED, false));
-        LinearLayout colorValue = row();
-        colorValue.setPadding(0, dp(6), 0, 0);
-        View swatch = new View(this);
-        swatch.setBackground(rounded(color, 5, true));
-        colorValue.addView(swatch, new LinearLayout.LayoutParams(dp(18), dp(18)));
-        TextView value = text(colorHex(key), 11, margin ? Color.WHITE : INK, true);
-        value.setPadding(dp(6), 0, 0, 0);
-        colorValue.addView(value);
-        box.addView(colorValue);
-        box.setContentDescription(title + "颜色，点击输入");
-        box.setOnClickListener(v -> editColor(key, title));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1);
-        if (margin) params.leftMargin = dp(8);
-        parent.addView(box, params);
+    private void addColor(LinearLayout parent,String key,String title,boolean margin) {
+        LinearLayout box=column();box.setPadding(dp(12),dp(12),dp(12),dp(12));box.setMinimumHeight(dp(82));
+        box.addView(text(title,11,MUTED,false),matchWrap());
+        LinearLayout valueRow=row();valueRow.setPadding(0,dp(10),0,0);
+        View swatch=new View(this);GradientDrawable swatchBackground=rounded(color(key),7,true);swatch.setBackground(swatchBackground);
+        valueRow.addView(swatch,new LinearLayout.LayoutParams(dp(26),dp(26)));
+        TextView code=text(colorHex(key),11,INK,true);code.setTypeface(Typeface.MONOSPACE);code.setPadding(dp(8),0,0,0);
+        valueRow.addView(code,new LinearLayout.LayoutParams(0,-2,1));box.addView(valueRow,matchWrap());
+        box.setContentDescription(title+"颜色，点击输入");pressable(box,rounded(0xfff5f7fc,14,true));box.setOnClickListener(v->editColor(key,title));
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-2,1);if(margin)params.leftMargin=dp(8);parent.addView(box,params);
     }
 
     private void editColor(String key, String title) {
@@ -830,13 +875,13 @@ public final class MainActivity extends Activity {
         return StatusBarSettings.customAlpha(preferences.getAll(),key)?String.format(Locale.ROOT,"#%08X",color(key)):hex(color(key));
     }
     private String hex(int color) { return Color.alpha(color)==255?String.format(Locale.ROOT,"#%06X",color&0xffffff):String.format(Locale.ROOT,"#%08X",color); }
-    private EditText input() { EditText input = new EditText(this); input.setTextSize(18); input.setSingleLine(true); return input; }
+    private EditText input() { EditText input=new EditText(this);input.setTextSize(17);input.setTextColor(INK);input.setHintTextColor(MUTED);input.setSingleLine(true);input.setPadding(dp(12),dp(12),dp(12),dp(12));input.setBackground(rounded(0xfff2f4fa,12,true));return input; }
     private TextView stepButton(String label) {
         TextView button = text(label, 21, ACCENT, true);
-        button.setGravity(Gravity.CENTER); return button;
+        button.setGravity(Gravity.CENTER);pressable(button,rounded(0xffedf0fa,10,false));return button;
     }
     private TextView text(String value, int sp, int color, boolean medium) {
-        TextView view = new TextView(this); view.setText(value); view.setTextSize(sp); view.setTextColor(color);
+        TextView view = new TextView(this); view.setText(value); view.setTextSize(sp); view.setTextColor(color);view.setIncludeFontPadding(false);view.setLineSpacing(dp(2),1f);
         if (medium) view.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); return view;
     }
     private LinearLayout column() { LinearLayout v = new LinearLayout(this); v.setOrientation(LinearLayout.VERTICAL); return v; }
@@ -844,7 +889,16 @@ public final class MainActivity extends Activity {
     private LinearLayout.LayoutParams matchWrap() { return new LinearLayout.LayoutParams(-1, -2); }
     private GradientDrawable rounded(int color, int radius, boolean border) {
         GradientDrawable drawable = new GradientDrawable(); drawable.setColor(color); drawable.setCornerRadius(dp(radius));
-        if (border) drawable.setStroke(dp(1), 0xffe1e6ef); return drawable;
+        if (border) drawable.setStroke(dp(1), 0xffe5e9f2); return drawable;
+    }
+    private void pressable(View view,GradientDrawable background) {
+        view.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x184564ed),background,null));
+    }
+    private Switch styledSwitch(boolean checked) {
+        Switch toggle=new Switch(this);toggle.setMinHeight(dp(44));toggle.setMinimumWidth(dp(48));toggle.setChecked(checked);
+        int[][] states={{android.R.attr.state_checked},{}};
+        toggle.setThumbTintList(new android.content.res.ColorStateList(states,new int[]{ACCENT,0xffa8b3c7}));
+        toggle.setTrackTintList(new android.content.res.ColorStateList(states,new int[]{0xffc6d1fc,0xffe4e9f1}));return toggle;
     }
     private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 }

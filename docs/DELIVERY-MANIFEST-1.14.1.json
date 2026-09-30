@@ -1,139 +1,51 @@
 {
-  "version": "1.14.0",
-  "versionCode": 28,
+  "version": "1.14.1",
+  "versionCode": 29,
   "date": "2026-09-30",
+  "scope": "UI-only update",
   "apk": {
-    "name": "更好的C17状态栏-1.14.0.apk",
-    "bytes": 349281,
-    "sha256": "219ca55278345bc7e62bdcc7339b025f2ee9bd0866b7959603f6adc611766589"
+    "name": "c17-statusbar-1.14.1.apk",
+    "bytes": 369834,
+    "sha256": "2ddd96cdfc2eccd056ca2fbf043c8c939c763789a0f71a165f2a81823a20b71e"
+  },
+  "build": {
+    "version": "1.14.1",
+    "resource_compile_link": true,
+    "java_compile": true,
+    "dex_compile": true,
+    "source_compile": true,
+    "signature": true,
+    "alignment": true,
+    "checks_run": false,
+    "device_tested": false
+  },
+  "compileLogs": {
+    "source-v24-final.log": {
+      "sha256": "69eeabdb5d39dbb90a93e4e744c62844bd9688ce491102e5c3927fb80773fcea",
+      "bytes": 791
+    },
+    "build-v24-final.log": {
+      "sha256": "2c8c8ced803366ae04f79bcf48e43f5eca814279d1b57aacc7573d0f413e3d76",
+      "bytes": 1381
+    }
   },
   "checks": {
-    "logSha256": "4c8bad0eee0f1d6a7febc38b4c1dd551ea8196d1b4a045140fd87752b0cbb9b4",
-    "suites": 27,
-    "assertions": 48636,
-    "entries": [
-      {
-        "name": "SettingsCheck",
-        "assertions": 83
-      },
-      {
-        "name": "AppearanceCheck",
-        "assertions": 56
-      },
-      {
-        "name": "SceneAppearanceCheck",
-        "assertions": 41
-      },
-      {
-        "name": "LayoutCheck",
-        "assertions": 6
-      },
-      {
-        "name": "TimeSignalCheck",
-        "assertions": 182
-      },
-      {
-        "name": "TextControlsCheck",
-        "assertions": 33
-      },
-      {
-        "name": "ChargeCycleCheck",
-        "assertions": 2223
-      },
-      {
-        "name": "BatteryControlsCheck",
-        "assertions": 103
-      },
-      {
-        "name": "BatteryAppearanceCheck",
-        "assertions": 109
-      },
-      {
-        "name": "NetworkOverflowCheck",
-        "assertions": 23
-      },
-      {
-        "name": "HsbColorCheck",
-        "assertions": 30050
-      },
-      {
-        "name": "FeatureOptionsCheck",
-        "assertions": 6575
-      },
-      {
-        "name": "NetworkBadgeCheck",
-        "assertions": 434
-      },
-      {
-        "name": "CarrierPanelsCheck",
-        "assertions": 247
-      },
-      {
-        "name": "OverflowControlsCheck",
-        "assertions": 49
-      },
-      {
-        "name": "DrawableSwitchCheck",
-        "assertions": 22
-      },
-      {
-        "name": "RadioStateCheck",
-        "assertions": 131
-      },
-      {
-        "name": "NativeDataSourceCheck",
-        "assertions": 26
-      },
-      {
-        "name": "PuiBatteryStyleCheck",
-        "assertions": 31
-      },
-      {
-        "name": "CarrierPanelSettingsCheck",
-        "assertions": 244
-      },
-      {
-        "name": "NumericPolicyCheck",
-        "assertions": 194
-      },
-      {
-        "name": "GitHubUpdatesCheck",
-        "assertions": 187
-      },
-      {
-        "name": "NumericInputCheck",
-        "assertions": 53
-      },
-      {
-        "name": "TilePageEffectsCheck",
-        "assertions": 6618
-      },
-      {
-        "name": "ModuleDiagnosticsCheck",
-        "assertions": 120
-      },
-      {
-        "name": "QsTileAppearanceCheck",
-        "assertions": 309
-      },
-      {
-        "name": "ConfigTransferCheck",
-        "assertions": 487
-      }
-    ]
+    "run": false
+  },
+  "device": {
+    "tested": false
   },
   "github": {
-    "repo": "SANWU5/c17-statusbar",
-    "releaseTag": "v1.14.0",
-    "releaseUrl": "https://github.com/SANWU5/c17-statusbar/releases/tag/v1.14.0",
-    "recordedLatest": "v1.12.2"
-  },
-  "jsonTestRuntime": {
-    "path": "validation/test-libs/json-20240303.jar",
-    "sha256": "3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed",
-    "includedInApk": false
+    "repository": "SANWU5/c17-statusbar",
+    "tag": "v1.14.1",
+    "releaseUrl": "https://github.com/SANWU5/c17-statusbar/releases/tag/v1.14.1"
   },
   "files": [
+    {
+      "path": "COPYRIGHT.md",
+      "bytes": 894,
+      "sha256": "8e76154b17bac70701488dce78fb67e889c45a68127fc2984e788d7184c13877"
+    },
     {
       "path": "FONT.md",
       "bytes": 1118,
@@ -141,43 +53,43 @@
     },
     {
       "path": "LICENSE",
-      "bytes": 1066,
-      "sha256": "0560ef552d366a3851d7e86c0ee4252ae28219dec0d716782f2040b1e85323d7"
+      "bytes": 35149,
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
     },
     {
-      "path": "README-1.14.0.md",
-      "bytes": 5826,
-      "sha256": "88a96312caca503f3a4f978a9d61ec7f47c609926cf6dfb60adcef0edc9bbb0c"
+      "path": "README-1.14.1.md",
+      "bytes": 3113,
+      "sha256": "d65ccf85b5ea7224859aa8095a7cb74f9227f3a01b76df256a5c054588abfeeb"
     },
     {
       "path": "README.en.md",
-      "bytes": 6137,
-      "sha256": "a1095b546c34be67be481a98bf022c5ea262c573c184cb7ea6bada7951d403f6"
+      "bytes": 3500,
+      "sha256": "dd47ecba9da79c17b12486b8699fdde8f03a28e2dab31a76cfd05955f22ca64f"
     },
     {
       "path": "README.md",
-      "bytes": 5826,
-      "sha256": "88a96312caca503f3a4f978a9d61ec7f47c609926cf6dfb60adcef0edc9bbb0c"
+      "bytes": 3113,
+      "sha256": "d65ccf85b5ea7224859aa8095a7cb74f9227f3a01b76df256a5c054588abfeeb"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
-      "bytes": 807,
-      "sha256": "b417989dafeb9ffd2bd3b21e0438db728a9ea89014ea68a03723e5548bbc56cc"
+      "bytes": 1437,
+      "sha256": "693e98abc6fc7523c1e8c1d0df734ad48777cb8ee7b0b66d4dfb0aba5754183e"
     },
     {
       "path": "VALIDATION.md",
-      "bytes": 9890,
-      "sha256": "fd2a0b5aea5993d5b47d8d4573f8fc86f8328721429aa827a525e791a3612cb9"
+      "bytes": 1451,
+      "sha256": "02a864d3bb069eb278296659838eaa505fa86105cd1cf2a5403389b9201c55a8"
     },
     {
       "path": "app/build.gradle",
       "bytes": 587,
-      "sha256": "cfbd2d7662ee527670948b0071af3d89b2e7cf28c785fafb4cc2c9f3bf84eaea"
+      "sha256": "95e0165f722e91e46978513a3b33d13c23d71beb4f6fc70bde8d92f6b8a97676"
     },
     {
       "path": "app/src/main/AndroidManifest.xml",
       "bytes": 1552,
-      "sha256": "8f5f3dc386a88ac73eca35ec77294f3d274ddbe267ce64e5a4184be41e257a87"
+      "sha256": "0dd57593bd998314112a6a62c8cc263d4a8449850ad312b329e66f916dd15d5e"
     },
     {
       "path": "app/src/main/assets/fonts/PingFangSC-VF.ttf",
@@ -190,169 +102,179 @@
       "sha256": "c3e7fa997ea3ed55a598e78df455a869354ccc6bb99cf389e08187c3dda7792d"
     },
     {
+      "path": "app/src/main/assets/licenses/GPL-3.0.txt",
+      "bytes": 35149,
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    {
       "path": "app/src/main/java/dev/puitheme/BatteryAppearance.java",
-      "bytes": 8448,
-      "sha256": "db02f3f40e98d8f83934514b8b353140713c29aff662be4c8df49754ca665ab0"
+      "bytes": 8674,
+      "sha256": "fbe8f12ef967010421b669b03c89f83af1b2e451fec595c332a9b633e081468e"
     },
     {
       "path": "app/src/main/java/dev/puitheme/BatteryControls.java",
-      "bytes": 13727,
-      "sha256": "c64ee7e717b8de63544cbfafb10e2928c38e7fed9194a26ebf59229620cd201b"
+      "bytes": 14103,
+      "sha256": "52fd36c7503b675fb3b5e10cf936e0d4d4e3a9d003863dbd2aa09336c4b831a5"
     },
     {
       "path": "app/src/main/java/dev/puitheme/CarrierPanels.java",
-      "bytes": 1519,
-      "sha256": "04010d79b361e2ca1978699338d66869da5ebd4d82e77907aa18a71f6630e841"
+      "bytes": 1630,
+      "sha256": "277cf5da7e7f96c4c2c2cad5e35964c5e65f127d5ab918d7e77f70dcb27d8f78"
     },
     {
       "path": "app/src/main/java/dev/puitheme/ChargeBolt.java",
-      "bytes": 3323,
-      "sha256": "903d490475d9814dda9d2fb9cae66e85ae4718043b61fc02b8acffb76303549c"
+      "bytes": 3467,
+      "sha256": "aa7fc3a3d851082f4c2c9572e06c1b93ab1309cfd0b57461a4d49239665c5b30"
     },
     {
       "path": "app/src/main/java/dev/puitheme/ChargeCycle.java",
-      "bytes": 1787,
-      "sha256": "6a73a4c0e21e39982b073582e33b824997861a7546589767fa9751c56f27158f"
+      "bytes": 1912,
+      "sha256": "01265eb20c952bca88b62c1312da5d89cc880cc31b48ce0678c3d99e1316e2ec"
     },
     {
       "path": "app/src/main/java/dev/puitheme/ColorPickerDialog.java",
-      "bytes": 17792,
-      "sha256": "f6ee7d9a6b8e69c90068ae374ee5b0c23d9109800ce0e8a4b2e053e12e8ed3c6"
+      "bytes": 23220,
+      "sha256": "53aacd57615a19cd76636c407bad06e5e3993a149008486513d11fc34d24014f"
     },
     {
       "path": "app/src/main/java/dev/puitheme/ConfigTransfer.java",
-      "bytes": 22492,
-      "sha256": "c674c7193d854e1adf450b833c7644f194f81af1888447c650b69666d5a30d53"
+      "bytes": 22968,
+      "sha256": "b7db828d988642ca04e2ae5d1d18401820be12908bbf5ebac61f7008f0dca0d0"
     },
     {
       "path": "app/src/main/java/dev/puitheme/DiagnosticFileProvider.java",
-      "bytes": 2934,
-      "sha256": "ba58a98d6854193c930476d43b6c7a6f3ca930a0dced75a7dcf04e311a02cff8"
+      "bytes": 3065,
+      "sha256": "db86a87475351d4929048eae3dd59573e050373f1de35b7236088e4fd906ec3e"
     },
     {
       "path": "app/src/main/java/dev/puitheme/FeatureOptions.java",
-      "bytes": 5359,
-      "sha256": "67ccc40b98fb124459ffd7343d1877fb6c402c55caa4f75cc988f9efbd4fb404"
+      "bytes": 5532,
+      "sha256": "451980fdc80fe8e132a5aacb061f953204ce75eec4251a783a50e009fa738481"
     },
     {
       "path": "app/src/main/java/dev/puitheme/FontRepository.java",
-      "bytes": 6279,
-      "sha256": "0e8163c4da8348c61858a9e465a625b4361ff640dd0a11f6cea6b3332a7e0bef"
+      "bytes": 6464,
+      "sha256": "2ce9c641b1864975cfc6e95dc9b3dd4a24f79086b0198b3619e8d4d50bc807cb"
     },
     {
       "path": "app/src/main/java/dev/puitheme/GitHubUpdates.java",
-      "bytes": 13566,
-      "sha256": "c936184661277452f258a952edd085635835cfef26c74c3ea22d47b81083d1a2"
+      "bytes": 13903,
+      "sha256": "025125dc703f9fde3c7c97baf175c52254f6ed65e316496fed97440634674dcd"
     },
     {
       "path": "app/src/main/java/dev/puitheme/HsbColor.java",
-      "bytes": 3672,
-      "sha256": "d3e6f7121189e9591f3a4f679f154b0167ac48b618445af114ff6bd7192fcc4c"
+      "bytes": 3844,
+      "sha256": "36f145db7f8d0b13c9196f405d125a8c45841d2ee86d3e8658865dcaac1bb6ad"
     },
     {
       "path": "app/src/main/java/dev/puitheme/IconAppearance.java",
-      "bytes": 1731,
-      "sha256": "1a133c9853579ec9860f0d83a42f04420fae454d2c7679ed5849e2642334fbb2"
+      "bytes": 1840,
+      "sha256": "468effa9849c95152cba6286f5390cc1206931e1ca018b36e5ac309ea9b2cc63"
     },
     {
       "path": "app/src/main/java/dev/puitheme/MainActivity.java",
-      "bytes": 73266,
-      "sha256": "efb777381cce487beac4c5fd4a175d0811336843aedd6981420d62d8f2e416e1"
+      "bytes": 79371,
+      "sha256": "d83364e3dc08549fb8a8e400768e7cbe9ff618e3561c45f40fbeb8ac87294c4b"
     },
     {
       "path": "app/src/main/java/dev/puitheme/ModuleDiagnostics.java",
-      "bytes": 30813,
-      "sha256": "ecac79dd28809b9ef13e68baccbf84fc013a53801f3f60c94bda2e45a9c0daaa"
+      "bytes": 31454,
+      "sha256": "be19a0ba5de59ca8395bea89fa06c3f5e882983039d105444c20233b0f232cb5"
     },
     {
       "path": "app/src/main/java/dev/puitheme/NativeDataSource.java",
-      "bytes": 6020,
-      "sha256": "39ffaaf9a0ae28225a7db76765c93cfb2b42af8fcf06f946ff93ccea3cb9734d"
+      "bytes": 6212,
+      "sha256": "704c67c87362a6cfe48281502be5111cb3a1e45e618285673170311386e56d30"
     },
     {
       "path": "app/src/main/java/dev/puitheme/NetworkBadgeControls.java",
-      "bytes": 4275,
-      "sha256": "02d8a7350eef28d15122cadda55af1a26724ad306b293b27ae3735fc5e0bbd9e"
+      "bytes": 4448,
+      "sha256": "e0af5f8a2b25c31e36e62ec5be00128c8043b45a23ec06ef6a514d1b79f5cd8b"
     },
     {
       "path": "app/src/main/java/dev/puitheme/NetworkLabel.java",
-      "bytes": 1628,
-      "sha256": "510aa8bf1d359746ae2300e19df670ac7e534f92a76fd5ea819fad4bc371dd9f"
+      "bytes": 1723,
+      "sha256": "d42d2aa6da125359220cf05523eadd0d91f45ad600b0aad2bb86801de6cdbb0b"
     },
     {
       "path": "app/src/main/java/dev/puitheme/NumericInput.java",
-      "bytes": 1365,
-      "sha256": "2a72107675aefd5d1721fc7276b177cfd3945a137c4f64ef8279889d966fb02c"
+      "bytes": 1475,
+      "sha256": "7043f9ea068d7e25a222a7ac6a62fca2d3b203e146f9cfb7939d77ed53cc9df8"
     },
     {
       "path": "app/src/main/java/dev/puitheme/NumericPolicy.java",
-      "bytes": 4390,
-      "sha256": "40d659758482c287d87e96296d1eb9ef2a55b3eb2b42437766b9105ecf9b0f29"
+      "bytes": 4568,
+      "sha256": "ae2e0505269add50b20a00626d986d6153b5e846e6726010f3e5ac4be01f5346"
     },
     {
       "path": "app/src/main/java/dev/puitheme/OverflowControls.java",
-      "bytes": 5550,
-      "sha256": "63f20b379c1159056de9acb8100a2839d38d459e7a0c5240c582ff13bc0a979e"
+      "bytes": 5762,
+      "sha256": "1a840500135b9c989e183ef24a7c4f8eacd4da4dba91430f7f105dbec6086248"
     },
     {
       "path": "app/src/main/java/dev/puitheme/PuiBatteryStyle.java",
-      "bytes": 10395,
-      "sha256": "ab91e5203f0dffab7048455e38ad6f07b29264bb98b5e29de52738321aed4ac4"
+      "bytes": 10666,
+      "sha256": "842c1af0915ca70ced5a4e65c60dc8449e7b6e3b7d1a3a837f60c6c0b46d59b7"
     },
     {
       "path": "app/src/main/java/dev/puitheme/QsNativeGlassFill.java",
-      "bytes": 8613,
-      "sha256": "e44d1e50745834e0b21a452349f6ae77c51ed618a946b292cb3d8348c680cefb"
+      "bytes": 8794,
+      "sha256": "061ed6b7298acb19ded6445c7605833d683355bcda963a937f257b6914295262"
     },
     {
       "path": "app/src/main/java/dev/puitheme/QsTileAppearance.java",
-      "bytes": 23943,
-      "sha256": "564db5063eb10639ea7f2bbbe331cd8a7ef8ea604bcfeb8101f7a134e1b476b1"
+      "bytes": 24333,
+      "sha256": "06d10ebf06c5150afbb402a4e17176af2b9353d8eba57b78231067a1cdda18a1"
     },
     {
       "path": "app/src/main/java/dev/puitheme/RadioState.java",
-      "bytes": 1541,
-      "sha256": "9a6019ec3da8f5c86c8a3a5bf05641000d10d1f8d523f456e6037d38583ed14c"
+      "bytes": 1650,
+      "sha256": "949c40bc0f51fae4298bf6f5ba1f58813e81ff809a1244e670e85d5fde1c80b7"
     },
     {
       "path": "app/src/main/java/dev/puitheme/SettingsProvider.java",
-      "bytes": 4371,
-      "sha256": "e3830d8ffd73c76e6c8687ba1e9dccd982bafbf704f0534b57b6e1b67d80d035"
+      "bytes": 4483,
+      "sha256": "8ddbbe0cffac7e3000b8bd1ec8e0d9931eea992521cf0685c897559e93e6f952"
     },
     {
       "path": "app/src/main/java/dev/puitheme/SignalResources.java",
-      "bytes": 1242,
-      "sha256": "4fe0930e91a6d32bcd88e00b0f4b04e4b5f92605a19781c90bf1f2d2387e959b"
+      "bytes": 1341,
+      "sha256": "484a45d3b5f961b79c025f22727c9b383ca5c5dcc248d0c2f1dc9a9717534987"
     },
     {
       "path": "app/src/main/java/dev/puitheme/StatusBarModule.java",
-      "bytes": 136661,
-      "sha256": "bd6f8ff516ae2e6f7491ff5d7cda37df76586939298f7036657a93842e226a43"
+      "bytes": 136848,
+      "sha256": "bbea9e5cb2963e529943588a365cedb78c25ae73275e6944398da6f4a5d240da"
     },
     {
       "path": "app/src/main/java/dev/puitheme/StatusBarSettings.java",
-      "bytes": 14987,
-      "sha256": "748b0594dbf013f68e705e5d8cb592cef4ab7e75b72ffbbc681f5f8edbddbc74"
+      "bytes": 15301,
+      "sha256": "a7ba0765384895c3775aa640aec721cff97dc74f370929bae55d2dbb7ab3e316"
     },
     {
       "path": "app/src/main/java/dev/puitheme/TextControls.java",
-      "bytes": 26418,
-      "sha256": "7d7799465b254e6788ef89d1e9fba51389aa8f70fc4b49729fc09beb306d8751"
+      "bytes": 26996,
+      "sha256": "3884afb6579b76ab0b727f3559cde31975f892c7aaec744c8c99d990f8f63bc0"
     },
     {
       "path": "app/src/main/java/dev/puitheme/TilePageEffects.java",
-      "bytes": 34280,
-      "sha256": "67ef0fc9e8341a0bddacc2f0b918fca86cd3c888a5d60dd8238fe15b8aa9f2a2"
+      "bytes": 34921,
+      "sha256": "7b4d5083013abd5b47c6dfe80dfbb4cc5ba5bcac183c6ca477f327238a8ca7e0"
     },
     {
       "path": "app/src/main/java/dev/puitheme/TimeFormat.java",
-      "bytes": 4570,
-      "sha256": "e4bacc8b669b9cc43cd8538d971dec7bd573326414aa14092d36c321db1620fb"
+      "bytes": 4741,
+      "sha256": "529f5baa6ecfa77502acee7d9b25db349f9279fc496e8b388b82c24dee7596c7"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/UiGlyph.java",
+      "bytes": 3564,
+      "sha256": "c2b7a280bbc0209b4d78c8177d46ea36fdb4ccdda171aaeccc08dd28ae6d2d65"
     },
     {
       "path": "app/src/main/java/dev/puitheme/WifiPlacement.java",
-      "bytes": 1914,
-      "sha256": "f4b37887d7eeaed6c9bd841c35e8b20767e5bb5aaf618af91a013e5f9936c616"
+      "bytes": 2033,
+      "sha256": "56bbb33ae94257a1a2e62af07be4249452c48d0ebff59908115ee7ede69339a4"
     },
     {
       "path": "app/src/main/res/drawable/c17_pui_battery_bg.xml",
@@ -596,8 +518,8 @@
     },
     {
       "path": "app/src/main/res/values/styles.xml",
-      "bytes": 653,
-      "sha256": "2d4f5a958780c9f2acbc335fcb926aee1266001bca7a627e5cc88c0ca02c74c7"
+      "bytes": 659,
+      "sha256": "fa8005b102e36bf78ea26ded459c1eb1afd6c5e52cb32b5da20c32b680a6aa9e"
     },
     {
       "path": "app/src/main/resources/META-INF/xposed/java_init.list",
@@ -625,14 +547,14 @@
       "sha256": "3c2a1005de7a3e70f363b68f2e9cb197fb0799f9ad528f3501b947de326ad160"
     },
     {
-      "path": "docs/RELEASE-1.14.0.en.md",
-      "bytes": 3984,
-      "sha256": "460b03cc49e4133ff5f0d1cc18488666339ab3a75e7a5a67adfef695fed15f92"
+      "path": "docs/RELEASE-1.14.1.en.md",
+      "bytes": 1046,
+      "sha256": "28e328fee0c94c8efb78434e4c868db0b02aa7e72de4f3dca586ff3c5fa75035"
     },
     {
-      "path": "docs/RELEASE-1.14.0.zh-CN.md",
-      "bytes": 3578,
-      "sha256": "54908f8cc3bc40c26f8bf8224118ee3463cc5ff33e911513af84bfbacbfca728"
+      "path": "docs/RELEASE-1.14.1.zh-CN.md",
+      "bytes": 973,
+      "sha256": "1003ab315ea7e2cb228bd3d314a748c583856417a450f2bc3f679ead1b5ea542"
     },
     {
       "path": "settings.gradle",
@@ -641,8 +563,8 @@
     },
     {
       "path": "validation/README.md",
-      "bytes": 862,
-      "sha256": "e45a57c7eda94dbfa39aae8cfd7a892e69ed2f1de19f94d849f3dae335ce1bb1"
+      "bytes": 263,
+      "sha256": "cb682f8e3a111d36be62c65a529e490bd74a28a6060c70599c50f65c09f655a6"
     },
     {
       "path": "validation/SettingsCheck.java",

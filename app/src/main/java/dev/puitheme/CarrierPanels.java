@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 aiingjie
+
 package dev.puitheme;
 
 /** Stable setting prefixes for independently configured shade headers and the lock screen. */

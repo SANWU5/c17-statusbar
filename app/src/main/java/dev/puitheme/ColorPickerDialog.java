@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 aiingjie
+
 package dev.puitheme;
 
 import android.app.AlertDialog;
@@ -6,6 +9,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.Typeface;
@@ -31,7 +35,8 @@ import java.util.Locale;
 /** Shared, asset-free HSB picker. All edits stay local until Apply. */
 public final class ColorPickerDialog {
     public interface Result { void apply(int color, boolean customAlpha); }
-    private static final int INK = 0xff18202d, MUTED = 0xff718096, ACCENT = 0xff2869e8;
+    private static final int BG = 0xfff3f5fa, INK = 0xff172033, MUTED = 0xff788399,
+            ACCENT = 0xff4564ed, SOFT = 0xffeef1fd, BORDER = 0xffe5e9f1;
     private final Context context;
     private final HsbColor color;
     private final TextView[] values = new TextView[4];
@@ -53,79 +58,124 @@ public final class ColorPickerDialog {
 
     private void open(String title, Result result) {
         LinearLayout content = column();
-        content.setPadding(dp(18), dp(8), dp(18), dp(6));
+        content.setBackgroundColor(BG);
+        content.setPadding(dp(16), dp(20), dp(16), dp(16));
         content.setFocusableInTouchMode(true);
+        TextView titleView = text(title, 20, INK);
+        titleView.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        content.addView(titleView, match());
+        addSpace(content, text("HSB 调色 · 支持精确输入", 12, MUTED), -2, 5);
+
         LinearLayout heading = row();
+        heading.setBackground(rounded(Color.WHITE, 18));
+        heading.setPadding(dp(14), dp(14), dp(14), dp(14));
         preview = new Preview();
         preview.setContentDescription("当前颜色预览");
-        heading.addView(preview, new LinearLayout.LayoutParams(dp(54), dp(38)));
+        heading.addView(preview, new LinearLayout.LayoutParams(dp(60), dp(60)));
         LinearLayout captions = column();
-        captions.setPadding(dp(12), 0, 0, 0);
-        captions.addView(text("HSB 调色盘", 16, INK));
-        summary = text("", 11, MUTED);
-        captions.addView(summary);
+        captions.setPadding(dp(14), 0, 0, 0);
+        captions.addView(text("当前颜色", 11, MUTED));
+        summary = text("", 13, INK);
+        summary.setLineSpacing(dp(3), 1);
+        addSpace(captions, summary, -2, 4);
         heading.addView(captions, new LinearLayout.LayoutParams(0, -2, 1));
-        content.addView(heading, match());
+        addSpace(content, heading, -2, 16);
+
+        LinearLayout colorCard = card();
+        colorCard.addView(sectionTitle("颜色与明暗"), match());
+        addSpace(colorCard, text("拖动调色盘，或点击下方数值", 11, MUTED), -2, 4);
         palettes[0] = new Palette(0);
         palettes[0].setContentDescription("饱和度与亮度调色盘，左右调节饱和度，上下调节亮度");
-        addSpace(content, palettes[0], 156, 12);
+        addSpace(colorCard, palettes[0], 176, 8);
         palettes[1] = new Palette(1);
         palettes[1].setContentDescription("色相 H 滑条，0 至 360 度");
-        addSpace(content, palettes[1], 30, 6);
+        addSpace(colorCard, palettes[1], 42, 4);
 
         LinearLayout components = row();
         for (int i = 0; i < 3; i++) {
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(52), 1);
-            if (i > 0) params.leftMargin = dp(6);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(66), 1);
+            if (i > 0) params.leftMargin = dp(8);
             components.addView(component(i), params);
         }
-        addSpace(content, components, 52, 4);
+        addSpace(colorCard, components, 66, 6);
+        addSpace(colorCard, text("H 色相 · S 饱和度 · B 亮度，精确到 0.01", 10, MUTED), -2, 9);
+        addSpace(content, colorCard, -2, 12);
+
+        LinearLayout alphaCard = card();
+        alphaCard.addView(sectionTitle("透明度"), match());
         systemAlpha = new Switch(context);
         systemAlpha.setText("透明度跟随系统");
         systemAlpha.setTextSize(13);
         systemAlpha.setTextColor(INK);
+        systemAlpha.setMinHeight(dp(48));
+        systemAlpha.setThumbTintList(android.content.res.ColorStateList.valueOf(Color.WHITE));
+        systemAlpha.setTrackTintList(new android.content.res.ColorStateList(
+                new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
+                new int[]{ACCENT, 0xffc4ccdd}));
         systemAlpha.setContentDescription("透明度跟随系统");
-        content.addView(systemAlpha, match());
+        addSpace(alphaCard, systemAlpha, -2, 5);
         LinearLayout alphaRow = row();
         alphaRow.addView(text("自定义透明度", 12, INK), new LinearLayout.LayoutParams(0, -2, 1));
-        values[3] = text("", 13, ACCENT);
+        values[3] = text("", 16, ACCENT);
+        values[3].setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        values[3].setGravity(Gravity.CENTER);
+        values[3].setMinHeight(dp(48));
+        values[3].setMinWidth(dp(84));
         values[3].setPadding(dp(10), dp(6), dp(10), dp(6));
-        values[3].setBackground(rounded(0xffedf3ff, 8));
+        values[3].setBackground(rounded(SOFT, 12));
+        values[3].setFocusable(true);
         values[3].setOnClickListener(v -> editComponent(3));
         alphaRow.addView(values[3]);
-        content.addView(alphaRow, match());
+        addSpace(alphaCard, alphaRow, -2, 3);
         palettes[2] = new Palette(2);
         palettes[2].setContentDescription("透明度滑条，0 至 100 百分比");
-        addSpace(content, palettes[2], 30, 2);
-        alphaHint = text("", 10, MUTED);
-        addSpace(content, alphaHint, -2, 2);
+        addSpace(alphaCard, palettes[2], 42, 4);
+        alphaHint = text("", 11, MUTED);
+        alphaHint.setLineSpacing(dp(2), 1);
+        addSpace(alphaCard, alphaHint, -2, 3);
+        addSpace(content, alphaCard, -2, 12);
 
+        LinearLayout hexCard = card();
+        hexCard.addView(sectionTitle("颜色代码"), match());
         hex = new EditText(context);
         hex.setSingleLine(true);
         hex.setTextSize(16);
+        hex.setTextColor(INK);
+        hex.setHintTextColor(MUTED);
+        hex.setHighlightColor(0x334564ed);
+        hex.setMinHeight(dp(50));
+        hex.setPadding(dp(12), dp(10), dp(12), dp(10));
+        hex.setBackground(rounded(BG, 12));
         hex.setTypeface(Typeface.MONOSPACE);
         hex.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
         hex.setFilters(new InputFilter[]{new InputFilter.LengthFilter(9)});
         hex.setHint("#RRGGBB / #AARRGGBB");
         hex.setSelectAllOnFocus(true);
         hex.setContentDescription("十六进制颜色，6 位 RGB 或 8 位 ARGB");
-        content.addView(hex, match());
+        addSpace(hexCard, hex, -2, 10);
+        addSpace(hexCard, text("6 位 RGB，或包含透明度的 8 位 ARGB", 11, MUTED), -2, 7);
+        addSpace(hexCard, sectionTitle("常用颜色"), -2, 16);
         LinearLayout presets = row();
-        for (int preset : new int[]{0xff000000, 0xffffffff, 0xff64748b, 0xff2869e8, 0xff22c55e, 0xfff59e0b}) {
+        for (int preset : new int[]{0xff000000, 0xffffffff, 0xff64748b, ACCENT, 0xff22c55e, 0xfff59e0b}) {
             View swatch = new View(context);
-            swatch.setBackground(rounded(preset, 7));
+            swatch.setBackground(rounded(preset, 12));
+            swatch.setFocusable(true);
             swatch.setContentDescription(String.format(Locale.ROOT, "预设颜色 #%06X", preset & 0xffffff));
             swatch.setOnClickListener(v -> { color.setRgb(preset); update(true); });
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(30), 1);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(44), 1);
             params.setMargins(dp(3), dp(4), dp(3), dp(4));
             presets.addView(swatch, params);
         }
-        content.addView(presets, match());
-        content.addView(text("点击 H / S / B 数值可输入，精确到 0.01。", 10, MUTED), match());
+        addSpace(hexCard, presets, -2, 7);
+        addSpace(content, hexCard, -2, 12);
+        addSpace(content, text("点击“应用”后保存颜色，取消不会改变设置。", 11, MUTED), -2, 12);
         ScrollView scroll = new ScrollView(context);
         scroll.setFillViewport(false);
+        scroll.setBackground(rounded(BG, 22));
+        scroll.setClipToOutline(true);
+        scroll.setClipToPadding(false);
         scroll.addView(content);
-        AlertDialog dialog = new AlertDialog.Builder(context).setTitle(title).setView(scroll)
+        AlertDialog dialog = new AlertDialog.Builder(context).setView(scroll)
                 .setNegativeButton("取消", null).setPositiveButton("应用", null).create();
         hex.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
@@ -139,6 +189,7 @@ public final class ColorPickerDialog {
         });
         update(true);
         dialog.setOnShowListener(ignored -> {
+            styleDialog(dialog);
             dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
                     | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
             content.requestFocus();
@@ -161,11 +212,15 @@ public final class ColorPickerDialog {
     private View component(int index) {
         LinearLayout box = column();
         box.setGravity(Gravity.CENTER);
-        box.setBackground(rounded(0xffedf3ff, 8));
-        box.setPadding(dp(3), dp(3), dp(3), dp(3));
-        box.addView(text(new String[]{"色相 H", "饱和度 S", "亮度 B"}[index], 10, MUTED));
-        values[index] = text("", 13, ACCENT);
-        box.addView(values[index]);
+        box.setBackground(rounded(SOFT, 12));
+        box.setPadding(dp(3), dp(7), dp(3), dp(7));
+        box.setFocusable(true);
+        box.addView(text(new String[]{"色相 H", "饱和度 S", "亮度 B"}[index], 11, MUTED));
+        values[index] = text("", 15, ACCENT);
+        values[index].setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        values[index].setGravity(Gravity.CENTER);
+        values[index].setMaxLines(1);
+        addSpace(box, values[index], -2, 4);
         box.setContentDescription(new String[]{"色相 H", "饱和度 S", "亮度 B"}[index] + "，点击输入");
         box.setOnClickListener(v -> editComponent(index));
         return box;
@@ -176,17 +231,28 @@ public final class ColorPickerDialog {
         double maximum = index == 0 ? 360 : 100;
         EditText field = new EditText(context);
         field.setSingleLine(true);
+        field.setTextSize(20);
+        field.setTextColor(INK);
+        field.setHighlightColor(0x334564ed);
+        field.setMinHeight(dp(54));
+        field.setPadding(dp(14), dp(12), dp(14), dp(12));
+        field.setBackground(rounded(Color.WHITE, 12));
         field.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         field.setText(String.format(Locale.ROOT, "%.2f", value(index)));
         field.selectAll();
         field.setContentDescription(name + "数值");
         LinearLayout body = column();
-        body.setPadding(dp(20), dp(6), dp(20), dp(6));
-        body.addView(text("范围 0.00 ～ " + (index == 0 ? "360.00°" : "100.00%"), 12, MUTED));
-        body.addView(field, match());
-        AlertDialog dialog = new AlertDialog.Builder(context).setTitle(name).setView(body)
+        body.setBackgroundColor(BG);
+        body.setPadding(dp(20), dp(20), dp(20), dp(16));
+        TextView heading = text(name, 20, INK);
+        heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        body.addView(heading, match());
+        addSpace(body, text("范围 0.00 ～ " + (index == 0 ? "360.00°" : "100.00%"), 12, MUTED), -2, 6);
+        addSpace(body, field, -2, 16);
+        AlertDialog dialog = new AlertDialog.Builder(context).setView(body)
                 .setNegativeButton("取消", null).setPositiveButton("应用", null).create();
         dialog.setOnShowListener(ignored -> {
+            styleDialog(dialog);
             field.requestFocus();
             dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
@@ -215,7 +281,7 @@ public final class ColorPickerDialog {
         for (int i = 0; i < 4; i++) values[i].setText(String.format(Locale.ROOT, "%.2f%s", value(i), i == 0 ? "°" : "%"));
         values[3].setContentDescription("透明度，点击输入，" + values[3].getText());
         systemAlpha.setChecked(!color.customAlpha());
-        summary.setText(color.hex() + (color.customAlpha() ? " · 自定义透明度" : " · 跟随系统透明度"));
+        summary.setText(color.hex() + (color.customAlpha() ? "\n自定义透明度" : "\n跟随系统透明度"));
         alphaHint.setText(color.customAlpha() ? "0% 完全透明 · 100% 不透明" : "当前沿用系统透明度；调整滑条可改为自定义。");
         if (writeHex) { hex.setText(color.hex()); hex.setError(null); }
         preview.invalidate();
@@ -228,10 +294,27 @@ public final class ColorPickerDialog {
         if (ime != null) ime.hideSoftInputFromWindow(view.getWindowToken(), 0);
     }
 
+    private void styleDialog(AlertDialog dialog) {
+        if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawable(rounded(BG, 22));
+        TextView apply = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        TextView cancel = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+        apply.setTextColor(Color.WHITE);
+        apply.setBackground(rounded(ACCENT, 12));
+        cancel.setTextColor(INK);
+        cancel.setBackground(rounded(Color.WHITE, 12));
+        for (TextView button : new TextView[]{apply, cancel}) {
+            button.setAllCaps(false);
+            button.setTextSize(14);
+            button.setMinHeight(dp(46));
+            button.setPadding(dp(18), dp(8), dp(18), dp(8));
+        }
+    }
+
     private final class Palette extends View {
         private final int kind;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF bounds = new RectF();
+        private final Path clip = new Path();
         Palette(int kind) { super(context); this.kind = kind; setClickable(true); setFocusable(true); }
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
@@ -240,7 +323,10 @@ public final class ColorPickerDialog {
             bounds.set(inset, inset, w - inset, h - inset);
             if (bounds.width() <= 0 || bounds.height() <= 0) return;
             int saved = canvas.save();
-            canvas.clipRect(bounds);
+            float radius = kind == 0 ? dp(10) : bounds.height() / 2;
+            clip.reset();
+            clip.addRoundRect(bounds, radius, radius, Path.Direction.CW);
+            canvas.clipPath(clip);
             int rgb = color.argb() | 0xff000000;
             if (kind == 0) {
                 int hueColor = Color.HSVToColor(new float[]{(float) color.hue(), 1, 1});
@@ -257,6 +343,10 @@ public final class ColorPickerDialog {
             canvas.drawRect(bounds, paint);
             paint.setShader(null);
             canvas.restoreToCount(saved);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(1));
+            paint.setColor(BORDER);
+            canvas.drawRoundRect(bounds, radius, radius, paint);
             float x = bounds.left + bounds.width() * (float) (kind == 0 ? color.saturation() / 100 : kind == 1 ? color.hue() / 360 : color.customAlpha() ? color.opacity() / 100 : 1);
             float y = kind == 0 ? bounds.top + bounds.height() * (float) (1 - color.brightness() / 100) : bounds.centerY();
             paint.setStyle(Paint.Style.STROKE);
@@ -293,16 +383,22 @@ public final class ColorPickerDialog {
     private final class Preview extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF bounds = new RectF();
+        private final Path clip = new Path();
         Preview() { super(context); }
         @Override protected void onDraw(Canvas canvas) {
             bounds.set(1, 1, getWidth() - 1, getHeight() - 1);
+            int saved = canvas.save();
+            clip.reset();
+            clip.addRoundRect(bounds, dp(14), dp(14), Path.Direction.CW);
+            canvas.clipPath(clip);
             checkerboard(canvas, bounds, paint);
             paint.setColor(color.argb());
             canvas.drawRect(bounds, paint);
+            canvas.restoreToCount(saved);
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(dp(1));
-            paint.setColor(0xffd5dce7);
-            canvas.drawRect(bounds, paint);
+            paint.setColor(BORDER);
+            canvas.drawRoundRect(bounds, dp(14), dp(14), paint);
             paint.setStyle(Paint.Style.FILL);
         }
     }
@@ -327,13 +423,24 @@ public final class ColorPickerDialog {
     }
     private LinearLayout column() { LinearLayout v = new LinearLayout(context); v.setOrientation(LinearLayout.VERTICAL); return v; }
     private LinearLayout row() { LinearLayout v = new LinearLayout(context); v.setGravity(Gravity.CENTER_VERTICAL); return v; }
+    private LinearLayout card() {
+        LinearLayout view = column();
+        view.setBackground(rounded(Color.WHITE, 18));
+        view.setPadding(dp(14), dp(14), dp(14), dp(14));
+        return view;
+    }
+    private TextView sectionTitle(String value) {
+        TextView view = text(value, 14, INK);
+        view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        return view;
+    }
     private LinearLayout.LayoutParams match() { return new LinearLayout.LayoutParams(-1, -2); }
     private TextView text(String value, int size, int tint) {
         TextView view = new TextView(context); view.setText(value); view.setTextSize(size); view.setTextColor(tint); return view;
     }
     private GradientDrawable rounded(int tint, int radius) {
         GradientDrawable drawable = new GradientDrawable(); drawable.setColor(tint); drawable.setCornerRadius(dp(radius));
-        drawable.setStroke(dp(1), 0xffe1e6ef); return drawable;
+        drawable.setStroke(dp(1), BORDER); return drawable;
     }
     private int dp(float value) { return Math.round(value * context.getResources().getDisplayMetrics().density); }
 }

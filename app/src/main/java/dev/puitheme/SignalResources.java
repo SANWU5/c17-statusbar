@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 aiingjie
+
 package dev.puitheme;
 
 /** Resource names carry the actual system level; never infer a level from connectivity. */

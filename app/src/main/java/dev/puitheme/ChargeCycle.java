@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 aiingjie
+
 package dev.puitheme;
 
 /** Monotonic charging animation. Holds need one wake-up; fades run at 30 fps. */
