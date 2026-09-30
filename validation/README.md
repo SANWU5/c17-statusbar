@@ -1,5 +1,7 @@
 # 本地回归检查
 
-先构建应用，然后向 run-checks.ps1 传入该构建的生产类目录或类 jar（CompiledClasses）、SDK 的 android.jar（AndroidJar）及 libxposed API 101 jar（XposedApiJar）。JdkBin 可选，填写 JDK 的 bin 目录；默认使用 PATH 中的 Java。HSB 对照使用完整 JDK 的 java.awt.Color，只属于桌面检查代码，不进入 Android 安装包。
+先构建应用，向 run-checks.ps1 传入编译后的生产类目录或类 JAR（CompiledClasses）、SDK android.jar（AndroidJar）及 libxposed API 101 JAR（XposedApiJar）。JdkBin 可选，填写完整 JDK 的 bin 目录；默认使用 PATH 中的 Java。
 
-检查顺序和入口都在脚本中。Android 桩仅记录参数与状态；它们不能模拟硬件绘制层、屏幕窗口及不同 ROM。复现的 stacked_mobile 槽位识别已覆盖真实调用条件。手机与 Canvas 的实际观察记录见根目录 VALIDATION.md；字体检查入口为 verify_font_reference.py，独立原生 Canvas 入口见 native-canvas/README.md。
+脚本的检查入口对应本轮最终日志。validation/test-libs/json-20240303.jar 为桌面 JSON 解析运行库，执行时排在 android.jar 前；该文件不进入 APK。HSB 对照使用完整 JDK 的 java.awt.Color，Android 桩只记录参数和状态；这些检查不能替代屏幕绘制、真实网络切换或不同 ROM 的验证。
+
+本轮已完成和未完成的项目见根目录 VALIDATION.md。verify_font_reference.py 与 native-canvas 为字体或原生 Canvas 的独立参考入口；它们不因存在于源码包就自动计入本轮通过记录。

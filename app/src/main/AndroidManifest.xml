@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="dev.puitheme.iosstatusbar"
-    android:versionCode="24"
-    android:versionName="1.12.2">
+    android:versionCode="28"
+    android:versionName="1.14.0">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
 
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:allowBackup="false"
         android:description="@string/module_description"
@@ -29,5 +30,10 @@
             android:directBootAware="true"
             android:exported="true"
             android:grantUriPermissions="false" />
+        <provider
+            android:name="dev.puitheme.DiagnosticFileProvider"
+            android:authorities="dev.puitheme.iosstatusbar.diagnostics"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

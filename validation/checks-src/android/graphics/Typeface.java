@@ -3,6 +3,8 @@ public class Typeface {
     public static final Typeface DEFAULT=new Typeface();
     public static final int BOLD=1,NORMAL=0;
     public int weight;
+    public int getWeight() { return weight > 0 ? weight : 400; }
+    public boolean isBold() { return getWeight() >= 600; }
     private static final java.util.Map<String,Typeface> cache=new java.util.HashMap<>();
     public static Typeface create(String family, int style) { return new Typeface(); }
     public static Typeface create(Typeface family,int weight,boolean italic) {

@@ -11,6 +11,7 @@ public class Paint {
     public Style style=Style.FILL;
     public float strokeWidth;
     public PathEffect pathEffect;
+    public Shader shader;
     public Paint(int flags) { }
     public void set(Paint source) {alpha=source.alpha;color=source.color;textSize=source.textSize;mode=source.mode;}
     public void setAlpha(int value) {alpha=value;}
@@ -23,6 +24,8 @@ public class Paint {
     public void setStrokeCap(Cap value) { }
     public void setStrokeWidth(float value) {strokeWidth=value;}
     public PathEffect setPathEffect(PathEffect value) {PathEffect old=pathEffect;pathEffect=value;return old;}
+    public Shader setShader(Shader value) {Shader old=shader;shader=value;return old;}
+    public Shader getShader() {return shader;}
     public float getTextSize() {return textSize;}
     public void setTextSize(float value) {textSize=value;}
     public void getTextBounds(String value,int start,int end,Rect bounds) {bounds.left=0;bounds.right=(int)((end-start)*textSize*.6f);bounds.top=-(int)textSize;bounds.bottom=0;}

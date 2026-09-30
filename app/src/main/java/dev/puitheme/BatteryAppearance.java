@@ -4,14 +4,9 @@ import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.view.View;
-import android.view.ViewGroup;
-import android.view.ViewParent;
-import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -20,23 +15,20 @@ public final class BatteryAppearance {
     private final Field progress, background, outline;
     private final Method setColors;
     private final Map<Drawable, Palette> palettes = new WeakHashMap<>();
-    private final Map<ViewGroup, Clip> clips = new WeakHashMap<>();
-    private final Map<View, List<WeakReference<ViewGroup>>> leases = new WeakHashMap<>();
+    private final Map<View, Boolean> transformedOwners = new WeakHashMap<>();
+    private final OverflowControls overflow = OverflowControls.shared();
     private Map<String,Integer> colors = StatusBarSettings.COLOR_DEFAULTS;
     private Map<String,Boolean> alpha = Collections.emptyMap();
     private float x, y, scale = 1f, width = 1f, height = 1f;
     private boolean applying;
+    private boolean enabled = true, bodyColor = true, textColor = true, boltColor = true;
+    private boolean chargeColor = true, alertColor = true;
 
     private static final class Palette {
         final int progress, background, outline;
         Palette(int progress, int background, int outline) {
             this.progress=progress;this.background=background;this.outline=outline;
         }
-    }
-    private static final class Clip {
-        final boolean children, padding;
-        int count;
-        Clip(ViewGroup view) {children=view.getClipChildren();padding=view.getClipToPadding();}
     }
     public BatteryAppearance(Class<?> bar) throws Exception {
         progress=field(bar,"progressColor");background=field(bar,"backgroundColor");outline=field(bar,"outlineColor");
@@ -48,29 +40,48 @@ public final class BatteryAppearance {
     public boolean isApplying() {return applying;}
     public void configure(Bundle settings,Map<String,Integer> colors,Map<String,Boolean> alpha) {
         this.colors=colors;this.alpha=alpha;
-        x=value(settings,StatusBarSettings.BATTERY_OFFSET_X,0f,-80,80);
-        y=value(settings,StatusBarSettings.BATTERY_OFFSET_Y,0f,-24,24);
-        scale=value(settings,StatusBarSettings.BATTERY_SCALE,100f,25,250)/100f;
-        width=value(settings,StatusBarSettings.BATTERY_WIDTH_SCALE,100f,25,250)/100f;
-        height=value(settings,StatusBarSettings.BATTERY_HEIGHT_SCALE,100f,25,250)/100f;
-        if (!transformed()) for(View owner:leases.keySet().toArray(new View[0])) detach(owner);
+        FeatureOptions options=FeatureOptions.from(settings);
+        enabled=options.enabled("battery");
+        boolean position=options.position("battery");
+        boolean size=options.size("battery");
+        boolean color=options.color("battery");
+        bodyColor=color;
+        textColor=color&&options.effective("battery","battery_text_color_enabled");
+        boltColor=color&&options.effective("battery","battery_bolt_color_enabled");
+        chargeColor=color&&options.effective("battery","battery_charge_color_enabled");
+        alertColor=color&&options.effective("battery","battery_alert_color_enabled");
+        x=position?value(settings,StatusBarSettings.BATTERY_OFFSET_X,0f):0f;
+        y=position?value(settings,StatusBarSettings.BATTERY_OFFSET_Y,0f):0f;
+        scale=size?value(settings,StatusBarSettings.BATTERY_SCALE,100f)/100f:1f;
+        width=size?value(settings,StatusBarSettings.BATTERY_WIDTH_SCALE,100f)/100f:1f;
+        height=size?value(settings,StatusBarSettings.BATTERY_HEIGHT_SCALE,100f)/100f:1f;
+        if (!transformed()) for(View owner:transformedOwners.keySet().toArray(new View[0])) detach(owner);
     }
-    private static float value(Bundle values,String key,float fallback,float min,float max) {
-        Object stored=values.get(key);
-        float result=stored instanceof Number?((Number)stored).floatValue():fallback;
-        if(Float.isNaN(result)||Float.isInfinite(result))result=fallback;
-        return Math.max(min,Math.min(max,result));
+    private static float value(Bundle values,String key,float fallback) {
+        return NumericPolicy.setting(key,values.get(key),fallback);
     }
     private boolean transformed() {return x!=0f||y!=0f||scale!=1f||width!=1f||height!=1f;}
 
     /** The scene is chosen from the original outline, never from a previously customized color. */
     public boolean hasCustom(String item) {
+        if(!colorEnabled(item))return false;
         String light=item+"_color_light",dark=item+"_color_dark";
         return (colors.get(light)&0xffffff)!=(StatusBarSettings.COLOR_DEFAULTS.get(light)&0xffffff)
                 ||(colors.get(dark)&0xffffff)!=(StatusBarSettings.COLOR_DEFAULTS.get(dark)&0xffffff)
                 ||Boolean.TRUE.equals(alpha.get(light))||Boolean.TRUE.equals(alpha.get(dark));
     }
+    private boolean colorEnabled(String item) {
+        if(!enabled)return false;
+        switch(item) {
+            case "battery_text":return textColor;
+            case "battery_bolt":return boltColor;
+            case "battery_charge":return chargeColor;
+            case "battery_alert":return alertColor;
+            default:return bodyColor;
+        }
+    }
     private int tint(String item,int nativeColor,int scene) {
+        if(!colorEnabled(item))return nativeColor;
         String light=item+"_color_light",dark=item+"_color_dark";
         Integer lightDefault=StatusBarSettings.COLOR_DEFAULTS.get(light),darkDefault=StatusBarSettings.COLOR_DEFAULTS.get(dark);
         int lightColor=colors.containsKey(light)?colors.get(light):lightDefault;
@@ -123,40 +134,17 @@ public final class BatteryAppearance {
     }
     public void updateView(View owner) {
         if (!transformed()) {detach(owner);return;}
-        List<ViewGroup> parents=new ArrayList<>();
-        ViewParent parent=owner instanceof ViewGroup?(ViewGroup)owner:owner.getParent();
-        for(int depth=0;parent instanceof ViewGroup&&depth<12;depth++) {
-            parents.add((ViewGroup)parent);parent=parent.getParent();
-        }
-        List<WeakReference<ViewGroup>> previous=leases.get(owner);
-        boolean same=previous!=null&&previous.size()==parents.size();
-        if (same) for(int i=0;i<parents.size();i++) if(previous.get(i).get()!=parents.get(i)) {same=false;break;}
-        if (!same) {
-            detach(owner);
-            List<WeakReference<ViewGroup>> next=new ArrayList<>();
-            for(ViewGroup view:parents) {
-                Clip clip=clips.get(view);
-                if(clip==null) {clip=new Clip(view);clips.put(view,clip);}
-                clip.count++;next.add(new WeakReference<>(view));
-            }
-            leases.put(owner,next);
-        }
-        for(ViewGroup view:parents) {view.setClipChildren(false);view.setClipToPadding(false);}
+        overflow.acquire(owner,false);
+        transformedOwners.put(owner,true);
     }
     public void beforeDraw(View owner,Canvas canvas) {
         updateView(owner);
         float density=owner.getResources().getDisplayMetrics().density;
-        canvas.translate(x*density,y*density);
-        canvas.scale(scale*width,scale*height,owner.getWidth()/2f,owner.getHeight()/2f);
+        canvas.translate(NumericPolicy.pixels(x,density),NumericPolicy.pixels(y,density));
+        canvas.scale(NumericPolicy.scale(scale,width,owner.getWidth()),
+                NumericPolicy.scale(scale,height,owner.getHeight()),owner.getWidth()/2f,owner.getHeight()/2f);
     }
     public void detach(View owner) {
-        List<WeakReference<ViewGroup>> previous=leases.remove(owner);
-        if(previous==null)return;
-        for(WeakReference<ViewGroup> reference:previous) {
-            ViewGroup view=reference.get();Clip clip=view==null?null:clips.get(view);
-            if(clip!=null&&--clip.count==0) {
-                view.setClipChildren(clip.children);view.setClipToPadding(clip.padding);clips.remove(view);
-            }
-        }
+        if(transformedOwners.remove(owner)!=null)overflow.release(owner);
     }
 }

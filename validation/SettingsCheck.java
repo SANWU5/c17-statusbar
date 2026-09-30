@@ -47,6 +47,24 @@ public final class SettingsCheck {
         settings.put(color, 0xffffffff);
         settings.put(StatusBarSettings.alphaKey(color), true);
         equal(true, StatusBarSettings.customAlpha(settings, color));
+        for (String tileKey : new String[]{StatusBarSettings.TILES_FADE_RANGE, StatusBarSettings.TILES_BLUR_RADIUS,
+                StatusBarSettings.TILES_STRENGTH}) {
+            float fallback = StatusBarSettings.NUMERIC_DEFAULTS.get(tileKey);
+            equal(fallback, StatusBarSettings.settingNumber(settings, tileKey, fallback));
+            settings.put(tileKey, 0f);
+            equal(0f, StatusBarSettings.settingNumber(settings, tileKey, fallback));
+            settings.put(tileKey, 13456.78f);
+            equal(13456.78f, StatusBarSettings.settingNumber(settings, tileKey, fallback));
+            settings.put(tileKey, Float.NaN);
+            equal(fallback, StatusBarSettings.settingNumber(settings, tileKey, fallback));
+            settings.put(tileKey, Float.POSITIVE_INFINITY);
+            equal(fallback, StatusBarSettings.settingNumber(settings, tileKey, fallback));
+            settings.put(tileKey, "wrong");
+            equal(fallback, StatusBarSettings.settingNumber(settings, tileKey, fallback));
+        }
+        equal(24f, StatusBarSettings.NUMERIC_DEFAULTS.get(StatusBarSettings.TILES_FADE_RANGE));
+        equal(8f, StatusBarSettings.NUMERIC_DEFAULTS.get(StatusBarSettings.TILES_BLUR_RADIUS));
+        equal(100f, StatusBarSettings.NUMERIC_DEFAULTS.get(StatusBarSettings.TILES_STRENGTH));
         System.out.println(checks + " checks passed (network names, numeric compatibility, alpha modes)");
     }
 }

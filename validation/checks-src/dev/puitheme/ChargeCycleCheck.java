@@ -35,9 +35,21 @@ public final class ChargeCycleCheck {
         cycle.setCharging(true, 9500); near(1, cycle.boltOpacity(9500)); equal(3000, cycle.nextDelay(9500));
         cycle.configure(2.37f, .81f); equal(2370, cycle.nextDelay(9500)); near(.5f, cycle.boltOpacity(12275));
         cycle.configure(Float.NaN, Float.POSITIVE_INFINITY); equal(3000, cycle.nextDelay(9500));
-        cycle.configure(-20, -20); equal(1000, cycle.nextDelay(9500)); near(.5f, cycle.boltOpacity(10575));
-        cycle.configure(100, 100); equal(10000, cycle.nextDelay(9500)); near(.5f, cycle.boltOpacity(21000));
+        cycle.configure(-20, -20); equal(Long.MAX_VALUE, cycle.nextDelay(9500)); near(1f, cycle.boltOpacity(10575));
+        cycle.configure(100, 100); equal(100000, cycle.nextDelay(9500)); near(.5f, cycle.boltOpacity(159500));
         near(1, cycle.boltOpacity(0));
+        cycle.configure(0,0);near(1,cycle.boltOpacity(9500));near(1,cycle.boltOpacity(Long.MAX_VALUE));
+        equal(Long.MAX_VALUE,cycle.nextDelay(9500));
+        cycle.configure(0,.2f);near(1,cycle.boltOpacity(9500));near(.5f,cycle.boltOpacity(9600));
+        near(0,cycle.boltOpacity(9700));near(.5f,cycle.boltOpacity(9800));equal(33,cycle.nextDelay(9500));
+        cycle.configure(.2f,0);near(1,cycle.boltOpacity(9500));near(0,cycle.boltOpacity(9700));
+        near(1,cycle.boltOpacity(9900));equal(200,cycle.nextDelay(9500));equal(200,cycle.nextDelay(9700));
+        cycle.configure(Float.MAX_VALUE,Float.MAX_VALUE);near(1,cycle.boltOpacity(9500));
+        equal(Long.MAX_VALUE/8,cycle.nextDelay(9500));
+        for(long uptime:new long[]{0,9500,Long.MAX_VALUE/8,Long.MAX_VALUE/4,Long.MAX_VALUE/2,Long.MAX_VALUE}) {
+            float value=cycle.boltOpacity(uptime);equal(1,value>=0&&value<=1&&!Float.isNaN(value)?1:0);
+            equal(1,cycle.nextDelay(uptime)>0?1:0);
+        }
         System.out.println("ChargeCycleCheck passed: " + checks);
     }
 }

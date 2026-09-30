@@ -60,15 +60,29 @@ public final class StatusBarSettings {
     public static final String FONT_MODE = "font_mode", FONT_REVISION = "font_revision", FONT_NAME = "font_name";
     public static final String SIGNAL_LAYOUT = "signal_layout", SPEED_WEIGHT = "speed_weight";
     public static final String BATTERY_CHARGE_INSIDE = "battery_charge_inside";
+    public static final String BATTERY_STYLE = "battery_style";
     public static final String BATTERY_HOLD = "battery_hold_seconds", BATTERY_FADE = "battery_fade_seconds";
     public static final String BATTERY_OFFSET_X = "battery_offset_x", BATTERY_OFFSET_Y = "battery_offset_y";
     public static final String BATTERY_SCALE = "battery_scale", BATTERY_WIDTH_SCALE = "battery_width_scale", BATTERY_HEIGHT_SCALE = "battery_height_scale";
+    public static final String TILES_FADE_RANGE = "tiles_fade_range";
+    public static final String TILES_BLUR_RADIUS = "tiles_blur_radius";
+    public static final String TILES_STRENGTH = "tiles_strength";
+    public static final String TILES_LEFT_RANGE = "tiles_left_range", TILES_RIGHT_RANGE = "tiles_right_range";
+    public static final String TILES_LEFT_OFFSET_X = "tiles_left_offset_x", TILES_RIGHT_OFFSET_X = "tiles_right_offset_x";
+    public static final String TILES_OFFSET_Y = "tiles_offset_y", TILES_REGION_HEIGHT = "tiles_region_height";
+    public static final String TILES_VERTICAL_FEATHER = "tiles_vertical_feather";
+    public static final String DIAGNOSTICS_ENABLED = "diagnostics_enabled";
     public static final String FONT_URI = "content://" + AUTHORITY + "/font/current";
     public static final Map<String, Float> NUMERIC_DEFAULTS;
     public static final Map<String, Integer> COLOR_DEFAULTS;
     public static final Map<String, String> STRING_DEFAULTS;
+    public static final Map<String, Boolean> BOOLEAN_DEFAULTS;
 
     static {
+        Map<String, Boolean> booleans = new LinkedHashMap<>(FeatureOptions.DEFAULTS);
+        booleans.put(DIAGNOSTICS_ENABLED, false);
+        booleans.putAll(QsTileAppearance.BOOLEANS);
+        BOOLEAN_DEFAULTS = Collections.unmodifiableMap(booleans);
         Map<String, Float> numbers = new LinkedHashMap<>();
         numbers.put(WIFI_OFFSET_X, 0f);
         numbers.put(WIFI_OFFSET_Y, 0f);
@@ -92,31 +106,48 @@ public final class StatusBarSettings {
         numbers.put(BATTERY_FADE, 1f);
         numbers.put(BATTERY_OFFSET_X, 0f);numbers.put(BATTERY_OFFSET_Y, 0f);
         numbers.put(BATTERY_SCALE, 100f);numbers.put(BATTERY_WIDTH_SCALE, 100f);numbers.put(BATTERY_HEIGHT_SCALE, 100f);
-        for (String item : new String[]{"clock", "carrier"}) {
+        numbers.put(TILES_FADE_RANGE, 24f);
+        numbers.put(TILES_BLUR_RADIUS, 8f);
+        numbers.put(TILES_STRENGTH, 100f);
+        numbers.put(TILES_LEFT_RANGE,24f);numbers.put(TILES_RIGHT_RANGE,24f);
+        numbers.put(TILES_LEFT_OFFSET_X,0f);numbers.put(TILES_RIGHT_OFFSET_X,0f);
+        numbers.put(TILES_OFFSET_Y,0f);numbers.put(TILES_REGION_HEIGHT,0f);numbers.put(TILES_VERTICAL_FEATHER,32f);
+        for (String item : new String[]{"clock", "carrier", CarrierPanels.NOTIFICATION, CarrierPanels.CONTROL,
+                CarrierPanels.LOCKSCREEN}) {
             numbers.put(item + "_offset_x", 0f);
             numbers.put(item + "_offset_y", 0f);
             numbers.put(item + "_scale", 100f);
             numbers.put(item + "_weight", 600f);
             numbers.put(item + "_spacing", 0f);
         }
+        numbers.putAll(QsTileAppearance.NUMBERS);
         NUMERIC_DEFAULTS = Collections.unmodifiableMap(numbers);
         Map<String, Integer> colors = new LinkedHashMap<>();
-        for (String item : new String[]{"wifi", "data", "label", "speed", "clock", "carrier", "battery", "battery_text", "battery_bolt"}) {
+        for (String item : new String[]{"wifi", "data", "label", "speed", "clock", "carrier",
+                CarrierPanels.NOTIFICATION, CarrierPanels.CONTROL, CarrierPanels.LOCKSCREEN,
+                "battery", "battery_text", "battery_bolt"}) {
             colors.put(item + "_color_light", 0xff000000);
             colors.put(item + "_color_dark", 0xffffffff);
         }
         colors.put("battery_charge_color_light",0xff00bd13);colors.put("battery_charge_color_dark",0xff00bd13);
         colors.put("battery_alert_color_light",0xffff3b30);colors.put("battery_alert_color_dark",0xffff3b30);
+        colors.putAll(QsTileAppearance.COLORS);
         COLOR_DEFAULTS = Collections.unmodifiableMap(colors);
         Map<String, String> strings = new LinkedHashMap<>();
         strings.put(CLOCK_PATTERN, TimeFormat.CLOCK_DEFAULT);
         strings.put(CARRIER_PATTERN, TimeFormat.CARRIER_DEFAULT);
         strings.put(CARRIER_MODE, "original");
         strings.put(CARRIER_TEXT, "更好的C17状态栏");
+        for (String panel : CarrierPanels.GROUPS) {
+            strings.put(CarrierPanels.key(panel, "mode"), strings.get(CARRIER_MODE));
+            strings.put(CarrierPanels.key(panel, "pattern"), strings.get(CARRIER_PATTERN));
+            strings.put(CarrierPanels.key(panel, "text"), strings.get(CARRIER_TEXT));
+        }
         strings.put(FONT_MODE, "system");
         strings.put(FONT_REVISION, "");
         strings.put(FONT_NAME, "未导入字体");
         strings.put(SIGNAL_LAYOUT, "system");
+        strings.put(BATTERY_STYLE, "pui");
         STRING_DEFAULTS = Collections.unmodifiableMap(strings);
     }
 
@@ -125,8 +156,27 @@ public final class StatusBarSettings {
     }
 
     public static String string(Map<String, ?> values, String key) {
-        Object value = values.get(key);
+        Object value = typedValue(values, key, String.class);
         return value instanceof String ? (String) value : STRING_DEFAULTS.get(key);
+    }
+
+    public static boolean bool(Map<String, ?> values, String key) {
+        Object value = typedValue(values, key, Boolean.class);
+        return value instanceof Boolean ? (Boolean) value : Boolean.TRUE.equals(BOOLEAN_DEFAULTS.get(key));
+    }
+
+    public static int color(Map<String, ?> values, String key) {
+        Object value = typedValue(values, key, Number.class);
+        Integer fallback = COLOR_DEFAULTS.get(key);
+        return value instanceof Number ? ((Number) value).intValue() : fallback == null ? 0 : fallback;
+    }
+
+    private static Object typedValue(Map<String, ?> values, String key, Class<?> type) {
+        Object value = values == null ? null : values.get(key);
+        if (type.isInstance(value)) return value;
+        String legacy = CarrierPanels.legacyKey(key);
+        Object inherited = values == null || legacy == null ? null : values.get(legacy);
+        return type.isInstance(inherited) ? inherited : null;
     }
 
     public static String alphaKey(String colorKey) {
@@ -134,24 +184,32 @@ public final class StatusBarSettings {
     }
 
     public static boolean customAlpha(Map<String, ?> values, String colorKey) {
-        Object mode = values.get(alphaKey(colorKey));
+        Object mode = values == null ? null : values.get(alphaKey(colorKey));
         if (mode instanceof Boolean) return (Boolean) mode;
-        Object color = values.get(colorKey);
+        Object color = values == null ? null : values.get(colorKey);
+        // A newly selected panel color owns its alpha. Unedited panels inherit the old pair.
+        if (!(color instanceof Number)) {
+            String legacy = CarrierPanels.legacyKey(colorKey);
+            if (legacy != null) return customAlpha(values, legacy);
+        }
         // Older settings that already contain an alpha value remain intentional custom colors.
         return color instanceof Number && ((((Number) color).intValue() >>> 24) != 255);
     }
 
     public static float number(Map<String, ?> values, String key, float fallback) {
-        Object value = values.get(key);
+        Object value = values == null ? null : values.get(key);
         if (value instanceof Number) {
             float result = ((Number) value).floatValue();
             if (!Float.isNaN(result) && !Float.isInfinite(result)) return result;
         }
+        String legacy = CarrierPanels.legacyKey(key);
+        if (legacy != null) return number(values, legacy, fallback);
         return fallback;
     }
 
     public static float settingNumber(Map<String, ?> values, String key, float fallback) {
-        if (!values.containsKey(key)) {
+        if (values == null || !values.containsKey(key)) {
+            if(key.equals(TILES_LEFT_RANGE)||key.equals(TILES_RIGHT_RANGE))return number(values,TILES_FADE_RANGE,fallback);
             if (key.equals(WIFI_OFFSET_X) || key.equals(DATA_OFFSET_X)) return number(values, OFFSET_X, fallback);
             if (key.equals(WIFI_OFFSET_Y) || key.equals(DATA_OFFSET_Y)) return number(values, OFFSET_Y, fallback);
             if (key.equals(WIFI_ICON_SCALE) || key.equals(DATA_ICON_SCALE)) return number(values, ICON_SCALE, fallback);

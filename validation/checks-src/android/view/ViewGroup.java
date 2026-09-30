@@ -1,6 +1,7 @@
 package android.view;
 import android.content.Context;
 public class ViewGroup extends View {
+    public static class LayoutParams {public int width,height;public LayoutParams(int width,int height){this.width=width;this.height=height;}}
     private boolean clipChildren=true,clipPadding=true;
     private final java.util.List<View> children=new java.util.ArrayList<>();
     public ViewGroup(Context context) { super(context); }

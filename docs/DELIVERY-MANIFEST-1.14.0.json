@@ -1,0 +1,1118 @@
+{
+  "version": "1.14.0",
+  "versionCode": 28,
+  "date": "2026-09-30",
+  "apk": {
+    "name": "更好的C17状态栏-1.14.0.apk",
+    "bytes": 349281,
+    "sha256": "219ca55278345bc7e62bdcc7339b025f2ee9bd0866b7959603f6adc611766589"
+  },
+  "checks": {
+    "logSha256": "4c8bad0eee0f1d6a7febc38b4c1dd551ea8196d1b4a045140fd87752b0cbb9b4",
+    "suites": 27,
+    "assertions": 48636,
+    "entries": [
+      {
+        "name": "SettingsCheck",
+        "assertions": 83
+      },
+      {
+        "name": "AppearanceCheck",
+        "assertions": 56
+      },
+      {
+        "name": "SceneAppearanceCheck",
+        "assertions": 41
+      },
+      {
+        "name": "LayoutCheck",
+        "assertions": 6
+      },
+      {
+        "name": "TimeSignalCheck",
+        "assertions": 182
+      },
+      {
+        "name": "TextControlsCheck",
+        "assertions": 33
+      },
+      {
+        "name": "ChargeCycleCheck",
+        "assertions": 2223
+      },
+      {
+        "name": "BatteryControlsCheck",
+        "assertions": 103
+      },
+      {
+        "name": "BatteryAppearanceCheck",
+        "assertions": 109
+      },
+      {
+        "name": "NetworkOverflowCheck",
+        "assertions": 23
+      },
+      {
+        "name": "HsbColorCheck",
+        "assertions": 30050
+      },
+      {
+        "name": "FeatureOptionsCheck",
+        "assertions": 6575
+      },
+      {
+        "name": "NetworkBadgeCheck",
+        "assertions": 434
+      },
+      {
+        "name": "CarrierPanelsCheck",
+        "assertions": 247
+      },
+      {
+        "name": "OverflowControlsCheck",
+        "assertions": 49
+      },
+      {
+        "name": "DrawableSwitchCheck",
+        "assertions": 22
+      },
+      {
+        "name": "RadioStateCheck",
+        "assertions": 131
+      },
+      {
+        "name": "NativeDataSourceCheck",
+        "assertions": 26
+      },
+      {
+        "name": "PuiBatteryStyleCheck",
+        "assertions": 31
+      },
+      {
+        "name": "CarrierPanelSettingsCheck",
+        "assertions": 244
+      },
+      {
+        "name": "NumericPolicyCheck",
+        "assertions": 194
+      },
+      {
+        "name": "GitHubUpdatesCheck",
+        "assertions": 187
+      },
+      {
+        "name": "NumericInputCheck",
+        "assertions": 53
+      },
+      {
+        "name": "TilePageEffectsCheck",
+        "assertions": 6618
+      },
+      {
+        "name": "ModuleDiagnosticsCheck",
+        "assertions": 120
+      },
+      {
+        "name": "QsTileAppearanceCheck",
+        "assertions": 309
+      },
+      {
+        "name": "ConfigTransferCheck",
+        "assertions": 487
+      }
+    ]
+  },
+  "github": {
+    "repo": "SANWU5/c17-statusbar",
+    "releaseTag": "v1.14.0",
+    "releaseUrl": "https://github.com/SANWU5/c17-statusbar/releases/tag/v1.14.0",
+    "recordedLatest": "v1.12.2"
+  },
+  "jsonTestRuntime": {
+    "path": "validation/test-libs/json-20240303.jar",
+    "sha256": "3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed",
+    "includedInApk": false
+  },
+  "files": [
+    {
+      "path": "FONT.md",
+      "bytes": 1118,
+      "sha256": "ce563a718150f9a29a88328638263d1096daf4754dce439f4febc9aeab206678"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 1066,
+      "sha256": "0560ef552d366a3851d7e86c0ee4252ae28219dec0d716782f2040b1e85323d7"
+    },
+    {
+      "path": "README-1.14.0.md",
+      "bytes": 5826,
+      "sha256": "88a96312caca503f3a4f978a9d61ec7f47c609926cf6dfb60adcef0edc9bbb0c"
+    },
+    {
+      "path": "README.en.md",
+      "bytes": 6137,
+      "sha256": "a1095b546c34be67be481a98bf022c5ea262c573c184cb7ea6bada7951d403f6"
+    },
+    {
+      "path": "README.md",
+      "bytes": 5826,
+      "sha256": "88a96312caca503f3a4f978a9d61ec7f47c609926cf6dfb60adcef0edc9bbb0c"
+    },
+    {
+      "path": "THIRD_PARTY_NOTICES.md",
+      "bytes": 807,
+      "sha256": "b417989dafeb9ffd2bd3b21e0438db728a9ea89014ea68a03723e5548bbc56cc"
+    },
+    {
+      "path": "VALIDATION.md",
+      "bytes": 9890,
+      "sha256": "fd2a0b5aea5993d5b47d8d4573f8fc86f8328721429aa827a525e791a3612cb9"
+    },
+    {
+      "path": "app/build.gradle",
+      "bytes": 587,
+      "sha256": "cfbd2d7662ee527670948b0071af3d89b2e7cf28c785fafb4cc2c9f3bf84eaea"
+    },
+    {
+      "path": "app/src/main/AndroidManifest.xml",
+      "bytes": 1552,
+      "sha256": "8f5f3dc386a88ac73eca35ec77294f3d274ddbe267ce64e5a4184be41e257a87"
+    },
+    {
+      "path": "app/src/main/assets/fonts/PingFangSC-VF.ttf",
+      "bytes": 60364,
+      "sha256": "6ad793d8ba30cbbe76537efd92ed1493739a0a6295bab5292fc3549772e92538"
+    },
+    {
+      "path": "app/src/main/assets/fonts/SOURCE.txt",
+      "bytes": 399,
+      "sha256": "c3e7fa997ea3ed55a598e78df455a869354ccc6bb99cf389e08187c3dda7792d"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/BatteryAppearance.java",
+      "bytes": 8448,
+      "sha256": "db02f3f40e98d8f83934514b8b353140713c29aff662be4c8df49754ca665ab0"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/BatteryControls.java",
+      "bytes": 13727,
+      "sha256": "c64ee7e717b8de63544cbfafb10e2928c38e7fed9194a26ebf59229620cd201b"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/CarrierPanels.java",
+      "bytes": 1519,
+      "sha256": "04010d79b361e2ca1978699338d66869da5ebd4d82e77907aa18a71f6630e841"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/ChargeBolt.java",
+      "bytes": 3323,
+      "sha256": "903d490475d9814dda9d2fb9cae66e85ae4718043b61fc02b8acffb76303549c"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/ChargeCycle.java",
+      "bytes": 1787,
+      "sha256": "6a73a4c0e21e39982b073582e33b824997861a7546589767fa9751c56f27158f"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/ColorPickerDialog.java",
+      "bytes": 17792,
+      "sha256": "f6ee7d9a6b8e69c90068ae374ee5b0c23d9109800ce0e8a4b2e053e12e8ed3c6"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/ConfigTransfer.java",
+      "bytes": 22492,
+      "sha256": "c674c7193d854e1adf450b833c7644f194f81af1888447c650b69666d5a30d53"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/DiagnosticFileProvider.java",
+      "bytes": 2934,
+      "sha256": "ba58a98d6854193c930476d43b6c7a6f3ca930a0dced75a7dcf04e311a02cff8"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/FeatureOptions.java",
+      "bytes": 5359,
+      "sha256": "67ccc40b98fb124459ffd7343d1877fb6c402c55caa4f75cc988f9efbd4fb404"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/FontRepository.java",
+      "bytes": 6279,
+      "sha256": "0e8163c4da8348c61858a9e465a625b4361ff640dd0a11f6cea6b3332a7e0bef"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/GitHubUpdates.java",
+      "bytes": 13566,
+      "sha256": "c936184661277452f258a952edd085635835cfef26c74c3ea22d47b81083d1a2"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/HsbColor.java",
+      "bytes": 3672,
+      "sha256": "d3e6f7121189e9591f3a4f679f154b0167ac48b618445af114ff6bd7192fcc4c"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/IconAppearance.java",
+      "bytes": 1731,
+      "sha256": "1a133c9853579ec9860f0d83a42f04420fae454d2c7679ed5849e2642334fbb2"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/MainActivity.java",
+      "bytes": 73266,
+      "sha256": "efb777381cce487beac4c5fd4a175d0811336843aedd6981420d62d8f2e416e1"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/ModuleDiagnostics.java",
+      "bytes": 30813,
+      "sha256": "ecac79dd28809b9ef13e68baccbf84fc013a53801f3f60c94bda2e45a9c0daaa"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/NativeDataSource.java",
+      "bytes": 6020,
+      "sha256": "39ffaaf9a0ae28225a7db76765c93cfb2b42af8fcf06f946ff93ccea3cb9734d"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/NetworkBadgeControls.java",
+      "bytes": 4275,
+      "sha256": "02d8a7350eef28d15122cadda55af1a26724ad306b293b27ae3735fc5e0bbd9e"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/NetworkLabel.java",
+      "bytes": 1628,
+      "sha256": "510aa8bf1d359746ae2300e19df670ac7e534f92a76fd5ea819fad4bc371dd9f"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/NumericInput.java",
+      "bytes": 1365,
+      "sha256": "2a72107675aefd5d1721fc7276b177cfd3945a137c4f64ef8279889d966fb02c"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/NumericPolicy.java",
+      "bytes": 4390,
+      "sha256": "40d659758482c287d87e96296d1eb9ef2a55b3eb2b42437766b9105ecf9b0f29"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/OverflowControls.java",
+      "bytes": 5550,
+      "sha256": "63f20b379c1159056de9acb8100a2839d38d459e7a0c5240c582ff13bc0a979e"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/PuiBatteryStyle.java",
+      "bytes": 10395,
+      "sha256": "ab91e5203f0dffab7048455e38ad6f07b29264bb98b5e29de52738321aed4ac4"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/QsNativeGlassFill.java",
+      "bytes": 8613,
+      "sha256": "e44d1e50745834e0b21a452349f6ae77c51ed618a946b292cb3d8348c680cefb"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/QsTileAppearance.java",
+      "bytes": 23943,
+      "sha256": "564db5063eb10639ea7f2bbbe331cd8a7ef8ea604bcfeb8101f7a134e1b476b1"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/RadioState.java",
+      "bytes": 1541,
+      "sha256": "9a6019ec3da8f5c86c8a3a5bf05641000d10d1f8d523f456e6037d38583ed14c"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/SettingsProvider.java",
+      "bytes": 4371,
+      "sha256": "e3830d8ffd73c76e6c8687ba1e9dccd982bafbf704f0534b57b6e1b67d80d035"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/SignalResources.java",
+      "bytes": 1242,
+      "sha256": "4fe0930e91a6d32bcd88e00b0f4b04e4b5f92605a19781c90bf1f2d2387e959b"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/StatusBarModule.java",
+      "bytes": 136661,
+      "sha256": "bd6f8ff516ae2e6f7491ff5d7cda37df76586939298f7036657a93842e226a43"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/StatusBarSettings.java",
+      "bytes": 14987,
+      "sha256": "748b0594dbf013f68e705e5d8cb592cef4ab7e75b72ffbbc681f5f8edbddbc74"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/TextControls.java",
+      "bytes": 26418,
+      "sha256": "7d7799465b254e6788ef89d1e9fba51389aa8f70fc4b49729fc09beb306d8751"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/TilePageEffects.java",
+      "bytes": 34280,
+      "sha256": "67ef0fc9e8341a0bddacc2f0b918fca86cd3c888a5d60dd8238fe15b8aa9f2a2"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/TimeFormat.java",
+      "bytes": 4570,
+      "sha256": "e4bacc8b669b9cc43cd8538d971dec7bd573326414aa14092d36c321db1620fb"
+    },
+    {
+      "path": "app/src/main/java/dev/puitheme/WifiPlacement.java",
+      "bytes": 1914,
+      "sha256": "f4b37887d7eeaed6c9bd841c35e8b20767e5bb5aaf618af91a013e5f9936c616"
+    },
+    {
+      "path": "app/src/main/res/drawable/c17_pui_battery_bg.xml",
+      "bytes": 208084,
+      "sha256": "6eca32dfb83f0d6ec5e10dca240dc8875d157cee923dda589eb92bd8defc00db"
+    },
+    {
+      "path": "app/src/main/res/drawable/c17_pui_battery_frame.xml",
+      "bytes": 3484,
+      "sha256": "4a56eb73eafccc8f4cd104828beb7b2211a4ec6c732184c524862e57dffa696f"
+    },
+    {
+      "path": "app/src/main/res/drawable/c17_pui_battery_outer_bg.xml",
+      "bytes": 16103,
+      "sha256": "fab4282733c81e6bf09b9f05468bf35fa6ffb7add7b1f1415335df6c1aa0af48"
+    },
+    {
+      "path": "app/src/main/res/drawable/c17_pui_battery_outer_fill.xml",
+      "bytes": 460,
+      "sha256": "c93c6e273351bb25178f8e35de1f73415198e37d5d76003ed30796812bc1c6ab"
+    },
+    {
+      "path": "app/src/main/res/drawable/c17_signal_empty.xml",
+      "bytes": 289,
+      "sha256": "2e1cc5b32844393b181974638f127d9671ef3a003ea0b96e7448b7e0ce260c3e"
+    },
+    {
+      "path": "app/src/main/res/drawable/c17_signal_single_0.xml",
+      "bytes": 1086,
+      "sha256": "daf7b54c0339f1f470b3cf6cde6491933a67f9362f421b6e663eca00d2fc3aed"
+    },
+    {
+      "path": "app/src/main/res/drawable/c17_signal_single_1.xml",
+      "bytes": 1086,
+      "sha256": "c41afc32daaffe064f40a41f71c9d0d3a4be9e0b9364392beef2080daafc7510"
+    },
+    {
+      "path": "app/src/main/res/drawable/c17_signal_single_2.xml",
+      "bytes": 1086,
+      "sha256": "5fa982e4606a8aaefe98b35b865a18aab75850020553436c55661a81ff7bc7e3"
+    },
+    {
+      "path": "app/src/main/res/drawable/c17_signal_single_3.xml",
+      "bytes": 1086,
+      "sha256": "d6e266e48939392f6733399ba6347933b52188200a6f2ad7870a743340095999"
+    },
+    {
+      "path": "app/src/main/res/drawable/c17_signal_single_4.xml",
+      "bytes": 1086,
+      "sha256": "3566e0235df73b160e5fc8f77a4485161c728f65ba4691b75119510ced9af3cb"
+    },
+    {
+      "path": "app/src/main/res/drawable/c17_signal_single_noservice.xml",
+      "bytes": 1086,
+      "sha256": "daf7b54c0339f1f470b3cf6cde6491933a67f9362f421b6e663eca00d2fc3aed"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_pui_ios_statusbar.xml",
+      "bytes": 1337,
+      "sha256": "01375b68e1c0831c922dda46dc4904d1eac699dc95f45ebc4d3da8ebb47ec587"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_lte_signal_stacked_primary_0.xml",
+      "bytes": 1005,
+      "sha256": "b4c99370a19aa939afac10c5650fdeff35acec703f64c5f070f8ae683d487cb9"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_lte_signal_stacked_primary_1.xml",
+      "bytes": 1005,
+      "sha256": "1a2134036b2f4a74e065a8e2f8b4eecaa40e4b9b88233e112cd8ee4c3f8a781e"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_lte_signal_stacked_primary_2.xml",
+      "bytes": 1005,
+      "sha256": "df1a3b4e9a2b97da6cabb842fb293ee399f0bdea973abc40645a319bfd0b0c4b"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_lte_signal_stacked_primary_3.xml",
+      "bytes": 1005,
+      "sha256": "e3c5a4813cffd8755bde5fbcbec15bbdfd20c5f94f18aa3e48b01d882f791fbf"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_lte_signal_stacked_primary_4.xml",
+      "bytes": 1005,
+      "sha256": "6a6beae113cf9b2e53c2bab1f41173f2a31d81004142855fd2c89f5c994490e3"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_lte_signal_stacked_primary_noservice.xml",
+      "bytes": 1005,
+      "sha256": "b4c99370a19aa939afac10c5650fdeff35acec703f64c5f070f8ae683d487cb9"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_lte_signal_stacked_secondary_0.xml",
+      "bytes": 1021,
+      "sha256": "eec78393da44f45de0373b9bcbbbbf42b3bc87720113085ac2de80788dceb605"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_lte_signal_stacked_secondary_1.xml",
+      "bytes": 1021,
+      "sha256": "e16453ae7d8b9f73ff97fe3631982c88061b61c75f1f98d5716f62172e2aa090"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_lte_signal_stacked_secondary_2.xml",
+      "bytes": 1021,
+      "sha256": "39c73d93937833f9ea34f0572a5cb71d97cc8561aa4cdd2d29a88d246542936f"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_lte_signal_stacked_secondary_3.xml",
+      "bytes": 1021,
+      "sha256": "3c3f5b12946e5483a60b8073bb1063068b99c2792f8ffcf5a477bbdbdc25c187"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_lte_signal_stacked_secondary_4.xml",
+      "bytes": 1021,
+      "sha256": "677c4876d406faae23e0bfa16fb738478c4d1c497523d5acae37b02d356cab9b"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_lte_signal_stacked_secondary_noservice.xml",
+      "bytes": 1021,
+      "sha256": "eec78393da44f45de0373b9bcbbbbf42b3bc87720113085ac2de80788dceb605"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_soft_signal_stacked_primary_0.xml",
+      "bytes": 1005,
+      "sha256": "b4c99370a19aa939afac10c5650fdeff35acec703f64c5f070f8ae683d487cb9"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_soft_signal_stacked_primary_1.xml",
+      "bytes": 1005,
+      "sha256": "1a2134036b2f4a74e065a8e2f8b4eecaa40e4b9b88233e112cd8ee4c3f8a781e"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_soft_signal_stacked_primary_2.xml",
+      "bytes": 1005,
+      "sha256": "df1a3b4e9a2b97da6cabb842fb293ee399f0bdea973abc40645a319bfd0b0c4b"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_soft_signal_stacked_primary_3.xml",
+      "bytes": 1005,
+      "sha256": "e3c5a4813cffd8755bde5fbcbec15bbdfd20c5f94f18aa3e48b01d882f791fbf"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_soft_signal_stacked_primary_4.xml",
+      "bytes": 1005,
+      "sha256": "6a6beae113cf9b2e53c2bab1f41173f2a31d81004142855fd2c89f5c994490e3"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_soft_signal_stacked_primary_noservice.xml",
+      "bytes": 1005,
+      "sha256": "b4c99370a19aa939afac10c5650fdeff35acec703f64c5f070f8ae683d487cb9"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_soft_signal_stacked_secondary_0.xml",
+      "bytes": 1021,
+      "sha256": "eec78393da44f45de0373b9bcbbbbf42b3bc87720113085ac2de80788dceb605"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_soft_signal_stacked_secondary_1.xml",
+      "bytes": 1021,
+      "sha256": "e16453ae7d8b9f73ff97fe3631982c88061b61c75f1f98d5716f62172e2aa090"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_soft_signal_stacked_secondary_2.xml",
+      "bytes": 1021,
+      "sha256": "39c73d93937833f9ea34f0572a5cb71d97cc8561aa4cdd2d29a88d246542936f"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_soft_signal_stacked_secondary_3.xml",
+      "bytes": 1021,
+      "sha256": "3c3f5b12946e5483a60b8073bb1063068b99c2792f8ffcf5a477bbdbdc25c187"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_soft_signal_stacked_secondary_4.xml",
+      "bytes": 1021,
+      "sha256": "677c4876d406faae23e0bfa16fb738478c4d1c497523d5acae37b02d356cab9b"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_soft_signal_stacked_secondary_noservice.xml",
+      "bytes": 1021,
+      "sha256": "eec78393da44f45de0373b9bcbbbbf42b3bc87720113085ac2de80788dceb605"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_wifi_signal_0.xml",
+      "bytes": 894,
+      "sha256": "ffb8925aac7aeab8927903e846262686cd3739648c1bff9adf75fda51206b0e7"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_wifi_signal_0_os17.xml",
+      "bytes": 894,
+      "sha256": "ffb8925aac7aeab8927903e846262686cd3739648c1bff9adf75fda51206b0e7"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_wifi_signal_1.xml",
+      "bytes": 894,
+      "sha256": "5559a131077ed52692880d6b8ad1582aac91e75a14b6f9c305a95f4b91782918"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_wifi_signal_1_os17.xml",
+      "bytes": 894,
+      "sha256": "5559a131077ed52692880d6b8ad1582aac91e75a14b6f9c305a95f4b91782918"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_wifi_signal_2.xml",
+      "bytes": 894,
+      "sha256": "71d4edabfe5859652fadacde452f3a3ff93fcf120adee063cb18d59a2e204380"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_wifi_signal_2_os17.xml",
+      "bytes": 894,
+      "sha256": "71d4edabfe5859652fadacde452f3a3ff93fcf120adee063cb18d59a2e204380"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_wifi_signal_3.xml",
+      "bytes": 894,
+      "sha256": "c734f789b92ed4fcb4fe8a93a9f9aa38512f3f7ec5a53440c151f724f24ce4f9"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_wifi_signal_3_os17.xml",
+      "bytes": 894,
+      "sha256": "c734f789b92ed4fcb4fe8a93a9f9aa38512f3f7ec5a53440c151f724f24ce4f9"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_wifi_signal_4.xml",
+      "bytes": 894,
+      "sha256": "c734f789b92ed4fcb4fe8a93a9f9aa38512f3f7ec5a53440c151f724f24ce4f9"
+    },
+    {
+      "path": "app/src/main/res/drawable/stat_signal_wifi_signal_4_os17.xml",
+      "bytes": 894,
+      "sha256": "c734f789b92ed4fcb4fe8a93a9f9aa38512f3f7ec5a53440c151f724f24ce4f9"
+    },
+    {
+      "path": "app/src/main/res/values/public.xml",
+      "bytes": 3545,
+      "sha256": "02ef5880d1098d0910c57a084600454d220be1b11faa0c8522c0b5c7bd95cf21"
+    },
+    {
+      "path": "app/src/main/res/values/strings.xml",
+      "bytes": 255,
+      "sha256": "b9e08c60853b84b90011296ba2efce39c098f3a5703599a1a7490ccfc8aadb18"
+    },
+    {
+      "path": "app/src/main/res/values/styles.xml",
+      "bytes": 653,
+      "sha256": "2d4f5a958780c9f2acbc335fcb926aee1266001bca7a627e5cc88c0ca02c74c7"
+    },
+    {
+      "path": "app/src/main/resources/META-INF/xposed/java_init.list",
+      "bytes": 30,
+      "sha256": "efd0a6c2c89c7e7ac186ffb2a5f06016f300c6c5294a57f287157351328c17b9"
+    },
+    {
+      "path": "app/src/main/resources/META-INF/xposed/module.prop",
+      "bytes": 57,
+      "sha256": "fc9f7c5f2439b70c720e65311da91c438cbbe9b1005df70f8c4c7a49e49fa382"
+    },
+    {
+      "path": "app/src/main/resources/META-INF/xposed/scope.list",
+      "bytes": 22,
+      "sha256": "cac221f35afd426c8a5247ba3decdb803c01d6875e123db977ddd53b21efbef0"
+    },
+    {
+      "path": "build.gradle",
+      "bytes": 74,
+      "sha256": "e7a5596edbcb561bfe4a3b64be2dd7dd5d2c210c157ea78461964ad2e8e1915f"
+    },
+    {
+      "path": "docs/PUI-battery-evidence.md",
+      "bytes": 3415,
+      "sha256": "3c2a1005de7a3e70f363b68f2e9cb197fb0799f9ad528f3501b947de326ad160"
+    },
+    {
+      "path": "docs/RELEASE-1.14.0.en.md",
+      "bytes": 3984,
+      "sha256": "460b03cc49e4133ff5f0d1cc18488666339ab3a75e7a5a67adfef695fed15f92"
+    },
+    {
+      "path": "docs/RELEASE-1.14.0.zh-CN.md",
+      "bytes": 3578,
+      "sha256": "54908f8cc3bc40c26f8bf8224118ee3463cc5ff33e911513af84bfbacbfca728"
+    },
+    {
+      "path": "settings.gradle",
+      "bytes": 338,
+      "sha256": "5823edcdbcd3e069e0b85ddad4f2bf946e3715725b2013d7a7c076812667dfad"
+    },
+    {
+      "path": "validation/README.md",
+      "bytes": 862,
+      "sha256": "e45a57c7eda94dbfa39aae8cfd7a892e69ed2f1de19f94d849f3dae335ce1bb1"
+    },
+    {
+      "path": "validation/SettingsCheck.java",
+      "bytes": 4297,
+      "sha256": "d9f831d09cb9ecd4d07fa6ef8a6874a73e86d4d577a6a1304efb6fbf5dba2f1d"
+    },
+    {
+      "path": "validation/checks-src/android/content/Context.java",
+      "bytes": 505,
+      "sha256": "f5d57c84f7da3bf24f4da0daff76ddbf8b7abda6745c86b4e652e7ef547eb59d"
+    },
+    {
+      "path": "validation/checks-src/android/content/res/ColorStateList.java",
+      "bytes": 355,
+      "sha256": "744ba8669cec3a63bfa8ca610145db83d934fac7889ca58516c88f3f7218557f"
+    },
+    {
+      "path": "validation/checks-src/android/content/res/Configuration.java",
+      "bytes": 309,
+      "sha256": "9f831d91920e62bcdf5bec7f5c785943b01f7400101babad2202c23ff247b20c"
+    },
+    {
+      "path": "validation/checks-src/android/content/res/Resources.java",
+      "bytes": 954,
+      "sha256": "8b1aee0a87b4b953ee0f5691315e8a827e0a038a4cc8caa58e24f199d124ad93"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/Canvas.java",
+      "bytes": 4348,
+      "sha256": "904371dd870e1d8b380003eea2ce4c2afc0a214de803b82469f69aab8ecfdf11"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/Color.java",
+      "bytes": 382,
+      "sha256": "3756006ea22cbc4f19d72f0f04e49c99aefa5668cf2e9c9376182ecae11ae74d"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/ComposeShader.java",
+      "bytes": 553,
+      "sha256": "cf14df27a207758bf4f971856bd0c09370dc4e53ae10e65fa1685e5b6dd3914e"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/CornerPathEffect.java",
+      "bytes": 174,
+      "sha256": "14571105effaf3b3069de9acde011f1989c946fa978bcc5bc9ac8d9b1bc9fcc0"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/LinearGradient.java",
+      "bytes": 1079,
+      "sha256": "43d8e976a1db67abe0068484452090cbd982562d5d301f4c2631de1a55136977"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/Paint.java",
+      "bytes": 1845,
+      "sha256": "06fda18af71ba067ac4d2c1e0d761cc5d861d41a5e851f9fd9df583f2520a4c2"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/Path.java",
+      "bytes": 192,
+      "sha256": "c28c5d0875d2d052cb4b1e0dd7a3d1e32abdf3ab30c27ec6c01e8097f49f2a21"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/PathEffect.java",
+      "bytes": 54,
+      "sha256": "a94e116f82935119a452953d18733481c17299f1f41e8b677fa957365310caa8"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/PorterDuff.java",
+      "bytes": 127,
+      "sha256": "a3f6fc7c74297fc9488ea9494cdd3c124950ec7402c729833054ed08a9bd63cf"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/PorterDuffXfermode.java",
+      "bytes": 188,
+      "sha256": "fea031362b7d8b9ba791baef5e5795e3e1f2ebd3b5c0f45ee342eb062c35bc5e"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/RecordingCanvas.java",
+      "bytes": 178,
+      "sha256": "788042c92f53339d8877cdae62fcffbd23faaea797b815a874cef18dfb003e76"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/Rect.java",
+      "bytes": 537,
+      "sha256": "8cd7e1233862993254c42223e77e320be7e4f72b50c43ee0f9e7acdd502d5787"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/RectF.java",
+      "bytes": 417,
+      "sha256": "4b6a93f74e6edf0cdeb33f7e92a7191e98f114a2797c6a537a6d9921bfefe2c9"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/RenderEffect.java",
+      "bytes": 453,
+      "sha256": "de69b902c3f50499f3e0ef5328989dc01ec0713e720b2a00d7a1251c71f6fc5a"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/RenderNode.java",
+      "bytes": 1146,
+      "sha256": "02ebc009d3dcb50d475baff60d6ba12c24862eff87a1df4b2af16cd17ee2cbbc"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/RuntimeShader.java",
+      "bytes": 769,
+      "sha256": "8e6780dc174dfaea53213aa05b8164d3eb6ec61159c87a3ea8594d814292305a"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/Shader.java",
+      "bytes": 144,
+      "sha256": "bcffb8d63585797bfa29b136f055cc2f6cebadbb07d47325c20f2bb6b0f8a4b4"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/Typeface.java",
+      "bytes": 870,
+      "sha256": "07f6e48098f2286100208d0717620de948dbfc4f6e8288a3bf86aabbce011723"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/Xfermode.java",
+      "bytes": 52,
+      "sha256": "7f0ee03ac5c32a0ab178ef7df93727e88e0e729f7cb06e2c4ac76b21766cb1d6"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/drawable/ClipDrawable.java",
+      "bytes": 650,
+      "sha256": "1e1273a2df69d933ce416e93074b896b2c94e8b34c10314ae734049170929a16"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/drawable/Drawable.java",
+      "bytes": 1980,
+      "sha256": "475452592dc16132be40591f615cef003e088ad7506ba0b0ed986a1afe574922"
+    },
+    {
+      "path": "validation/checks-src/android/graphics/drawable/LayerDrawable.java",
+      "bytes": 905,
+      "sha256": "4de30e1b6a5dab33ad0f411d19b9510e21440f03d113764f9ebfaa35060ab5ad"
+    },
+    {
+      "path": "validation/checks-src/android/os/Build.java",
+      "bytes": 105,
+      "sha256": "41de6b64c42a96b09353eaa235455d9c8a211ba62e9ef07bfe5f26b9dc4c41e0"
+    },
+    {
+      "path": "validation/checks-src/android/os/Bundle.java",
+      "bytes": 820,
+      "sha256": "91a053f8ec24f00c43ed3191832aed10b5fa995f18251bacc85364da939e3ccc"
+    },
+    {
+      "path": "validation/checks-src/android/os/Handler.java",
+      "bytes": 477,
+      "sha256": "e25741678deb8d06b63d43a2529ae1c9d03e60167a6374ef8060fa3204b22c64"
+    },
+    {
+      "path": "validation/checks-src/android/os/Looper.java",
+      "bytes": 214,
+      "sha256": "ca32173f2760c27eb9c0b505f36c77567c26dabf86d28be8aac75fe6599d3257"
+    },
+    {
+      "path": "validation/checks-src/android/os/PowerManager.java",
+      "bytes": 95,
+      "sha256": "2ff16bd78e64845b717c973915e05ecde94911ae062b3354fabd5fd1008c9d00"
+    },
+    {
+      "path": "validation/checks-src/android/os/SystemClock.java",
+      "bytes": 139,
+      "sha256": "798c8db91e05a7aabf5160ed610dbfb3127b1e10c617062b293ce34a8edc15a7"
+    },
+    {
+      "path": "validation/checks-src/android/util/DisplayMetrics.java",
+      "bytes": 112,
+      "sha256": "a7bf94be1fc69f94bfade3b0b10725dc7e7f0841c180b428399064be313e593e"
+    },
+    {
+      "path": "validation/checks-src/android/util/Log.java",
+      "bytes": 632,
+      "sha256": "ec2ca7542fb32f1b7f736fb65dfd0887045fcb00c2977452ed6902c5972494a2"
+    },
+    {
+      "path": "validation/checks-src/android/view/View.java",
+      "bytes": 2828,
+      "sha256": "de84270329523fcc0b06737bb6c72cf21a7d2a731fd664752b96a399f271e211"
+    },
+    {
+      "path": "validation/checks-src/android/view/ViewGroup.java",
+      "bytes": 891,
+      "sha256": "fc4a5971e7206a6632409811ff19a3529b785fc8f2549f1c0199b7cd69f05a6f"
+    },
+    {
+      "path": "validation/checks-src/android/view/ViewParent.java",
+      "bytes": 78,
+      "sha256": "adbfa6d3b3948421fed7145faf06f200babddd7ae90e51ba088e73eafd1ab1af"
+    },
+    {
+      "path": "validation/checks-src/android/widget/ImageView.java",
+      "bytes": 386,
+      "sha256": "ffc55f993216c0f6a58ec22a6f940821b849e264b9d94e904429674a486346c5"
+    },
+    {
+      "path": "validation/checks-src/android/widget/TextView.java",
+      "bytes": 930,
+      "sha256": "db33e0aeac902e8722ae75bd27cca3f5568d96696c1c6524eb237adb92ba8a73"
+    },
+    {
+      "path": "validation/checks-src/com/android/keyguard/CarrierText.java",
+      "bytes": 183,
+      "sha256": "da6fbc7b318dd45398a6b9186bd2e437fc4da0c9899fa3b676e416312dbb3765"
+    },
+    {
+      "path": "validation/checks-src/com/android/systemui/statusbar/phone/KeyguardStatusBarView.java",
+      "bytes": 218,
+      "sha256": "095d5fe4486cdb74a2fb8e566697ba6983023f29bfcee7bb336b579f23ba3767"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/posteffect/agsl/BlurDrawableShaderBaseStringKt.java",
+      "bytes": 623,
+      "sha256": "8afe77f8a97425ce2910526616b7163f67eec3f0a0413e8e4971549def65d190"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/posteffect/agsl/DrawableShader.java",
+      "bytes": 1461,
+      "sha256": "7fb1ce16cfc0d75017c35f92ac582052eac4c24475aa18e894b65fe9358a9b81"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/posteffect/agsl/ShaderBlendParam.java",
+      "bytes": 167,
+      "sha256": "063eed423215c18e062a04f524039c9380e32234cf246f1a6c18c29eff8d09cd"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/posteffect/drawable/BlendDrawable.java",
+      "bytes": 763,
+      "sha256": "d1ece90390ec8529926a1a64dc1a047ab59dada55aa031f97139b4460f1616cf"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/systemui/plugins/qs/customize/view/tile/OplusQSResizeableTileView.java",
+      "bytes": 602,
+      "sha256": "bc888bd416fa0d1a9d0d855119f6b830049ffe09967cc2c6525c0d56aad88949"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/systemui/plugins/qs/customize/view/tile/OplusQSResizeableTileViewTwoXOne.java",
+      "bytes": 143,
+      "sha256": "220a1f7e5c1bc4e649f37d19d6abf50562256f1a443660ef173036163a39f051"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/systemui/qs/OplusQuickStatusBarHeader.java",
+      "bytes": 195,
+      "sha256": "3fde0729e78dc40293d95b877a258a7c99ef77fdb20985b5de5edcd4ab875fdb"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/systemui/qs/base/res/drawable/GradientTileDrawable.java",
+      "bytes": 734,
+      "sha256": "d32b648ae387c11c4d166fbe440d0c2d1b4147bb0615ee0fc47ed76db5cc90da"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/systemui/qs/base/res/drawable/MixColorTileDrawable.java",
+      "bytes": 873,
+      "sha256": "843d98e61ab4045e35681d2009b2afe15313f6ff8e3d20c152b10ab73872f505"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/systemui/qs/base/seek/OplusQsVerticalSeekBar.java",
+      "bytes": 516,
+      "sha256": "404a78e3ba0a9ddeeee5b0f7dda5e89ed9a8206968b5063a30d63ab513c948ee"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/systemui/qs/base/widget/recyclerview/ParallelCOUIRecyclerView.java",
+      "bytes": 2236,
+      "sha256": "eed7a0a824661556b0b90cc6f571c196caccad6db747c1ce8f9e6045aca7989c"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/systemui/qs/widget/OplusQSCarrierText.java",
+      "bytes": 189,
+      "sha256": "749b8306b0fa61a1c0f1f0c0095568e192b8d2adfb5aae3eb1dd441219614f28"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/systemui/qs/widget/OplusSecondCarrierText.java",
+      "bytes": 190,
+      "sha256": "57ca741693ef48fb865e400c94c982fd0ed4330eb52c15984b98e1eef04fa21d"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/systemui/separate/OplusQSSimpleHeader.java",
+      "bytes": 189,
+      "sha256": "22126a74d8858371f906784e0ae8cd0f5eed0a0df90b4315417e2ed1c7f9b606"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/systemui/statusbar/phone/signal/widget/OplusModernStatusBarWifiView.java",
+      "bytes": 894,
+      "sha256": "ea7d439bfefbc98f7ea1f697ac48e49ccdbba4f5ff8ee02f5491179e5d5150fa"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/systemui/statusbar/widget/OplusStatCarrierText.java",
+      "bytes": 225,
+      "sha256": "868420105e3093aaccc8625364517d4887444d12f8f356d56f1addfbac60bed5"
+    },
+    {
+      "path": "validation/checks-src/com/oplus/systemui/statusbar/widget/StatClock.java",
+      "bytes": 171,
+      "sha256": "506e99689e6cd2f06da9fa885e3ecf68b8f2953c7421d32782731ef8337ea286"
+    },
+    {
+      "path": "validation/checks-src/com/oplusos/systemui/common/blurability/drawable/AutoBlurDrawable.java",
+      "bytes": 781,
+      "sha256": "cbad27dee4a47e18a092368858e5d8fbf34eeb02446e21ec6a85bec0870244b4"
+    },
+    {
+      "path": "validation/checks-src/com/oplusos/systemui/common/blurability/platformblur/PlatformBlurDrawable.java",
+      "bytes": 497,
+      "sha256": "9b9e4d36bc0ecaad30ce765934b37ed8e830d7d580a8d0f74f8f2c968e13f2b6"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/AppearanceCheck.java",
+      "bytes": 4218,
+      "sha256": "e01d898bd9e5f2699ec6e27737744d27258620a85b72bbf6dd696ef3fcead8e7"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/BatteryAppearanceCheck.java",
+      "bytes": 12696,
+      "sha256": "ca3d627ea47a6b91c1c22f3a17ecc3885bf5bfea3a7074de49e5b2ca28eb47c4"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/BatteryControlsCheck.java",
+      "bytes": 10505,
+      "sha256": "bf3cb10e11b8f138ff39ae663a38a28c3c4d6f1c0aaba3bb27d870550364a728"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/CarrierPanelSettingsCheck.java",
+      "bytes": 14938,
+      "sha256": "4716c84bd7bdaee9e8cb7f4099bf7efc1249a6b4b3028aa1c8e37a814535bc12"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/CarrierPanelsCheck.java",
+      "bytes": 38631,
+      "sha256": "df14aa9e1479cc44b8471b949385d1ded974d0a951fd907286457a610ef2be03"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/ChargeCycleCheck.java",
+      "bytes": 3574,
+      "sha256": "082bd2e214435a5f4e71afb74ff48020aa3a18b90a4a9c5e29e0af51ca94b6f3"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/ConfigTransferCheck.java",
+      "bytes": 24663,
+      "sha256": "95506ad6c893c22858d1404bcbfa4b89a2350a11bf87bc4b4e71a599fc1d153e"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/DrawableSwitchCheck.java",
+      "bytes": 3900,
+      "sha256": "de1ef35c16164c861ba716aefe9ee586290c68fde89e7bea308ec68637c76e06"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/FeatureOptionsCheck.java",
+      "bytes": 5679,
+      "sha256": "f2dacaa5a08afd171ae553a2631adade80a1cd68da8f5a66162d57e317ded0ea"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/GitHubUpdatesCheck.java",
+      "bytes": 9512,
+      "sha256": "56018b013acebd02020484553bd7a1f9d80948cd9d6a7d66d853d6ebf5a85749"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/HsbColorCheck.java",
+      "bytes": 4690,
+      "sha256": "ef7023b343cb83353a675c2789671db50cd0b82ebec283c48827b22135019a52"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/LayoutCheck.java",
+      "bytes": 3262,
+      "sha256": "7518c1bc14baf62ea300058b717c06358c69f2c11d68a43ffe0971a4e39ea176"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/ModuleDiagnosticsCheck.java",
+      "bytes": 10478,
+      "sha256": "490b1a7aeedbd66065592188ed62c052d527eb8b1e10b733af3542afec3997c8"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/NativeDataSourceCheck.java",
+      "bytes": 5225,
+      "sha256": "0b3ea7036ba50424158641245cf6f6073246e2b0c2f48a8edad5e7ab7cffb9ed"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/NetworkBadgeCheck.java",
+      "bytes": 9742,
+      "sha256": "6e468f62c9450abe8cad98e8150417a510d460bd13b05579463725b71d654843"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/NetworkOverflowCheck.java",
+      "bytes": 4430,
+      "sha256": "9fdfa58f6874cf50a3748900dbe3eec19eef305a6af738319dcfdca22d6ad32f"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/NumericInputCheck.java",
+      "bytes": 3204,
+      "sha256": "ddaada5649693fa8d298549fc7f30bd3a4fb4575d6341444048350f2822a10ee"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/NumericPolicyCheck.java",
+      "bytes": 5581,
+      "sha256": "70cb7c6e45b9350e54157db7bb4cc3405c33fe5ae267fc024bcc12378024c26a"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/OverflowControlsCheck.java",
+      "bytes": 6562,
+      "sha256": "a288819d3a0ff1d3580929393e07ddc682f5b86111f9382002fe29815291a673"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/PuiBatteryStyleCheck.java",
+      "bytes": 7280,
+      "sha256": "0ab218b40a02a5fbe827ebb88b5e26707cac8d73ca65e40700d5e9584f7f647a"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/QsTileAppearanceCheck.java",
+      "bytes": 13122,
+      "sha256": "5c33a610978dca077159e0a30efa7b2e393bda18b1a86588acabd2743bf58203"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/RadioStateCheck.java",
+      "bytes": 3367,
+      "sha256": "46812f66d5a15c6d69a4bd88c5681c2d1f7ad6c085d88870ad1cb7bc01e60dfc"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/SceneAppearanceCheck.java",
+      "bytes": 3790,
+      "sha256": "de7148ab9a52e6d35b8e95463092c890fcd532e200fac89309cdc4f3a107916c"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/TextControlsCheck.java",
+      "bytes": 5337,
+      "sha256": "456fddeaf43e17bb5ebae425fe53287b369977e10ff4fe89abfc206cf71d477d"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/TilePageEffectsCheck.java",
+      "bytes": 34813,
+      "sha256": "23c29eadf0561ddef8a675d5f0055225ff5165dbdcaef5b978460d1a793c575e"
+    },
+    {
+      "path": "validation/checks-src/dev/puitheme/TimeSignalCheck.java",
+      "bytes": 5001,
+      "sha256": "506c776a9eeff59679fc0c364e1b05e38062dbb24ad084cbbd85b9da5cd7c0a7"
+    },
+    {
+      "path": "validation/checks-src/kotlinx/coroutines/flow/StateFlow.java",
+      "bytes": 81,
+      "sha256": "9bed91a4896383214b05914d7df8ab748d26efaab30838e472765329f52ce15d"
+    },
+    {
+      "path": "validation/native-canvas/ChargeBoltRenderCheck.java",
+      "bytes": 6492,
+      "sha256": "54ff9609261744f435a0851b249d68fa0040ed90e82c8620d2d102cc07937839"
+    },
+    {
+      "path": "validation/native-canvas/README.md",
+      "bytes": 653,
+      "sha256": "a5b097e43707dbf4ab27f17d8636dcb15ad4bbe1ad4352def4f7d0b2593c0102"
+    },
+    {
+      "path": "validation/run-checks.ps1",
+      "bytes": 1899,
+      "sha256": "281af90ca398cc7b97b539230ff15c59935553520bae0803864ef4868ee4a21d"
+    },
+    {
+      "path": "validation/test-libs/README.md",
+      "bytes": 428,
+      "sha256": "f95b2440a655e72e0372cd75af84da4f6e21ec37dee59ce3547b40e658bf877b"
+    },
+    {
+      "path": "validation/test-libs/json-20240303.jar",
+      "bytes": 78332,
+      "sha256": "3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed"
+    },
+    {
+      "path": "validation/verify_font_reference.py",
+      "bytes": 1928,
+      "sha256": "a629cf00548a7f1b75520924444c3d7406fc31d587665a73453f8aaa1c99f064"
+    }
+  ]
+}

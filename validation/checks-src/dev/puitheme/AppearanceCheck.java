@@ -70,7 +70,8 @@ public final class AppearanceCheck {
         equal(6.25f, call("clamp", new Class<?>[]{float.class,float.class,float.class}, 6.25f,-80f,80f));
         equal(-80f, call("clamp", new Class<?>[]{float.class,float.class,float.class}, -100f,-80f,80f));
         equal(80f, call("clamp", new Class<?>[]{float.class,float.class,float.class}, 100f,-80f,80f));
-        String[] expected = {"", "2G", "2G", "3G", "2G", "3G", "3G", "2G", "3G", "3G", "3G", "2G", "3G", "4G", "3G", "3G", "2G", "3G", "4G", "4G", "5G"};
+        // IWLAN is Wi-Fi calling and must not manufacture a cellular 4G fallback.
+        String[] expected = {"", "2G", "2G", "3G", "2G", "3G", "3G", "2G", "3G", "3G", "3G", "2G", "3G", "4G", "3G", "3G", "2G", "3G", "", "4G", "5G"};
         for (int type = 0; type < expected.length; type++) equal(expected[type], call("labelForNetworkType", new Class<?>[]{int.class}, type));
         System.out.println(checks + " checks passed (compiled color policy, opacity, backend isolation, radio states, bounds)");
     }

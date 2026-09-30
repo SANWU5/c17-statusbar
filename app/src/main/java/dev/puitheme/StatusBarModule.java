@@ -27,11 +27,15 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.telephony.TelephonyManager;
+import android.telephony.TelephonyCallback;
+import android.telephony.TelephonyDisplayInfo;
+import android.telephony.ServiceState;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.LayoutInflater;
 import android.widget.TextView;
+import android.widget.ImageView;
 import android.util.TypedValue;
 import java.lang.reflect.Field;
 import io.github.libxposed.api.XposedInterface;
@@ -67,6 +71,7 @@ public final class StatusBarModule extends XposedModule {
     private static volatile boolean composeStatusBar;
     private static volatile boolean composeRenderingReady;
     private static volatile boolean networkObserverRegistered;
+    private static boolean wifiNetworkObserverRegistered, defaultNetworkObserverRegistered;
     private static volatile boolean airplaneMode;
     private static Context context;
     private static Method getActiveDataSubId;
@@ -98,27 +103,43 @@ public final class StatusBarModule extends XposedModule {
     private static volatile float speedScalePercent = 100, speedNumberScalePercent = 100, speedUnitScalePercent = 100;
     private static volatile Map<String, Integer> styleColors = StatusBarSettings.COLOR_DEFAULTS;
     private static volatile Map<String, Boolean> customColorAlpha = Collections.emptyMap();
+    private static volatile FeatureOptions FEATURES = FeatureOptions.from(Collections.emptyMap());
     private static volatile boolean singleSignal;
     private static volatile int speedWeight = 600;
     private static Field speedNumberField, speedUnitField;
     private static final Map<View, SpeedStyle> SPEED_VIEWS = Collections.synchronizedMap(new WeakHashMap<>());
     private static final class SpeedStyle {
         float numberSize, unitSize;
+        float appliedNumberSize, appliedUnitSize;
+        float numberY, unitY;
+        float appliedNumberY, appliedUnitY;
+        boolean gapCaptured, tintCaptured;
         int nativeTint = Color.BLACK;
         Typeface numberFace, unitFace, appliedNumberFace, appliedUnitFace;
     }
     private static volatile int fontWeight = StatusBarSettings.DEFAULT_FONT_WEIGHT;
     private static volatile String networkLabel = "";
     private static volatile boolean wifiConnected;
+    private static final Map<View,WeakReference<Object>> NATIVE_WIFI=Collections.synchronizedMap(new WeakHashMap<>());
+    private static Method nativeWifiFlow;
+    private static Class<?> nativeWifiIconClass,nativeWifiVisibleClass;
+    private static int observedDataSub=-1;
+    private static TelephonyManager observedTelephony;
+    private static DataRadioCallback dataRadioCallback;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final TextControls TEXT = new TextControls(MAIN);
+    private static final TilePageEffects TILE_EFFECTS = new TilePageEffects();
+    private static final QsTileAppearance QS_APPEARANCE = new QsTileAppearance();
+    private static boolean tileDispatchLogged, tileScrollLogged, tileStateLogged;
+    private static final NetworkBadgeControls BADGES = new NetworkBadgeControls(MAIN);
+    private static final Map<View,String> OVERFLOW_OWNERS=Collections.synchronizedMap(new WeakHashMap<>());
     private static volatile BatteryControls BATTERY;
     private static final Map<View, Slot> SLOTS = Collections.synchronizedMap(new WeakHashMap());
     private static final Map<Integer, WeakReference<Object>> MODELS = new HashMap();
     private static final Object REFRESH_LOCK = new Object();
     private static final Object SYSTEMUI_HOOK_LOCK = new Object();
     private enum HookGroup {
-        CONTEXT, MODEL, DRAWABLE, BADGE, WIFI, SPEED, COMPOSE, TEXT, BATTERY
+        CONTEXT, MODEL, DRAWABLE, BADGE, WIFI, SPEED, COMPOSE, TEXT, BATTERY, TILES, QS_APPEARANCE
     }
     private static final Set<HookGroup> COMPLETED_HOOK_GROUPS = EnumSet.noneOf(HookGroup.class);
     private static final Map<HookGroup, Set<Executable>> INSTALLED_HOOKS = new EnumMap<>(HookGroup.class);
@@ -153,10 +174,15 @@ public final class StatusBarModule extends XposedModule {
 
     private static final class ScaledDrawable extends Drawable implements Drawable.Callback {
         private Drawable delegate;
+        private Drawable styled;
+        private final Drawable nativeDrawable;
         private String sourceName, assetName;
         private Resources baseResources;
         private int nativeAlpha = 255;
         private ColorFilter nativeFilter;
+        private ColorStateList nativeTintList;
+        private boolean nativeTintSet;
+        private PorterDuff.Mode nativeTintMode;
         private final float density;
         private final boolean wifiIcon;
         private final int originalWidth;
@@ -167,7 +193,13 @@ public final class StatusBarModule extends XposedModule {
         private boolean tintApplied;
 
         ScaledDrawable(Drawable drawable, Resources resources, boolean z) {
+            this(drawable, resources, z, null);
+        }
+
+        ScaledDrawable(Drawable drawable, Resources resources, boolean z, Drawable nativeDrawable) {
             this.delegate = drawable;
+            this.styled = drawable;
+            this.nativeDrawable = nativeDrawable;
             this.density = resources.getDisplayMetrics().density;
             this.wifiIcon = z;
             this.originalWidth = Math.max(1, drawable.getIntrinsicWidth());
@@ -177,38 +209,51 @@ public final class StatusBarModule extends XposedModule {
         }
 
         void reloadSignal() {
-            if (sourceName == null || wifiIcon) return;
+            if (sourceName == null || wifiIcon) { chooseDelegate(); return; }
             String name = SignalResources.moduleName(sourceName, singleSignal);
-            if (name == null || name.equals(assetName)) return;
+            if (name == null || name.equals(assetName)) { chooseDelegate(); return; }
             Drawable replacement = loadModuleDrawable(name, baseResources);
             if (replacement == null) return;
-            delegate.setCallback(null);
-            delegate = replacement; assetName = name;
-            delegate.setCallback(this);
-            delegate.setState(getState()); delegate.setLevel(getLevel());
-            delegate.setAlpha(nativeAlpha); delegate.setColorFilter(nativeFilter);
-            tintApplied = false; setDelegateBounds(getBounds());
+            styled = replacement; assetName = name;
+            chooseDelegate(); tintApplied = false;
+        }
+
+        private void chooseDelegate() {
+            String group=wifiIcon?"wifi":"data";
+            Drawable wanted=FEATURES.effective(group,group+"_icon_enabled")||nativeDrawable==null?styled:nativeDrawable;
+            if(delegate==wanted)return;
+            delegate.setCallback(null);delegate=wanted;delegate.setCallback(this);
+            delegate.setState(getState());delegate.setLevel(getLevel());delegate.setAlpha(nativeAlpha);
+            restoreNativeFilter();setDelegateBounds(getBounds());tintApplied=false;
+        }
+        private void restoreNativeFilter() {
+            if(nativeTintList!=null)delegate.setTintList(nativeTintList);
+            else if(nativeTintSet)delegate.setTint(nativeTint);
+            else delegate.setTintList(null);
+            if(nativeTintMode!=null)delegate.setTintMode(nativeTintMode);
+            delegate.setColorFilter(nativeFilter);
         }
 
         @Override // android.graphics.drawable.Drawable
         public void draw(Canvas canvas) {
+            chooseDelegate();
             Rect bounds = getBounds();
             float centerX = bounds.exactCenterX();
             float centerY = bounds.exactCenterY();
             float offsetX = this.composePlacement ? 0 : (this.wifiIcon ? StatusBarModule.wifiOffsetXdp : StatusBarModule.dataOffsetXdp);
             float offsetY = this.composePlacement ? 0 : (this.wifiIcon ? StatusBarModule.wifiOffsetYdp : StatusBarModule.dataOffsetYdp);
             float scalePercent = this.composePlacement ? 100 : (this.wifiIcon ? StatusBarModule.wifiIconScalePercent : StatusBarModule.dataIconScalePercent);
-            if (!this.composePlacement) {
+            if (!this.composePlacement && FEATURES.color(wifiIcon ? "wifi" : "data")) {
                 int tint = styleColor(this.wifiIcon ? "wifi" : "data", this.nativeTint);
                 if (!this.tintApplied || this.appliedTint != tint) {
                     this.tintApplied = true;
                     this.appliedTint = tint;
                     this.delegate.setColorFilter(tint, PorterDuff.Mode.SRC_IN);
                 }
-            }
+            } else if(tintApplied) { restoreNativeFilter(); tintApplied=false; }
             int iSave = canvas.save();
-            float scale = scalePercent / 100.0f;
-            canvas.translate(centerX + (offsetX * this.density), centerY + (offsetY * this.density));
+            float scale = NumericPolicy.scale(scalePercent / 100.0f,Math.max(bounds.width(),bounds.height()));
+            canvas.translate(NumericPolicy.pixels((double)centerX+NumericPolicy.pixels(offsetX,this.density)),NumericPolicy.pixels((double)centerY+NumericPolicy.pixels(offsetY,this.density)));
             canvas.scale(scale, scale);
             canvas.translate(-centerX, -centerY);
             setDelegateBounds(bounds);
@@ -224,9 +269,10 @@ public final class StatusBarModule extends XposedModule {
         private void setDelegateBounds(Rect outerBounds) {
             int centerX = Math.round(outerBounds.exactCenterX());
             int centerY = Math.round(outerBounds.exactCenterY());
-            int left = centerX - (this.originalWidth / 2);
-            int top = centerY - (this.originalHeight / 2);
-            this.delegate.setBounds(left, top, left + this.originalWidth, top + this.originalHeight);
+            int width=Math.max(1,delegate.getIntrinsicWidth()),height=Math.max(1,delegate.getIntrinsicHeight());
+            int left = centerX - (width / 2);
+            int top = centerY - (height / 2);
+            this.delegate.setBounds(left, top, left + width, top + height);
         }
 
         @Override // android.graphics.drawable.Drawable
@@ -247,26 +293,30 @@ public final class StatusBarModule extends XposedModule {
         @Override // android.graphics.drawable.Drawable
         public int getIntrinsicWidth() {
             // A drawing offset must not change the neighboring label's layout anchor.
-            return this.originalWidth;
+            chooseDelegate();return Math.max(1,delegate.getIntrinsicWidth());
         }
 
         @Override // android.graphics.drawable.Drawable
         public int getIntrinsicHeight() {
-            return this.composePlacement ? Math.round(ICON_SLOT_DP * this.density) : this.originalHeight;
+            chooseDelegate();return this.composePlacement && FEATURES.enabled(wifiIcon?"wifi":"data")
+                    ? Math.round(ICON_SLOT_DP * this.density) : Math.max(1,delegate.getIntrinsicHeight());
         }
 
         @Override // android.graphics.drawable.Drawable
         public int getMinimumWidth() {
+            chooseDelegate();
             return this.delegate.getMinimumWidth();
         }
 
         @Override // android.graphics.drawable.Drawable
         public int getMinimumHeight() {
+            chooseDelegate();
             return this.delegate.getMinimumHeight();
         }
 
         @Override // android.graphics.drawable.Drawable
         public int getOpacity() {
+            chooseDelegate();
             return this.delegate.getOpacity();
         }
 
@@ -288,11 +338,15 @@ public final class StatusBarModule extends XposedModule {
 
         @Override public void setTint(int color) {
             this.nativeTint = color;
+            nativeTintSet=true;nativeTintList=null;
             this.tintApplied = false;
+            this.delegate.setTint(color);
             invalidateSelf();
         }
 
         @Override public void setTintList(ColorStateList colors) {
+            nativeTintList=colors;
+            nativeTintSet=false;
             if (colors != null) this.nativeTint = colors.getColorForState(getState(), colors.getDefaultColor());
             this.tintApplied = false;
             this.delegate.setTintList(colors);
@@ -301,12 +355,14 @@ public final class StatusBarModule extends XposedModule {
 
         @Override // android.graphics.drawable.Drawable
         public void setTintMode(PorterDuff.Mode mode) {
+            nativeTintMode=mode;
             this.delegate.setTintMode(mode);
             invalidateSelf();
         }
 
         @Override // android.graphics.drawable.Drawable
         public boolean getPadding(Rect rect) {
+            chooseDelegate();
             return this.delegate.getPadding(rect);
         }
 
@@ -328,15 +384,15 @@ public final class StatusBarModule extends XposedModule {
 
     @Override
     public void onModuleLoaded(XposedModuleInterface.ModuleLoadedParam param) {
-        log(Log.INFO, TAG, "Module entry reached");
+        moduleLog(Log.INFO, TAG, "Module entry reached");
         frameworkLogger = this;
         try {
-            log(Log.INFO, TAG, "Module loaded: process=" + param.getProcessName()
+            moduleLog(Log.INFO, TAG, "Module loaded: process=" + param.getProcessName()
                     + " api=" + getApiVersion()
                     + " framework=" + getFrameworkName()
                     + " version=" + getFrameworkVersion());
         } catch (Throwable error) {
-            log(Log.ERROR, TAG, "Could not read framework details after module entry", error);
+            moduleLog(Log.ERROR, TAG, "Could not read framework details after module entry", error);
         }
     }
 
@@ -356,15 +412,15 @@ public final class StatusBarModule extends XposedModule {
 
     private void installSystemUiHooks(ClassLoader classLoader, String phase) {
         if (classLoader == null) {
-            log(Log.WARN, TAG, "SystemUI callback had no class loader at " + phase);
+            moduleLog(Log.WARN, TAG, "SystemUI callback had no class loader at " + phase);
             return;
         }
         synchronized (SYSTEMUI_HOOK_LOCK) {
             if (COMPLETED_HOOK_GROUPS.size() == HookGroup.values().length) {
-                log(Log.INFO, TAG, "All SystemUI hook groups already installed at " + phase);
+                moduleLog(Log.INFO, TAG, "All SystemUI hook groups already installed at " + phase);
                 return;
             }
-            log(Log.INFO, TAG, "Installing unfinished SystemUI hook groups at " + phase);
+            moduleLog(Log.INFO, TAG, "Installing unfinished SystemUI hook groups at " + phase);
             try {
                 if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.CONTEXT) && installSystemUiContextHook(classLoader)) {
                     COMPLETED_HOOK_GROUPS.add(HookGroup.CONTEXT);
@@ -393,10 +449,16 @@ public final class StatusBarModule extends XposedModule {
                 if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.BATTERY) && installBatteryControls(classLoader)) {
                     COMPLETED_HOOK_GROUPS.add(HookGroup.BATTERY);
                 }
+                if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.TILES) && installTilePageEffects(classLoader)) {
+                    COMPLETED_HOOK_GROUPS.add(HookGroup.TILES);
+                }
+                if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.QS_APPEARANCE) && installQsAppearance(classLoader)) {
+                    COMPLETED_HOOK_GROUPS.add(HookGroup.QS_APPEARANCE);
+                }
                 int priority = COMPLETED_HOOK_GROUPS.size() == HookGroup.values().length ? Log.INFO : Log.WARN;
-                log(priority, TAG, "SystemUI hook groups after " + phase + ": " + COMPLETED_HOOK_GROUPS);
+                moduleLog(priority, TAG, "SystemUI hook groups after " + phase + ": " + COMPLETED_HOOK_GROUPS);
             } catch (Throwable error) {
-                log(Log.ERROR, TAG, "SystemUI hook setup failed at " + phase, error);
+                moduleLog(Log.ERROR, TAG, "SystemUI hook setup failed at " + phase, error);
             }
         }
     }
@@ -417,6 +479,7 @@ public final class StatusBarModule extends XposedModule {
     }
 
     private static void logFrameworkStage(int priority, String message) {
+        ModuleDiagnostics.info("systemui", diagnosticMessage(message));
         StatusBarModule logger = frameworkLogger;
         if (logger != null) {
             logger.log(priority, TAG, message);
@@ -426,12 +489,31 @@ public final class StatusBarModule extends XposedModule {
     }
 
     private static void logFrameworkStage(int priority, String message, Throwable error) {
+        ModuleDiagnostics.error("systemui", diagnosticMessage(message), error);
         StatusBarModule logger = frameworkLogger;
         if (logger != null) {
             logger.log(priority, TAG, message, error);
         } else {
             Log.println(priority, TAG, message + '\n' + Log.getStackTraceString(error));
         }
+    }
+
+    private void moduleLog(int priority, String tag, String message) {
+        ModuleDiagnostics.info("hooks", diagnosticMessage(message));
+        super.log(priority, tag, message);
+    }
+
+    private void moduleLog(int priority, String tag, String message, Throwable error) {
+        ModuleDiagnostics.error("hooks", diagnosticMessage(message), error);
+        super.log(priority, tag, message, error);
+    }
+
+    private static String diagnosticMessage(String message) {
+        if (message != null && message.startsWith("Radio changed:"))
+            return "Native network state refreshed; WiFi icon " + (message.contains("wifiVisible=true") ? "visible" : "hidden")
+                    + "; airplane mode " + (message.contains("airplane=true") ? "on" : "off");
+        return message != null && message.startsWith("Active data label updated:")
+                ? "Active data label refreshed from native network state" : message;
     }
 
     private boolean installBatteryControls(ClassLoader loader) {
@@ -458,6 +540,9 @@ public final class StatusBarModule extends XposedModule {
                 if (controller.drawContent((Drawable) chain.getThisObject(), (Canvas) chain.getArg(0),
                         (android.graphics.RectF) chain.getArg(1))) return null;
                 return chain.proceed();
+            });
+            installHook(HookGroup.BATTERY,horizontal.getDeclaredMethod("draw",Canvas.class),chain->{
+                controller.prepareDraw((Drawable)chain.getThisObject());return chain.proceed();
             });
             for (String event : new String[]{"onAttachedToWindow", "onDetachedFromWindow"}) {
                 final boolean attached = event.equals("onAttachedToWindow");
@@ -509,10 +594,137 @@ public final class StatusBarModule extends XposedModule {
             readStyleSettings();
             return true;
         } catch (ClassNotFoundException unsupported) {
-            log(Log.INFO, TAG, "Native battery adaptation unavailable on this SystemUI; preserving its battery");
+            moduleLog(Log.INFO, TAG, "Native battery adaptation unavailable on this SystemUI; preserving its battery");
             return true;
         } catch (Throwable error) {
-            log(Log.ERROR, TAG, "Could not install native battery content controls", error);
+            moduleLog(Log.ERROR, TAG, "Could not install native battery content controls", error);
+            return false;
+        }
+    }
+
+    private boolean installQsAppearance(ClassLoader loader) {
+        boolean found=false;
+        try {
+            for(String name:new String[]{"com.oplus.systemui.qs.base.res.drawable.MixColorTileDrawable",
+                    "com.oplus.systemui.qs.base.res.drawable.StateListTileDrawable",
+                    "com.oplus.systemui.qs.base.res.drawable.GradientTileDrawable"}) try {
+                Class<?> type=loader.loadClass(name);Method draw=type.getDeclaredMethod("draw",Canvas.class);deoptimize(draw);
+                installHook(HookGroup.QS_APPEARANCE,draw,chain->{
+                    QS_APPEARANCE.drawTile((Drawable)chain.getThisObject(),(Canvas)chain.getArg(0),canvas->chain.proceed(new Object[]{canvas}));return null;
+                });found=true;
+            } catch(ClassNotFoundException|NoSuchMethodException unsupported) { }
+            for(String name:new String[]{"com.oplusos.systemui.common.blurability.drawable.AutoBlurDrawable",
+                    "com.oplus.posteffect.drawable.BlendDrawable"}) try {
+                Class<?> type=loader.loadClass(name);boolean glass=name.endsWith(".BlendDrawable");
+                Method draw=type.getDeclaredMethod(glass?"onDrawContent":"draw",Canvas.class);deoptimize(draw);
+                installHook(HookGroup.QS_APPEARANCE,draw,chain->{
+                    Drawable drawable=(Drawable)chain.getThisObject();Canvas canvas=(Canvas)chain.getArg(0);
+                    if(glass)QS_APPEARANCE.drawGlassContent(drawable,canvas,target->chain.proceed(new Object[]{target}));
+                    else QS_APPEARANCE.drawBlur(drawable,canvas,target->chain.proceed(new Object[]{target}));
+                    return null;
+                });found=true;
+            } catch(ClassNotFoundException|NoSuchMethodException unsupported) { }
+            for(String name:new String[]{"com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar",
+                    "com.coui.appcompat.seekbar.COUIVerticalSeekBar"}) try {
+                Class<?> type=loader.loadClass(name);String methodName=name.startsWith("com.oplus.")?"drawActiveMixColorTrack":"drawActiveTrack";
+                Method draw=type.getDeclaredMethod(methodName,Canvas.class);deoptimize(draw);
+                for(Method caller:type.getDeclaredMethods())if(caller.getName().equals("onDraw"))deoptimize(caller);
+                installHook(HookGroup.QS_APPEARANCE,draw,chain->{
+                    QS_APPEARANCE.drawSlider((View)chain.getThisObject(),(Canvas)chain.getArg(0),canvas->chain.proceed(new Object[]{canvas}));return null;
+                });found=true;
+            } catch(ClassNotFoundException|NoSuchMethodException unsupported) { }
+            for(String name:new String[]{"com.oplus.systemui.plugins.qs.customize.view.tile.OplusQSResizeableTileView",
+                    "com.oplus.systemui.plugins.qs.customize.view.tile.OplusQSResizeableTileViewOneXOne",
+                    "com.oplus.systemui.plugins.qs.customize.view.tile.OplusQSResizeableTileViewTwoXOne",
+                    "com.oplus.systemui.plugins.qs.customize.view.tile.OplusQSResizeableTileViewTwoXTwo"}) try {
+                Class<?> type=loader.loadClass(name);
+                for(Method event:type.getDeclaredMethods()) {
+                    String eventName=event.getName();boolean detach=eventName.equals("onRecycle")||eventName.equals("onDetachedFromWindow");
+                    boolean refresh=eventName.equals("onStateChanged")||eventName.equals("setStateImmediately")||eventName.equals("onAttachedToWindow")
+                            ||eventName.equals("onThemeApplied")||eventName.equals("onConfigurationChanged")||eventName.equals("onQsColorStateChanged")||eventName.equals("onDrawableUpdate");
+                    if(!detach&&!refresh)continue;deoptimize(event);
+                    installHook(HookGroup.QS_APPEARANCE,event,chain->{Object result=chain.proceed();View owner=(View)chain.getThisObject();
+                        if(detach)QS_APPEARANCE.detach(owner);else QS_APPEARANCE.refreshTile(owner);return result;
+                    });
+                }
+            } catch(ClassNotFoundException unsupported) { }
+            moduleLog(Log.INFO,TAG,found?"QS background and active track appearance hooks installed":"QS appearance unavailable; preserving native backgrounds");
+            return true;
+        } catch(Throwable error) {moduleLog(Log.ERROR,TAG,"Could not install QS background appearance",error);return false;}
+    }
+
+    private boolean installTilePageEffects(ClassLoader loader) {
+        boolean drawing = false;
+        try {
+            for (String name : new String[]{
+                    "com.oplus.systemui.qs.base.widget.recyclerview.ParallelCOUIRecyclerView",
+                    "androidx.viewpager.widget.ViewPager"}) try {
+                Class<?> target = loader.loadClass(name);
+                Method dispatch = target.getDeclaredMethod("dispatchDraw", Canvas.class);
+                deoptimize(dispatch);
+                installHook(HookGroup.TILES, dispatch, chain -> {
+                    View view = (View) chain.getThisObject();
+                    if (!tileDispatchLogged) { tileDispatchLogged = true;
+                        moduleLog(Log.INFO, TAG, "Tile dispatch source: " + view.getClass().getName()); }
+                    if (!TILE_EFFECTS.identifies(view)) return chain.proceed();
+                    TILE_EFFECTS.draw(view, (Canvas) chain.getArg(0),
+                            canvas -> { chain.proceed(new Object[]{canvas}); });
+                    return null;
+                });
+                drawing = true;
+            } catch (ClassNotFoundException | NoSuchMethodException unsupported) { }
+            try {
+                Class<?> manager = loader.loadClass("com.oplus.systemui.qs.base.widget.recyclerview.StaggeredPagerLayoutManager");
+                Method owner = manager.getMethod("getRecyclerView");
+                for (Method caller : manager.getDeclaredMethods())
+                    if (caller.getName().matches("scrollHorizontallyBy|scrollHorizontallyInternal|scrollVerticallyBy|scrollVerticallyInternal"))
+                        deoptimize(caller);
+                Method page = manager.getDeclaredMethod("onPageScrolled");
+                deoptimize(page);
+                installHook(HookGroup.TILES, page, chain -> {
+                    Object result = chain.proceed();
+                    if (!tileScrollLogged) { tileScrollLogged = true;
+                        moduleLog(Log.INFO, TAG, "Tile page scroll callback: " + chain.getThisObject().getClass().getName()); }
+                    TILE_EFFECTS.onLayoutManagerScroll(chain.getThisObject());
+                    return result;
+                });
+                Method state = manager.getDeclaredMethod("onScrollStateChanged", Integer.TYPE);
+                deoptimize(state);
+                installHook(HookGroup.TILES, state, chain -> {
+                    Object result = chain.proceed();
+                    Object view = owner.invoke(chain.getThisObject());
+                    if (!tileStateLogged && view instanceof View) { tileStateLogged = true;
+                        moduleLog(Log.INFO, TAG, "Tile paging owner: " + view.getClass().getName() + " state=" + chain.getArg(0)); }
+                    if (view instanceof View) TILE_EFFECTS.onScrollState((View) view, (Integer) chain.getArg(0));
+                    return result;
+                });
+            } catch (ClassNotFoundException | NoSuchMethodException unsupported) { }
+            for (String name : new String[]{"com.android.systemui.qs.deprecated.PagedTileLayout", "com.android.systemui.qs.PagedTileLayout"}) try {
+                Class<?> target = loader.loadClass(name);
+                for (Method event : target.getDeclaredMethods()) {
+                    if (event.getName().equals("onPageScrolled") && event.getParameterCount() == 3
+                            && event.getParameterTypes()[1] == Float.TYPE) {
+                        deoptimize(event);
+                        installHook(HookGroup.TILES, event, chain -> {
+                            Object result = chain.proceed();
+                            TILE_EFFECTS.onPageScroll((View) chain.getThisObject(), (Float) chain.getArg(1));
+                            return result;
+                        });
+                    } else if (event.getName().equals("onPageScrollStateChanged") && event.getParameterCount() == 1) {
+                        deoptimize(event);
+                        installHook(HookGroup.TILES, event, chain -> {
+                            Object result = chain.proceed();
+                            TILE_EFFECTS.onScrollState((View) chain.getThisObject(), (Integer) chain.getArg(0));
+                            return result;
+                        });
+                    }
+                }
+            } catch (ClassNotFoundException unsupported) { }
+            moduleLog(Log.INFO, TAG, drawing ? "Tile page edge fade and blur hooks installed"
+                    : "Tile paging effects unavailable on this SystemUI");
+            return true;
+        } catch (Throwable error) {
+            moduleLog(Log.ERROR, TAG, "Could not install tile paging effects", error);
             return false;
         }
     }
@@ -543,7 +755,9 @@ public final class StatusBarModule extends XposedModule {
                 ColorStateList state = (ColorStateList) chain.getArg(0);
                 if (state == null) return chain.proceed();
                 int nativeColor = state.getColorForState(view.getDrawableState(), state.getDefaultColor());
-                return chain.proceed(new Object[]{ColorStateList.valueOf(TEXT.nativeColor(view, nativeColor))});
+                int styledColor = TEXT.nativeColor(view, nativeColor);
+                if (!FEATURES.color(TEXT.group(view))) return chain.proceed();
+                return chain.proceed(new Object[]{ColorStateList.valueOf(styledColor)});
             });
             final Method sizeMethod = TextView.class.getDeclaredMethod("setTextSize", Integer.TYPE, Float.TYPE);
             installHook(HookGroup.TEXT, sizeMethod, chain -> {
@@ -559,10 +773,10 @@ public final class StatusBarModule extends XposedModule {
                 installHook(HookGroup.TEXT, method, chain -> {
                     TextView view = (TextView) chain.getThisObject();
                     if (TEXT.isInternal() || TEXT.kind(view) == TextControls.NONE) return chain.proceed();
-                    TEXT.nativeTypeface(view, (Typeface) chain.getArg(0));
                     TEXT.enter();
                     Object result;
                     try { result = chain.proceed(); } finally { TEXT.exit(); }
+                    TEXT.nativeTypeface(view, view.getTypeface());
                     TEXT.beforeMeasure(view);
                     return result;
                 });
@@ -590,6 +804,49 @@ public final class StatusBarModule extends XposedModule {
                     return result;
                 });
             }
+            for (String name : new String[]{"onAttachedToWindow","onDetachedFromWindow"}) {
+                final boolean attach=name.equals("onAttachedToWindow");
+                installHook(HookGroup.TEXT,View.class.getDeclaredMethod(name),chain->{
+                    Object result=chain.proceed();View view=(View)chain.getThisObject();
+                    if(!attach) { if(OVERFLOW_OWNERS.containsKey(view))releaseOverflow(view);TILE_EFFECTS.detach(view); }
+                    if(view instanceof TextView&&TEXT.kind(view)!=TextControls.NONE) {
+                        if(attach){initializeContext(view.getContext());TEXT.attach((TextView)view);allowDrawableOverflow(view);}
+                        else {TEXT.detach((TextView)view);releaseOverflow(view);}
+                    }
+                    return result;
+                });
+            }
+            for(String headerName:new String[]{"com.oplus.systemui.qs.OplusQuickStatusBarHeader",
+                    "com.oplus.systemui.separate.OplusQSSimpleHeader","com.android.systemui.statusbar.phone.KeyguardStatusBarView"})try {
+                Class<?> header=loader.loadClass(headerName);
+                for(Method event:header.getDeclaredMethods()) {
+                    if(!event.getName().matches("onFinishInflate|onLayout|onConfigurationChanged|onAttachedToWindow"))continue;
+                    deoptimize(event);
+                    installHook(HookGroup.TEXT,event,chain->{
+                        Object result=chain.proceed();View view=(View)chain.getThisObject();
+                        MAIN.post(()->scanHeaderText(view));return result;
+                    });
+                }
+            }catch(ClassNotFoundException unsupported){}
+            for (String name : new String[]{"com.android.keyguard.CarrierText",
+                    "com.oplus.systemui.statusbar.widget.OplusStatCarrierText",
+                    "com.oplus.systemui.statusbar.widget.OplusStatCarrierTextController"}) try {
+                Class<?> carrier = loader.loadClass(name);
+                for (Method event : carrier.getDeclaredMethods()) {
+                    if (event.getName().matches("updateCarrierInfo|setVisible|onDensityOrFontScaleChanged|onConfigurationChanged|onVisibilityChanged"))
+                        deoptimize(event);
+                    if (TextView.class.isAssignableFrom(carrier) && event.getName().equals("onVisibilityChanged")) {
+                        installHook(HookGroup.TEXT, event, chain -> {
+                            Object result = chain.proceed(); TEXT.refresh(); return result;
+                        });
+                    } else if (TextView.class.isAssignableFrom(carrier) && event.getName().equals("onConfigurationChanged")) {
+                        installHook(HookGroup.TEXT, event, chain -> {
+                            Object result = chain.proceed(); TextView view = (TextView) chain.getThisObject();
+                            TEXT.attach(view); allowDrawableOverflow(view); return result;
+                        });
+                    }
+                }
+            } catch (ClassNotFoundException unsupported) { }
             for (String name : new String[]{"com.oplus.systemui.statusbar.widget.StatClock",
                     "com.android.systemui.statusbar.policy.Clock", "com.oplus.systemui.qs.widget.OplusSecondCarrierText"}) {
                 Class<?> target;
@@ -604,7 +861,7 @@ public final class StatusBarModule extends XposedModule {
                             Object result = chain.proceed(); TextView view = (TextView) chain.getThisObject();
                             if (event.equals("onAttachedToWindow")) {
                                 initializeContext(view.getContext()); allowDrawableOverflow(view); TEXT.attach(view);
-                            } else TEXT.detach(view);
+                            } else {TEXT.detach(view);releaseOverflow(view);}
                             return result;
                         });
                     } catch (NoSuchMethodException inherited) { }
@@ -613,6 +870,9 @@ public final class StatusBarModule extends XposedModule {
                     final Method nativeMeasure = TextView.class.getDeclaredMethod("onMeasure", Integer.TYPE, Integer.TYPE);
                     final Field actualWidth = target.getDeclaredField("actualWidth"); actualWidth.setAccessible(true);
                     installHook(HookGroup.TEXT, target.getDeclaredMethod("onMeasure", Integer.TYPE, Integer.TYPE), chain -> {
+                        if(!FEATURES.enabled("clock")) {
+                            Object result=chain.proceed();TEXT.nativeSize((TextView)chain.getThisObject(),((TextView)chain.getThisObject()).getTextSize());return result;
+                        }
                         TextView view = (TextView) chain.getThisObject();
                         int dimension = view.getResources().getIdentifier("stat_clock_size", "dimen", "com.android.systemui");
                         // This ROM writes its clock size directly into Paint during the original onMeasure.
@@ -629,7 +889,7 @@ public final class StatusBarModule extends XposedModule {
                 Class<?> animated = loader.loadClass("com.oplus.systemui.qs.widget.AnimateChangeTextView");
                 installHook(HookGroup.TEXT, animated.getDeclaredMethod("setTextSize", Integer.TYPE, Float.TYPE), chain -> {
                     TextView view = (TextView) chain.getThisObject();
-                    if (TEXT.kind(view) != TextControls.CARRIER) return chain.proceed();
+                    if (TEXT.kind(view) != TextControls.CARRIER || !FEATURES.enabled(TEXT.group(view))) return chain.proceed();
                     boolean internal = TEXT.isInternal();
                     if (!internal) TEXT.nativeSize(view, TypedValue.applyDimension((Integer) chain.getArg(0),
                             (Float) chain.getArg(1), view.getResources().getDisplayMetrics()));
@@ -652,10 +912,24 @@ public final class StatusBarModule extends XposedModule {
                     TEXT.nativeSize(view, maxSize.getFloat(view)); TEXT.beforeMeasure(view); return null;
                 });
             } catch (ClassNotFoundException absent) { }
-            log(Log.INFO, TAG, "Status clock and carrier text controls installed");
+            try {
+                Class<?> callback=loader.loadClass("com.oplus.systemui.qs.widget.OplusSecondCarrierText$1");
+                for(Method method:callback.getDeclaredMethods())if(method.getName().equals("updateCarrierInfo"))deoptimize(method);
+            }catch(ClassNotFoundException absent){}
+            moduleLog(Log.INFO, TAG, "Status clock and carrier text controls installed");
             return true;
         } catch (Throwable error) {
-            log(Log.WARN, TAG, "Text controls incomplete; retry at next package phase", error); return false;
+            moduleLog(Log.WARN, TAG, "Text controls incomplete; retry at next package phase", error); return false;
+        }
+    }
+
+    private static void scanHeaderText(View view) {
+        if(view instanceof TextView&&TEXT.kind(view)!=TextControls.NONE) {
+            initializeContext(view.getContext());TEXT.attach((TextView)view);allowDrawableOverflow(view);
+        }
+        if(view instanceof ViewGroup) {
+            ViewGroup group=(ViewGroup)view;
+            for(int i=0;i<group.getChildCount();i++)scanHeaderText(group.getChildAt(i));
         }
     }
 
@@ -664,6 +938,21 @@ public final class StatusBarModule extends XposedModule {
             Class<?> speed = loader.loadClass("com.oplus.systemui.statusbar.phone.netspeed.widget.NetworkSpeedView");
             speedNumberField = speed.getField("mSpeedNumber");
             speedUnitField = speed.getField("mSpeedUnit");
+            for(Method caller:speed.getDeclaredMethods())
+                if(caller.getName().matches("onDarkChanged|onLayout|setStaticDrawableColor|setFontTypeface|onConfigurationChanged"))deoptimize(caller);
+            try {
+                installHook(HookGroup.SPEED,speed.getDeclaredMethod("onConfigurationChanged",android.content.res.Configuration.class),chain->{
+                    View view=(View)chain.getThisObject();SpeedStyle style=speedStyleFor(view);
+                    // Restore the base sizes before the native configuration callback, which may early-return.
+                    TextView number=(TextView)speedNumberField.get(view),unit=(TextView)speedUnitField.get(view);
+                    if(number!=null&&style.numberSize>0)number.setTextSize(TypedValue.COMPLEX_UNIT_PX,style.numberSize);
+                    if(unit!=null&&style.unitSize>0)unit.setTextSize(TypedValue.COMPLEX_UNIT_PX,style.unitSize);
+                    Object result=chain.proceed();
+                    if(number!=null){style.numberSize=number.getTextSize();style.appliedNumberSize=style.numberSize;}
+                    if(unit!=null){style.unitSize=unit.getTextSize();style.appliedUnitSize=style.unitSize;}
+                    applySpeedStyle(view,style);return result;
+                });
+            }catch(NoSuchMethodException unsupported){}
             installHook(HookGroup.SPEED, speed.getDeclaredMethod("onFinishInflate"), chain -> {
                 Object result = chain.proceed();
                 View view = (View) chain.getThisObject();
@@ -679,10 +968,14 @@ public final class StatusBarModule extends XposedModule {
                 });
                 return result;
             });
+            installHook(HookGroup.SPEED,speed.getDeclaredMethod("onDetachedFromWindow"),chain->{
+                Object result=chain.proceed();releaseOverflow((View)chain.getThisObject());return result;
+            });
             installHook(HookGroup.SPEED, speed.getDeclaredMethod("setIconTint", Integer.TYPE), chain -> {
                 View view = (View) chain.getThisObject();
                 SpeedStyle style = speedStyleFor(view);
                 style.nativeTint = (Integer) chain.getArg(0);
+                style.tintCaptured = true;
                 return chain.proceed(new Object[]{styleColor("speed", style.nativeTint)});
             });
             installHook(HookGroup.SPEED, speed.getDeclaredMethod("dispatchDraw", Canvas.class), chain -> {
@@ -692,18 +985,18 @@ public final class StatusBarModule extends XposedModule {
                 Canvas canvas = (Canvas) chain.getArg(0);
                 int save = canvas.save();
                 float density = view.getResources().getDisplayMetrics().density;
-                canvas.translate(speedOffsetXdp * density, speedOffsetYdp * density);
-                float scale = speedScalePercent / 100f;
+                canvas.translate(NumericPolicy.pixels(speedOffsetXdp,density),NumericPolicy.pixels(speedOffsetYdp,density));
+                float scale = NumericPolicy.scale(speedScalePercent / 100f,Math.max(view.getWidth(),view.getHeight()));
                 canvas.scale(scale, scale, view.getWidth() / 2f, view.getHeight() / 2f);
                 try { return chain.proceed(); }
                 finally { canvas.restoreToCount(save); }
             });
-            log(Log.INFO, TAG, "Live throughput position, typography, and color hooks installed");
+            moduleLog(Log.INFO, TAG, "Live throughput position, typography, and color hooks installed");
             return true;
         } catch (ClassNotFoundException unsupportedSystem) {
             return true;
         } catch (Throwable error) {
-            log(Log.ERROR, TAG, "Could not bind live throughput controls", error);
+            moduleLog(Log.ERROR, TAG, "Could not bind live throughput controls", error);
             return false;
         }
     }
@@ -725,28 +1018,36 @@ public final class StatusBarModule extends XposedModule {
             TextView number = (TextView) speedNumberField.get(view);
             TextView unit = (TextView) speedUnitField.get(view);
             if (number == null || unit == null) return;
-            if (style.numberSize == 0) style.numberSize = number.getTextSize();
-            if (style.unitSize == 0) style.unitSize = unit.getTextSize();
+            if (!style.tintCaptured) { style.nativeTint=number.getCurrentTextColor();style.tintCaptured=true; }
+            if (style.numberSize == 0 || Math.abs(number.getTextSize()-style.appliedNumberSize)>.001f) style.numberSize = number.getTextSize();
+            if (style.unitSize == 0 || Math.abs(unit.getTextSize()-style.appliedUnitSize)>.001f) style.unitSize = unit.getTextSize();
             if (style.numberFace == null || number.getTypeface() != style.appliedNumberFace) style.numberFace = number.getTypeface();
             if (style.unitFace == null || unit.getTypeface() != style.appliedUnitFace) style.unitFace = unit.getTypeface();
-            style.appliedNumberFace = FontRepository.typeface(style.numberFace, speedWeight);
-            style.appliedUnitFace = FontRepository.typeface(style.unitFace, speedWeight);
+            boolean typeStyle=FEATURES.textStyle("speed");
+            boolean useFont=FEATURES.enabled("speed")&&FEATURES.enabled("font");
+            style.appliedNumberFace = typeStyle||useFont ? FontRepository.typeface(style.numberFace,
+                    typeStyle?speedWeight:nativeWeight(style.numberFace)) : style.numberFace;
+            style.appliedUnitFace = typeStyle||useFont ? FontRepository.typeface(style.unitFace,
+                    typeStyle?speedWeight:nativeWeight(style.unitFace)) : style.unitFace;
             if (number.getTypeface() != style.appliedNumberFace) number.setTypeface(style.appliedNumberFace);
             if (unit.getTypeface() != style.appliedUnitFace) unit.setTypeface(style.appliedUnitFace);
-            float numberSize = style.numberSize * speedNumberScalePercent / 100f;
-            float unitSize = style.unitSize * speedUnitScalePercent / 100f;
+            float numberSize = NumericPolicy.textPixels((double)style.numberSize * speedNumberScalePercent / 100f);
+            float unitSize = NumericPolicy.textPixels((double)style.unitSize * speedUnitScalePercent / 100f);
             if (Math.abs(number.getTextSize() - numberSize) > .001f) number.setTextSize(TypedValue.COMPLEX_UNIT_PX, numberSize);
             if (Math.abs(unit.getTextSize() - unitSize) > .001f) unit.setTextSize(TypedValue.COMPLEX_UNIT_PX, unitSize);
-            float halfGap = speedLineGapDp * view.getResources().getDisplayMetrics().density / 2f;
-            number.setTranslationY(-halfGap);
-            unit.setTranslationY(halfGap);
+            style.appliedNumberSize=numberSize;style.appliedUnitSize=unitSize;
+            float halfGap = NumericPolicy.pixels(speedLineGapDp,view.getResources().getDisplayMetrics().density) / 2f;
+            if(!style.gapCaptured){style.numberY=number.getTranslationY();style.unitY=unit.getTranslationY();style.gapCaptured=true;}
+            else {
+                if(Math.abs(number.getTranslationY()-style.appliedNumberY)>.001f)style.numberY=number.getTranslationY();
+                if(Math.abs(unit.getTranslationY()-style.appliedUnitY)>.001f)style.unitY=unit.getTranslationY();
+            }
+            style.appliedNumberY=NumericPolicy.pixels((double)style.numberY-halfGap);style.appliedUnitY=NumericPolicy.pixels((double)style.unitY+halfGap);
+            number.setTranslationY(style.appliedNumberY);unit.setTranslationY(style.appliedUnitY);
             int tint = styleColor("speed", style.nativeTint);
             if (number.getCurrentTextColor() != tint) number.setTextColor(tint);
             if (unit.getCurrentTextColor() != tint) unit.setTextColor(tint);
-            if (view instanceof ViewGroup) {
-                ((ViewGroup) view).setClipChildren(false);
-                ((ViewGroup) view).setClipToPadding(false);
-            }
+            allowDrawableOverflow(view);
         } catch (Throwable error) {
             logFrameworkStage(Log.WARN, "Could not apply throughput style", error);
         }
@@ -816,8 +1117,9 @@ public final class StatusBarModule extends XposedModule {
             setWillNotDraw(false);
         }
         private void prepare() {
-            weight = fontWeight;
-            paint.setTypeface(FontRepository.typeface(TEXT.nativeFamily(), weight));
+            weight = FEATURES.textStyle("label")?fontWeight:nativeWeight(TEXT.nativeFamily());
+            paint.setTypeface(FEATURES.enabled("font")||FEATURES.textStyle("label")
+                    ?FontRepository.typeface(TEXT.nativeFamily(),weight):TEXT.nativeFamily());
             paint.setTextSize(13f * getResources().getDisplayMetrics().density);
             paint.setColor(styleColor("label", nativeTint));
         }
@@ -858,12 +1160,14 @@ public final class StatusBarModule extends XposedModule {
             Object largeLayout = loader.loadClass("com.android.systemui.statusbar.pipeline.shared.ui.composable.BigTypeStackedMobileIconLayoutStrategy").getField("INSTANCE").get(null);
             installHook(HookGroup.COMPOSE, factory.getDeclaredMethod("getStrategy"), chain -> {
                 Object nativeLayout = chain.proceed();
-                return composeRenderingReady ? largeLayout : nativeLayout;
+                if(composeRenderingReady)readComposeRevision.invoke(composeStyleRevision);
+                return composeRenderingReady && (FEATURES.enabled("data")||FEATURES.enabled("label")) ? largeLayout : nativeLayout;
             });
             Class<?> model = loader.loadClass("com.oplus.systemui.statusbar.pipeline.ui.viewmodel.OplusStackedMobileIconViewModelImpl");
             installHook(HookGroup.COMPOSE, model.getDeclaredMethod("getActivityIndicatorIconResId"), chain -> {
                 Object nativeActivity = chain.proceed();
-                return composeRenderingReady ? 0 : nativeActivity;
+                if(composeRenderingReady)readComposeRevision.invoke(composeStyleRevision);
+                return composeRenderingReady && FEATURES.effective("data","data_activity_hidden") ? 0 : nativeActivity;
             });
             Class<?> painterClass = loader.loadClass("com.android.compose.ui.graphics.painter.DrawablePainter");
             Method painterDrawable = painterClass.getMethod("getDrawable");
@@ -895,15 +1199,16 @@ public final class StatusBarModule extends XposedModule {
                             : nativeFilterColor((ColorFilter) bridge.nativeFilter.invoke(filter), icon.nativeTint);
                     Object original = bases.get(base);
                     if (original != null) base = original;
-                    Object frame = bridge.height.invoke(null, base, ICON_SLOT_DP);
+                    String item=icon.wifiIcon?"wifi":"data";
+                    Object frame = FEATURES.enabled(item)?bridge.height.invoke(null, base, ICON_SLOT_DP):base;
                     float d = context == null ? icon.density : context.getResources().getDisplayMetrics().density;
-                    args[2] = bridge.place(frame, (icon.wifiIcon ? wifiOffsetXdp : dataOffsetXdp) * d,
-                            (icon.wifiIcon ? wifiOffsetYdp : dataOffsetYdp) * d,
-                            (icon.wifiIcon ? wifiIconScalePercent : dataIconScalePercent) / 100f);
-                    bases.put(args[2], base);
-                    args[6] = bridge.tintFilter.invoke(bridge.filterCompanion,
-                            bridge.color.invoke(null, styleColor(icon.wifiIcon ? "wifi" : "data", tint)), 5);
-                    nativeFilters.put(args[6], filter);
+                    args[2] = !FEATURES.enabled(item)?base:bridge.place(frame,NumericPolicy.pixels(icon.wifiIcon ? wifiOffsetXdp : dataOffsetXdp,d),
+                            NumericPolicy.pixels(icon.wifiIcon ? wifiOffsetYdp : dataOffsetYdp,d),
+                            NumericPolicy.scale((icon.wifiIcon ? wifiIconScalePercent : dataIconScalePercent) / 100f,ICON_SLOT_DP*d));
+                    if(args[2]!=base)bases.put(args[2], base);
+                    args[6] = FEATURES.color(item)?bridge.tintFilter.invoke(bridge.filterCompanion,
+                            bridge.color.invoke(null, styleColor(item, tint)), 5):filter;
+                    if(args[6]!=null&&args[6]!=filter)nativeFilters.put(args[6], filter);
                     args[8] = 0; args[9] = ((Integer) args[9]) & ~(4 | 64);
                     return chain.proceed(args);
                 });
@@ -919,19 +1224,25 @@ public final class StatusBarModule extends XposedModule {
                 installHook(HookGroup.COMPOSE, text, chain -> {
                     if (!composeRenderingReady) return chain.proceed();
                     readComposeRevision.invoke(composeStyleRevision);
+                    if (!FEATURES.enabled("label")) return chain.proceed();
                     int nativeTint = (Integer) bridge.argb.invoke(null, chain.getArg(2));
-                    String label = "";
+                    String rawLabel = "";
                     if (!wifiConnected && !airplaneMode && chain.getArg(1) != null) {
                         Object networkType = type.invoke(chain.getArg(1));
-                        if (networkType != null) label = NetworkLabel.normalize((String) name.invoke(networkType));
+                        if (networkType != null) {
+                            rawLabel=(String)name.invoke(networkType);
+                        }
                     }
-                    final String shown = label;
+                    final String shown = RadioState.cellularLabel(FEATURES.enabled("label"),wifiConnected,airplaneMode,
+                            rawLabel,networkLabel,FEATURES.effective("label","label_normalize_enabled"));
                     Object base = shown.isEmpty() || chain.getArg(3) == null ? bridge.empty : chain.getArg(3);
-                    Object sized = shown.isEmpty() ? bridge.width.invoke(null, base, 0f)
-                            : bridge.widthIn.invoke(null, base, slotWidthDp, Float.POSITIVE_INFINITY);
-                    Object frame = bridge.height.invoke(null, sized, ICON_SLOT_DP);
                     float d = context == null ? 1f : context.getResources().getDisplayMetrics().density;
-                    Object placed = bridge.place(frame, labelOffsetXdp * d, labelOffsetYdp * d, labelScalePercent / 100f);
+                    Object sized = shown.isEmpty() ? bridge.width.invoke(null, base, 0f)
+                            : bridge.widthIn.invoke(null, base, NumericPolicy.layoutDp(slotWidthDp,d),
+                                    Math.max(NumericPolicy.layoutDp(slotWidthDp,d),NumericPolicy.MAX_LAYOUT_PIXELS/(d>0&&Float.isFinite(d)?d:1f)));
+                    Object frame = bridge.height.invoke(null, sized, ICON_SLOT_DP);
+                    Object placed = bridge.place(frame,NumericPolicy.pixels(labelOffsetXdp,d),NumericPolicy.pixels(labelOffsetYdp,d),
+                            NumericPolicy.scale(labelScalePercent / 100f,Math.max(ICON_SLOT_DP*d,NumericPolicy.layoutPixels(slotWidthDp,d))));
                     Object create = bridge.function(ctx -> new NetworkLabelView((Context) ctx));
                     Object update = bridge.function(view -> { ((NetworkLabelView) view).update(shown, nativeTint); return bridge.unit; });
                     bridge.androidView.invoke(null, create, placed, update, chain.getArg(10), 0, 0);
@@ -966,12 +1277,12 @@ public final class StatusBarModule extends XposedModule {
                 return result;
             });
             composeRenderingReady = true;
-            log(Log.INFO, TAG, "Unified Compose rendering installed; legacy label layout is inactive");
+            moduleLog(Log.INFO, TAG, "Unified Compose rendering installed; legacy label layout is inactive");
             return true;
         } catch (Throwable error) {
             // A Compose system must never start the legacy Wi-Fi label renderer after partial setup.
             composeRenderingReady = false;
-            log(Log.ERROR, TAG, "Could not bind unified Compose status bar", error);
+            moduleLog(Log.ERROR, TAG, "Could not bind unified Compose status bar", error);
             return false;
         }
     }
@@ -995,10 +1306,10 @@ public final class StatusBarModule extends XposedModule {
                     return StatusBarModule.lambda$installSystemUiContextHook$0(chain);
                 }
             });
-            log(Log.INFO, TAG, "Early SystemUI application context hook installed");
+            moduleLog(Log.INFO, TAG, "Early SystemUI application context hook installed");
             return true;
         } catch (Throwable th) {
-            log(Log.ERROR, TAG, "Could not bind early SystemUI context initialization", th);
+            moduleLog(Log.ERROR, TAG, "Could not bind early SystemUI context initialization", th);
             return false;
         }
     }
@@ -1039,39 +1350,40 @@ public final class StatusBarModule extends XposedModule {
                     return StatusBarModule.lambda$installDrawableOverrides$4(chain);
                 }
             });
-            log(Log.INFO, TAG, "SystemUI drawable replacement hooks installed");
+            moduleLog(Log.INFO, TAG, "SystemUI drawable replacement hooks installed");
             return true;
         } catch (Throwable th) {
-            log(Log.ERROR, TAG, "Could not bind SystemUI drawable resources", th);
+            moduleLog(Log.ERROR, TAG, "Could not bind SystemUI drawable resources", th);
             return false;
         }
     }
 
     static /* synthetic */ Object lambda$installDrawableOverrides$1(XposedInterface.Chain chain) throws Throwable {
         Object objProceed = chain.proceed();
-        Drawable drawableReplacementDrawable = replacementDrawable((Resources) chain.getThisObject(), ((Integer) chain.getArg(0)).intValue());
+        Drawable drawableReplacementDrawable = replacementDrawable((Resources) chain.getThisObject(), ((Integer) chain.getArg(0)).intValue(), (Drawable) objProceed);
         return drawableReplacementDrawable == null ? objProceed : drawableReplacementDrawable;
     }
 
     static /* synthetic */ Object lambda$installDrawableOverrides$2(XposedInterface.Chain chain) throws Throwable {
         Object objProceed = chain.proceed();
-        Drawable drawableReplacementDrawable = replacementDrawable((Resources) chain.getThisObject(), ((Integer) chain.getArg(0)).intValue());
+        Drawable drawableReplacementDrawable = replacementDrawable((Resources) chain.getThisObject(), ((Integer) chain.getArg(0)).intValue(), (Drawable) objProceed);
         return drawableReplacementDrawable == null ? objProceed : drawableReplacementDrawable;
     }
 
     static /* synthetic */ Object lambda$installDrawableOverrides$3(XposedInterface.Chain chain) throws Throwable {
         Object objProceed = chain.proceed();
-        Drawable drawableReplacementDrawable = replacementDrawable((Resources) chain.getThisObject(), ((Integer) chain.getArg(0)).intValue());
+        Drawable drawableReplacementDrawable = replacementDrawable((Resources) chain.getThisObject(), ((Integer) chain.getArg(0)).intValue(), (Drawable) objProceed);
         return drawableReplacementDrawable == null ? objProceed : drawableReplacementDrawable;
     }
 
     static /* synthetic */ Object lambda$installDrawableOverrides$4(XposedInterface.Chain chain) throws Throwable {
         Object objProceed = chain.proceed();
-        Drawable drawableReplacementDrawable = replacementDrawable((Resources) chain.getThisObject(), ((Integer) chain.getArg(0)).intValue());
+        Drawable drawableReplacementDrawable = replacementDrawable((Resources) chain.getThisObject(), ((Integer) chain.getArg(0)).intValue(), (Drawable) objProceed);
         return drawableReplacementDrawable == null ? objProceed : drawableReplacementDrawable;
     }
 
-    private static Drawable replacementDrawable(Resources resources, int i) {
+    private static Drawable replacementDrawable(Resources resources, int i, Drawable nativeDrawable) {
+        if(nativeDrawable instanceof ScaledDrawable)return nativeDrawable;
         if (i == 0 || moduleResources == null) return null;
         try {
             if (!"com.android.systemui".equals(resources.getResourcePackageName(i))) return null;
@@ -1080,7 +1392,7 @@ public final class StatusBarModule extends XposedModule {
             if (asset == null) return null;
             Drawable drawable = loadModuleDrawable(asset, resources);
             if (drawable == null) return null;
-            ScaledDrawable result = new ScaledDrawable(drawable, resources, source.startsWith("stat_signal_wifi_signal_"));
+            ScaledDrawable result = new ScaledDrawable(drawable, resources, source.startsWith("stat_signal_wifi_signal_"), nativeDrawable);
             result.sourceName = source; result.assetName = asset; result.baseResources = resources;
             LIVE_DRAWABLES.add(new WeakReference<>(result));
             return result;
@@ -1107,129 +1419,66 @@ public final class StatusBarModule extends XposedModule {
         return SignalResources.moduleName(str, singleSignal) != null;
     }
 
-    private boolean installBadgeHiding(ClassLoader classLoader) {
-        boolean complete = true;
+    private boolean installBadgeHiding(ClassLoader loader) {
         try {
-            installHook(HookGroup.BADGE, View.class.getDeclaredMethod("setVisibility", Integer.TYPE), new XposedInterface.Hooker() { // from class: dev.puitheme.StatusBarModule$$ExternalSyntheticLambda1
-                public final Object intercept(XposedInterface.Chain chain) throws Throwable {
-                    return StatusBarModule.lambda$installBadgeHiding$5(chain);
-                }
+            Method wifiMeasure=View.class.getDeclaredMethod("measure",Integer.TYPE,Integer.TYPE);deoptimize(wifiMeasure);
+            installHook(HookGroup.BADGE,wifiMeasure,chain->{
+                WifiPlacement.beforeMeasure((View)chain.getThisObject(),BADGES);return chain.proceed();
             });
-        } catch (Throwable th) {
-            complete = false;
-            log(Log.ERROR, TAG, "Could not hook badge visibility changes", th);
-        }
-        try {
-            installHook(HookGroup.BADGE, View.class.getDeclaredMethod("setId", Integer.TYPE), new XposedInterface.Hooker() {
-                public final Object intercept(XposedInterface.Chain chain) throws Throwable {
-                    return StatusBarModule.lambda$installBadgeHiding$6(chain);
-                }
+            Method wifiFrameMeasure=android.widget.FrameLayout.class.getDeclaredMethod("onMeasure",Integer.TYPE,Integer.TYPE);deoptimize(wifiFrameMeasure);
+            installHook(HookGroup.BADGE,wifiFrameMeasure,chain->{
+                WifiPlacement.beforeMeasure((View)chain.getThisObject(),BADGES);return chain.proceed();
             });
-        } catch (Throwable th) {
-            complete = false;
-            log(Log.ERROR, TAG, "Could not hook badge ID assignment", th);
-        }
-        try {
-            installHook(HookGroup.BADGE, View.class.getDeclaredMethod("onAttachedToWindow"), new XposedInterface.Hooker() {
-                public final Object intercept(XposedInterface.Chain chain) throws Throwable {
-                    return StatusBarModule.lambda$installBadgeHiding$7(chain);
-                }
+            deoptimize(ViewGroup.class.getDeclaredMethod("measureChild",View.class,Integer.TYPE,Integer.TYPE));
+            deoptimize(ViewGroup.class.getDeclaredMethod("measureChildWithMargins",View.class,Integer.TYPE,Integer.TYPE,Integer.TYPE,Integer.TYPE));
+            deoptimize(android.widget.LinearLayout.class.getDeclaredMethod("onMeasure",Integer.TYPE,Integer.TYPE));
+            installHook(HookGroup.BADGE, View.class.getDeclaredMethod("setVisibility", Integer.TYPE), chain -> {
+                View view=(View)chain.getThisObject();
+                int requested=(Integer)chain.getArg(0);
+                int actual=BADGES.requestedVisibility(view,requested);
+                return actual==requested?chain.proceed():chain.proceed(new Object[]{actual});
             });
-        } catch (Throwable th) {
-            complete = false;
-            log(Log.ERROR, TAG, "Could not hook badge attachment", th);
-        }
-        try {
-            installHook(HookGroup.BADGE, LayoutInflater.class.getDeclaredMethod("inflate", Integer.TYPE, ViewGroup.class, Boolean.TYPE), new XposedInterface.Hooker() {
-                public final Object intercept(XposedInterface.Chain chain) throws Throwable {
-                    return StatusBarModule.lambda$installBadgeHiding$8(chain);
-                }
+            installHook(HookGroup.BADGE, View.class.getDeclaredMethod("setId", Integer.TYPE), chain -> {
+                Object result=chain.proceed();BADGES.idChanged((View)chain.getThisObject());return result;
             });
-        } catch (Throwable th) {
-            complete = false;
-            log(Log.ERROR, TAG, "Could not hook status-bar layout inflation", th);
-        }
-        if (complete) {
-            log(Log.INFO, TAG, "Native network badges will be hidden on ID assignment, visibility changes, attachment, and layout inflation");
-        }
-        return complete;
-    }
-
-    static /* synthetic */ Object lambda$installBadgeHiding$5(XposedInterface.Chain chain) throws Throwable {
-        return isSuppressedBadge((View) chain.getThisObject()) ? chain.proceed(new Object[]{8}) : chain.proceed();
-    }
-
-    static /* synthetic */ Object lambda$installBadgeHiding$6(XposedInterface.Chain chain) throws Throwable {
-        Object result = chain.proceed();
-        hideSuppressedBadge((View) chain.getThisObject());
-        return result;
-    }
-
-    static /* synthetic */ Object lambda$installBadgeHiding$7(XposedInterface.Chain chain) throws Throwable {
-        Object result = chain.proceed();
-        hideSuppressedBadge((View) chain.getThisObject());
-        return result;
-    }
-
-    static /* synthetic */ Object lambda$installBadgeHiding$8(XposedInterface.Chain chain) throws Throwable {
-        Object result = chain.proceed();
-        hideSuppressedBadgeTree((View) result);
-        return result;
-    }
-
-    private static void hideSuppressedBadgeTree(View view) {
-        if (view == null) {
-            return;
-        }
-        hideSuppressedBadge(view);
-        if (view instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                hideSuppressedBadgeTree(group.getChildAt(i));
+            installHook(HookGroup.BADGE, View.class.getDeclaredMethod("onAttachedToWindow"), chain -> {
+                Object result=chain.proceed();BADGES.apply((View)chain.getThisObject());return result;
+            });
+            installHook(HookGroup.BADGE, LayoutInflater.class.getDeclaredMethod("inflate", Integer.TYPE, ViewGroup.class, Boolean.TYPE), chain -> {
+                Object result=chain.proceed();BADGES.tree((View)result);return result;
+            });
+            // Vendor coroutine code may have inlined visibility setters; do not let an activity image draw through.
+            installHook(HookGroup.BADGE, ImageView.class.getDeclaredMethod("onDraw", Canvas.class), chain ->
+                    BADGES.suppressDraw((View)chain.getThisObject())?null:chain.proceed());
+            for(String owner:new String[]{"com.oplus.systemui.statusbar.pipeline.OplusWifiSignalExImpl",
+                    "com.android.systemui.statusbar.pipeline.wifi.ui.binder.WifiViewBinder"}) {
+                try {
+                    Class<?> type=loader.loadClass(owner);
+                    for(Method method:type.getDeclaredMethods()) {
+                        if(method.getName().equals("bindEx")||method.getName().equals("bind")) {
+                            deoptimize(method);
+                            if(method.getParameterCount()>0&&View.class.isAssignableFrom(method.getParameterTypes()[0]))
+                                installHook(HookGroup.BADGE,method,chain->{Object result=chain.proceed();BADGES.tree((View)chain.getArg(0));return result;});
+                        }
+                    }
+                }catch(ClassNotFoundException unsupported){}
             }
-        }
-    }
-
-    private static void hideSuppressedBadge(View view) {
-        if (view != null && isSuppressedBadge(view) && view.getVisibility() != View.GONE) {
-            view.setVisibility(View.GONE);
-        }
-    }
-
-
-    /* JADX WARN: Can't fix incorrect switch cases order, some code will duplicate */
-    /* JADX WARN: Code duplicated, block: B:8:0x001c  */
-    private static boolean isSuppressedBadge(View view) {
-        int id = view.getId();
-        if (id == -1 || id == 0) {
-            return false;
-        }
-        try {
-            String name = view.getResources().getResourceEntryName(id);
-            if (name.startsWith("mobile_type")) {
-                return true;
+            String prefix="com.oplus.systemui.statusbar.pipeline.OplusWifiSignalExImpl";
+            for(String suffix:new String[]{"$bindEx$1$1","$bindEx$1","$bindEx$2$1$1","$bindEx$2$1$2$1",
+                    "$bindEx$2$1$2$2","$bindEx$2$1$2","$bindEx$2$1$3","$bindEx$2$1$4$1",
+                    "$bindEx$2$1$4","$bindEx$2$1","$bindEx$2","$bindEx$3"}) {
+                try {
+                    for(Method method:loader.loadClass(prefix+suffix).getDeclaredMethods())
+                        if(method.getName().equals("invokeSuspend")||method.getName().equals("emit"))deoptimize(method);
+                }catch(ClassNotFoundException unsupported){}
             }
-            switch (name) {
-                case "wifi_left":
-                case "wifi_left_tv":
-                case "wifi_in":
-                case "wifi_out":
-                case "wifi_inout":
-                case "mobile_in":
-                case "mobile_out":
-                case "mobile_inout":
-                case "data_inout":
-                case "data_inout_alone":
-                    return true;
-                case "network_speed":
-                    // Keep the native throughput text; only suppress its activity arrows.
-                    return false;
-                default:
-                    return false;
-            }
-        } catch (Throwable th) {
-            return false;
-        }
+            for(String suffix:new String[]{"$bind$1$1$5","$bind$1$1$6","$bind$1$1$7"})try {
+                for(Method method:loader.loadClass("com.android.systemui.statusbar.pipeline.wifi.ui.binder.WifiViewBinder"+suffix).getDeclaredMethods())
+                    if(method.getName().equals("invokeSuspend")||method.getName().equals("emit"))deoptimize(method);
+            }catch(ClassNotFoundException unsupported) { }
+            moduleLog(Log.INFO,TAG,"Independent network badge controls and vendor Wi-Fi activity guard installed");
+            return true;
+        }catch(Throwable error){moduleLog(Log.ERROR,TAG,"Could not bind network badge controls",error);return false;}
     }
 
     private boolean installNetworkModelHooks(ClassLoader classLoader) {
@@ -1254,16 +1503,17 @@ public final class StatusBarModule extends XposedModule {
                     return StatusBarModule.lambda$installNetworkModelHooks$7(chain);
                 }
             });
-            log(Log.INFO, TAG, "Subscription-aware network label hooks installed");
+            moduleLog(Log.INFO, TAG, "Subscription-aware network label hooks installed");
             return true;
         } catch (Throwable th) {
-            log(Log.ERROR, TAG, "Could not bind the native network type model", th);
+            moduleLog(Log.ERROR, TAG, "Could not bind the native network type model", th);
             return false;
         }
     }
 
     static /* synthetic */ Object lambda$installNetworkModelHooks$6(XposedInterface.Chain chain) throws Throwable {
         Object objProceed = chain.proceed();
+        NativeDataSource.capture(chain.getThisObject(),(Integer)chain.getArg(0));
         if (objProceed != null) {
             synchronized (MODELS) {
                 MODELS.put((Integer) chain.getArg(0), new WeakReference<>(objProceed));
@@ -1332,10 +1582,11 @@ public final class StatusBarModule extends XposedModule {
                     return StatusBarModule.lambda$installWifiSlot$17(chain);
                 }
             });
-            log(Log.INFO, TAG, "Wi-Fi slot hooks installed with native visibility and tint");
+            moduleLog(Log.INFO, TAG, "Wi-Fi slot hooks installed with native visibility and tint");
+            installNativeWifiSource(classLoader);
             return true;
         } catch (Throwable th) {
-            log(Log.ERROR, TAG, "Could not bind the Wi-Fi slot", th);
+            moduleLog(Log.ERROR, TAG, "Could not bind the Wi-Fi slot", th);
             return false;
         }
     }
@@ -1360,36 +1611,43 @@ public final class StatusBarModule extends XposedModule {
     }
 
     private static void allowDrawableOverflow(View view) {
-        unclipNetworkTree(view,0);
-        View current = view;
-        int depth = 0;
-        while (current != null && depth < 12) {
-            if (!(current instanceof ViewGroup)) {
-                current = current.getParent() instanceof View ? (View) current.getParent() : null;
-                depth++;
-                continue;
+        if(view==null)return;
+        String group;
+        int kind=TEXT.kind(view);
+        if(kind==TextControls.CLOCK)group="clock";
+        else if(kind==TextControls.CARRIER)group=TEXT.group(view);
+        else if(view.getClass().getName().endsWith("NetworkSpeedView"))group="speed";
+        else {
+            String slot="";
+            try{slot=(String)view.getClass().getMethod("getSlot").invoke(view);}catch(Exception ignored){}
+            group=isWifi(view)||(slot!=null&&slot.startsWith("wifi"))?"wifi":"cellular";
+        }
+        OVERFLOW_OWNERS.put(view,group);updateOverflow(view,group);
+    }
+    private static boolean needsOverflow(String group) {
+        if(group.equals("cellular"))return needsOverflow("data")||needsOverflow("label");
+        return FEATURES.position(group)||FEATURES.size(group)
+                ||group.equals("speed")&&FEATURES.effective("speed","speed_lines_enabled")&&speedLineGapDp!=0;
+    }
+    private static void updateOverflow(View owner,String group) {
+        if(needsOverflow(group))OverflowControls.shared().acquire(owner,group.equals("cellular")||group.equals("wifi")||group.equals("speed"));
+        else OverflowControls.shared().release(owner);
+    }
+    private static void releaseOverflow(View owner) {
+        OVERFLOW_OWNERS.remove(owner);OverflowControls.shared().release(owner);
+    }
+    private static void refreshOverflow() {
+        synchronized(OVERFLOW_OWNERS) {
+            for(Map.Entry<View,String> entry:OVERFLOW_OWNERS.entrySet()) {
+                if(TEXT.kind(entry.getKey())==TextControls.CARRIER)entry.setValue(TEXT.group(entry.getKey()));
+                updateOverflow(entry.getKey(),entry.getValue());
             }
-            ViewGroup group = (ViewGroup) current;
-            group.setClipChildren(false);
-            group.setClipToPadding(false);
-            current = group.getParent() instanceof View ? (View) group.getParent() : null;
-            depth++;
         }
     }
 
     private static boolean isNetworkSlot(String slot) {
         return slot!=null&&(slot.equals("wifi")||slot.startsWith("wifi_")||slot.startsWith("mobile")
                 ||slot.equals("stacked_mobile")||slot.startsWith("stacked_mobile_"));
-    }
-
-    /** ComposeView and its Android owner each have their own native clipping boundary. */
-    private static void unclipNetworkTree(View view,int depth) {
-        if(view==null||depth>8)return;
-        view.setClipBounds(null);
-        if(view instanceof ViewGroup) {
-            ViewGroup group=(ViewGroup)view;group.setClipChildren(false);group.setClipToPadding(false);
-            for(int i=0;i<group.getChildCount();i++)unclipNetworkTree(group.getChildAt(i),depth+1);
-        }
     }
 
     static /* synthetic */ Object lambda$installWifiSlot$11(XposedInterface.Chain chain) throws Throwable {
@@ -1459,6 +1717,54 @@ public final class StatusBarModule extends XposedModule {
         return obj != null && obj.getClass().getName().equals(WIFI_VIEW);
     }
 
+    private void installNativeWifiSource(ClassLoader loader) throws Exception {
+        Class<?> location;
+        try {location=loader.loadClass("com.android.systemui.statusbar.pipeline.wifi.ui.viewmodel.LocationBasedWifiViewModel");}
+        catch(ClassNotFoundException legacy){return;}
+        nativeWifiFlow=location.getMethod("getWifiIcon");
+        nativeWifiIconClass=loader.loadClass("com.android.systemui.statusbar.pipeline.wifi.ui.model.WifiIcon");
+        nativeWifiVisibleClass=loader.loadClass("com.android.systemui.statusbar.pipeline.wifi.ui.model.WifiIcon$Visible");
+        Class<?> binder=loader.loadClass("com.android.systemui.statusbar.pipeline.wifi.ui.binder.WifiViewBinder");
+        Method bind=binder.getDeclaredMethod("bind",ViewGroup.class,location);deoptimize(bind);
+        installHook(HookGroup.WIFI,bind,chain->{
+            View view=(View)chain.getArg(0);NATIVE_WIFI.put(view,new WeakReference<>(chain.getArg(1)));
+            initializeContext(view.getContext());Object result=chain.proceed();refreshRadio();return result;
+        });
+        try {
+            Class<?> collector=loader.loadClass("com.android.systemui.statusbar.pipeline.wifi.ui.binder.WifiViewBinder$bind$1$1$1$1");
+            for(Method method:collector.getDeclaredMethods())if(method.getName().equals("emit")&&method.getParameterCount()==2) {
+                deoptimize(method);
+                installHook(HookGroup.WIFI,method,chain->{
+                    Object result=chain.proceed();
+                    if(nativeWifiIconClass.isInstance(chain.getArg(0)))refreshRadio();return result;
+                });
+            }
+            for(Method method:loader.loadClass("com.android.systemui.statusbar.pipeline.wifi.ui.binder.WifiViewBinder$bind$1$1$2").getDeclaredMethods())
+                if(method.getName().equals("invokeSuspend"))deoptimize(method);
+        }catch(ClassNotFoundException otherVersion){moduleLog(Log.INFO,TAG,"Wi-Fi flow collector differs; connectivity callbacks remain active");}
+    }
+
+    private static Boolean nativeWifiVisible() {
+        if(nativeWifiFlow==null||nativeWifiVisibleClass==null||getFlowValue==null)return null;
+        synchronized(NATIVE_WIFI) {
+            for(Map.Entry<View,WeakReference<Object>> source:NATIVE_WIFI.entrySet()) {
+                Object model=source.getValue().get();
+                if(model==null||!source.getKey().isAttachedToWindow())continue;
+                try {
+                    Object flow=nativeWifiFlow.invoke(model);
+                    Object icon=flow==null?null:getFlowValue.invoke(flow);
+                    if(icon!=null&&nativeWifiIconClass.isInstance(icon))return nativeWifiVisibleClass.isInstance(icon);
+                }catch(Exception unreadable){}
+            }
+        }
+        return null;
+    }
+
+    private static void refreshRadio() {
+        if(Looper.myLooper()!=Looper.getMainLooper()){MAIN.post(StatusBarModule::refreshRadio);return;}
+        updateRadioState();scheduleRefresh();
+    }
+
     private static Slot slotFor(View view) {
         Slot slot;
         synchronized (SLOTS) {
@@ -1478,7 +1784,7 @@ public final class StatusBarModule extends XposedModule {
     }
 
     private static boolean cellularMode() {
-        return !composeStatusBar && !wifiConnected && !airplaneMode && !networkLabel.isEmpty();
+        return FEATURES.enabled("label") && !composeStatusBar && !wifiConnected && !airplaneMode && !networkLabel.isEmpty();
     }
 
     private static void initializeContext(Context context2) {
@@ -1542,16 +1848,19 @@ public final class StatusBarModule extends XposedModule {
                 StatusBarModule.scheduleRefresh();
             }
         };
+        boolean registered = false;
         try {
             Context.class.getMethod("registerReceiver", BroadcastReceiver.class, IntentFilter.class, Integer.TYPE).invoke(context, broadcastReceiver, intentFilter, 2);
+            registered = true;
         } catch (Throwable th2) {
             try {
                 context.registerReceiver(broadcastReceiver, intentFilter);
+                registered = true;
             } catch (Throwable th3) {
                 logFrameworkStage(Log.WARN, "Could not register radio state receiver", th3);
             }
         }
-        receiverRegistered = true;
+        receiverRegistered = registered;
         updateRadioState();
         registerNetworkObserver();
         scheduleRefresh();
@@ -1587,28 +1896,34 @@ public final class StatusBarModule extends XposedModule {
         try {
             Bundle bundleCall = context.getContentResolver().call(Uri.parse(StatusBarSettings.CONTENT_URI), "read_statusbar_settings", (String) null, (Bundle) null);
             if (bundleCall == null) {
+                ModuleDiagnostics.info("settings", "Settings provider returned no data; retaining current configuration");
                 return;
             }
-            wifiOffsetXdp = clamp(settingValue(bundleCall, StatusBarSettings.WIFI_OFFSET_X, 0), -80f, 80f);
-            wifiOffsetYdp = clamp(settingValue(bundleCall, StatusBarSettings.WIFI_OFFSET_Y, 0), -24f, 24f);
-            wifiIconScalePercent = clamp(settingValue(bundleCall, StatusBarSettings.WIFI_ICON_SCALE, 100), 25f, 250f);
-            dataOffsetXdp = clamp(settingValue(bundleCall, StatusBarSettings.DATA_OFFSET_X, 0), -80f, 80f);
-            dataOffsetYdp = clamp(settingValue(bundleCall, StatusBarSettings.DATA_OFFSET_Y, 0), -24f, 24f);
-            dataIconScalePercent = clamp(settingValue(bundleCall, StatusBarSettings.DATA_ICON_SCALE, 100), 25f, 250f);
-            labelOffsetXdp = clamp(settingValue(bundleCall, StatusBarSettings.LABEL_OFFSET_X, 0), -80f, 80f);
-            labelOffsetYdp = clamp(settingValue(bundleCall, StatusBarSettings.LABEL_OFFSET_Y, 0), -24f, 24f);
-            labelScalePercent = clamp(settingValue(bundleCall, StatusBarSettings.LABEL_SCALE, 100), 25f, 250f);
-            slotWidthDp = clamp(settingValue(bundleCall, StatusBarSettings.SLOT_WIDTH, 22), 0f, 80f);
-            fontWeight = Math.round(clamp(settingValue(bundleCall, StatusBarSettings.FONT_WEIGHT, 600), 100f, 900f));
-            speedOffsetXdp = clamp(settingValue(bundleCall, StatusBarSettings.SPEED_OFFSET_X, 0), -80f, 80f);
-            speedOffsetYdp = clamp(settingValue(bundleCall, StatusBarSettings.SPEED_OFFSET_Y, 0), -24f, 24f);
-            speedScalePercent = clamp(settingValue(bundleCall, StatusBarSettings.SPEED_SCALE, 100), 25f, 250f);
-            speedNumberScalePercent = clamp(settingValue(bundleCall, StatusBarSettings.SPEED_NUMBER_SCALE, 100), 25f, 250f);
-            speedUnitScalePercent = clamp(settingValue(bundleCall, StatusBarSettings.SPEED_UNIT_SCALE, 100), 25f, 250f);
-            speedLineGapDp = clamp(settingValue(bundleCall, StatusBarSettings.SPEED_LINE_GAP, 0), -8f, 8f);
-            speedWeight = Math.round(clamp(settingValue(bundleCall, StatusBarSettings.SPEED_WEIGHT, 600), 100f, 900f));
-            singleSignal = "single".equals(bundleCall.getString(StatusBarSettings.SIGNAL_LAYOUT, "system"));
-            FontRepository.configure(context, bundleCall.getString(StatusBarSettings.FONT_MODE, "system"),
+            ModuleDiagnostics.configure(context, bundleCall);
+            FEATURES=FeatureOptions.from(bundleCall);
+            TILE_EFFECTS.configure(bundleCall);
+            QS_APPEARANCE.configure(bundleCall);
+            BADGES.configure(FEATURES);
+            wifiOffsetXdp = FEATURES.position("wifi")?settingValue(bundleCall, StatusBarSettings.WIFI_OFFSET_X, 0):0;
+            wifiOffsetYdp = FEATURES.position("wifi")?settingValue(bundleCall, StatusBarSettings.WIFI_OFFSET_Y, 0):0;
+            wifiIconScalePercent = FEATURES.size("wifi")?settingValue(bundleCall, StatusBarSettings.WIFI_ICON_SCALE, 100):100;
+            dataOffsetXdp = FEATURES.position("data")?settingValue(bundleCall, StatusBarSettings.DATA_OFFSET_X, 0):0;
+            dataOffsetYdp = FEATURES.position("data")?settingValue(bundleCall, StatusBarSettings.DATA_OFFSET_Y, 0):0;
+            dataIconScalePercent = FEATURES.size("data")?settingValue(bundleCall, StatusBarSettings.DATA_ICON_SCALE, 100):100;
+            labelOffsetXdp = FEATURES.position("label")?settingValue(bundleCall, StatusBarSettings.LABEL_OFFSET_X, 0):0;
+            labelOffsetYdp = FEATURES.position("label")?settingValue(bundleCall, StatusBarSettings.LABEL_OFFSET_Y, 0):0;
+            labelScalePercent = FEATURES.size("label")?settingValue(bundleCall, StatusBarSettings.LABEL_SCALE, 100):100;
+            slotWidthDp = FEATURES.size("label")?settingValue(bundleCall, StatusBarSettings.SLOT_WIDTH, 22):22;
+            fontWeight = Math.round(settingValue(bundleCall, StatusBarSettings.FONT_WEIGHT, 600));
+            speedOffsetXdp = FEATURES.position("speed")?settingValue(bundleCall, StatusBarSettings.SPEED_OFFSET_X, 0):0;
+            speedOffsetYdp = FEATURES.position("speed")?settingValue(bundleCall, StatusBarSettings.SPEED_OFFSET_Y, 0):0;
+            speedScalePercent = FEATURES.size("speed")?settingValue(bundleCall, StatusBarSettings.SPEED_SCALE, 100):100;
+            speedNumberScalePercent = FEATURES.size("speed")?settingValue(bundleCall, StatusBarSettings.SPEED_NUMBER_SCALE, 100):100;
+            speedUnitScalePercent = FEATURES.size("speed")?settingValue(bundleCall, StatusBarSettings.SPEED_UNIT_SCALE, 100):100;
+            speedLineGapDp = FEATURES.effective("speed","speed_lines_enabled")?settingValue(bundleCall, StatusBarSettings.SPEED_LINE_GAP, 0):0;
+            speedWeight = Math.round(settingValue(bundleCall, StatusBarSettings.SPEED_WEIGHT, 600));
+            singleSignal = FEATURES.effective("data","data_single_enabled") && FEATURES.isEnabled("data_icon_enabled") && "single".equals(bundleCall.getString(StatusBarSettings.SIGNAL_LAYOUT, "system"));
+            FontRepository.configure(context, FEATURES.enabled("font")?bundleCall.getString(StatusBarSettings.FONT_MODE, "system"):"system",
                     bundleCall.getString(StatusBarSettings.FONT_REVISION, ""));
             Map<String, Integer> colors = new HashMap<>();
             Map<String, Boolean> alphaModes = new HashMap<>();
@@ -1620,7 +1935,10 @@ public final class StatusBarModule extends XposedModule {
             customColorAlpha = alphaModes;
             TEXT.configure(bundleCall, colors, alphaModes);
             if (BATTERY != null) BATTERY.configure(bundleCall,colors,alphaModes);
+            ModuleDiagnostics.info("settings", "Visual settings applied; Android SDK " + android.os.Build.VERSION.SDK_INT
+                    + "; active hooks " + COMPLETED_HOOK_GROUPS);
         } catch (Throwable th) {
+            ModuleDiagnostics.error("settings", "Could not read or apply visual settings; retaining current configuration", th);
             Log.w(TAG, "Could not read visual settings", th);
         }
     }
@@ -1630,16 +1948,16 @@ public final class StatusBarModule extends XposedModule {
     }
 
     private static float settingValue(Bundle settings, String key, float fallback) {
-        Object value = settings.get(key);
-        if (value instanceof Number) {
-            float number = ((Number) value).floatValue();
-            if (!Float.isNaN(number) && !Float.isInfinite(number)) return number;
-        }
-        return fallback;
+        return NumericPolicy.setting(key,settings.get(key),fallback);
     }
 
     private static int styleColor(String item, int nativeTint) {
-        return IconAppearance.color(item, nativeTint, styleColors, customColorAlpha);
+        return FEATURES.color(item)?IconAppearance.color(item, nativeTint, styleColors, customColorAlpha):nativeTint;
+    }
+
+    private static int nativeWeight(Typeface face) {
+        if(face==null)return 400;
+        return android.os.Build.VERSION.SDK_INT>=28?face.getWeight():(face.isBold()?700:400);
     }
 
     private static int nativeFilterColor(ColorFilter filter, int fallback) {
@@ -1659,6 +1977,8 @@ public final class StatusBarModule extends XposedModule {
     /* JADX INFO: Access modifiers changed from: private */
     public static void invalidateLiveDrawables() {
         TEXT.refresh();
+        BADGES.refresh();
+        refreshOverflow();
         invalidateComposeStyle();
         synchronized (SPEED_VIEWS) {
             for (Map.Entry<View, SpeedStyle> entry : SPEED_VIEWS.entrySet()) {
@@ -1689,25 +2009,19 @@ public final class StatusBarModule extends XposedModule {
         boolean previousAirplane = airplaneMode;
         try {
             WifiManager wifiManager = (WifiManager) context.getSystemService("wifi");
-            boolean connected = false;
-            if (wifiManager != null && wifiManager.isWifiEnabled()) {
-                ConnectivityManager manager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-                if (manager != null) {
-                    for (Network network : manager.getAllNetworks()) {
-                        NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
-                        if (capabilities != null && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                            connected = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            wifiConnected = connected;
+            boolean wifiEnabled=wifiManager!=null&&wifiManager.isWifiEnabled();
+            ConnectivityManager manager=(ConnectivityManager)context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            Network active=manager==null?null:manager.getActiveNetwork();
+            NetworkCapabilities capabilities=active==null?null:manager.getNetworkCapabilities(active);
+            boolean defaultWifi=capabilities!=null&&capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+            wifiConnected=RadioState.wifiInUse(wifiEnabled,nativeWifiVisible(),defaultWifi);
             airplaneMode = ((Integer) Class.forName("android.provider.Settings$Global").getMethod("getInt", ContentResolver.class, String.class, Integer.TYPE).invoke(null, context.getContentResolver(), "airplane_mode_on", 0)).intValue() != 0;
         } catch (Throwable th) {
+            ModuleDiagnostics.error("radio","Could not refresh native radio state; preserving last known state",th);
             Log.w(TAG, "Could not refresh radio state", th);
         }
         if (previousWifi != wifiConnected || previousAirplane != airplaneMode) {
+            logFrameworkStage(Log.INFO,"Radio changed: wifiVisible="+wifiConnected+" airplane="+airplaneMode);
             invalidateComposeStyle();
         }
     }
@@ -1717,14 +2031,25 @@ public final class StatusBarModule extends XposedModule {
         try {
             ConnectivityManager manager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
             if (manager == null) return;
-            manager.registerNetworkCallback(new NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(),
-                    new ConnectivityManager.NetworkCallback() {
-                        private void refresh() { MAIN.post(() -> { updateRadioState(); scheduleRefresh(); }); }
-                        @Override public void onAvailable(Network network) { refresh(); }
-                        @Override public void onLost(Network network) { refresh(); }
-                        @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) { refresh(); }
-                    });
-            networkObserverRegistered = true;
+            ConnectivityManager.NetworkCallback callback=new ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(Network network){refreshRadio();}
+                @Override public void onLost(Network network){refreshRadio();}
+                @Override public void onCapabilitiesChanged(Network network,NetworkCapabilities capabilities){refreshRadio();}
+                @Override public void onUnavailable(){refreshRadio();}
+            };
+            if (!wifiNetworkObserverRegistered) {
+                manager.registerNetworkCallback(new NetworkRequest.Builder().addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build(),callback,MAIN);
+                wifiNetworkObserverRegistered = true;
+            }
+            if (!defaultNetworkObserverRegistered) {
+                manager.registerDefaultNetworkCallback(new ConnectivityManager.NetworkCallback() {
+                @Override public void onAvailable(Network network){refreshRadio();}
+                @Override public void onLost(Network network){refreshRadio();}
+                @Override public void onCapabilitiesChanged(Network network,NetworkCapabilities capabilities){refreshRadio();}
+                },MAIN);
+                defaultNetworkObserverRegistered = true;
+            }
+            networkObserverRegistered = wifiNetworkObserverRegistered && defaultNetworkObserverRegistered;
         } catch (Throwable error) { logFrameworkStage(Log.WARN, "Could not observe Wi-Fi connectivity", error); }
     }
 
@@ -1767,18 +2092,24 @@ public final class StatusBarModule extends XposedModule {
                         Object objInvoke = getNetworkTypeFlow.invoke(obj, new Object[0]);
                         Object objInvoke2 = objInvoke == null ? null : getFlowValue.invoke(objInvoke, new Object[0]);
                         Object objInvoke3 = objInvoke2 != null ? getTypeModel.invoke(objInvoke2, new Object[0]) : null;
-                        strNormalize = objInvoke3 == null ? "" : NetworkLabel.normalize((String) getTypeName.invoke(objInvoke3, new Object[0]));
+                        String raw=objInvoke3==null?"":(String)getTypeName.invoke(objInvoke3,new Object[0]);
+                        strNormalize=FEATURES.effective("label","label_normalize_enabled")?NetworkLabel.normalize(raw):(raw==null?"":raw);
                     }
                 }
             }
         } catch (Throwable th) {
             strNormalize = "";
         }
-        if (strNormalize.isEmpty() && !airplaneMode) {
-            strNormalize = readTelephonyNetworkLabel();
+        int activeSub=activeDataSubscription();
+        observeDataSubscription(activeSub);
+        if(strNormalize.isEmpty()&&!airplaneMode&&cellularDataAvailable()) {
+            String raw=NativeDataSource.label(activeSub);
+            strNormalize=FEATURES.effective("label","label_normalize_enabled")?NetworkLabel.normalize(raw):raw;
         }
+        if (strNormalize.isEmpty() && !airplaneMode) strNormalize=readTelephonyNetworkLabel();
         if (!networkLabel.equals(strNormalize)) {
             networkLabel = strNormalize;
+            logFrameworkStage(Log.INFO,"Active data label updated: "+NetworkLabel.normalize(strNormalize));
             invalidateComposeStyle();
         }
         // Compose owns its icon widths and visibility; legacy slots must not remeasure them.
@@ -1792,8 +2123,7 @@ public final class StatusBarModule extends XposedModule {
                     boolean z = (value.appliedCellularMode == zCellularMode && strNormalize.equals(value.appliedLabel)) ? false : true;
                     value.appliedCellularMode = zCellularMode;
                     value.appliedLabel = strNormalize;
-                    float effectiveSlotWidthDp = slotWidthDp + 4;
-                    int iRound = zCellularMode ? Math.round(effectiveSlotWidthDp * key.getResources().getDisplayMetrics().density) : value.originalMinimumWidth;
+                    int iRound = zCellularMode ? NumericPolicy.layoutPixels(((double)slotWidthDp+4)*key.getResources().getDisplayMetrics().density) : value.originalMinimumWidth;
                     boolean z2 = key.getMinimumWidth() != iRound;
                     if (z2) {
                         key.setMinimumWidth(iRound);
@@ -1823,25 +2153,62 @@ public final class StatusBarModule extends XposedModule {
         }
     }
 
-    private static String readTelephonyNetworkLabel() {
-        Context currentContext = context;
-        if (currentContext == null) {
-            return "";
-        }
+    private static int activeDataSubscription() {
         try {
-            TelephonyManager telephony = (TelephonyManager) currentContext.getSystemService(Context.TELEPHONY_SERVICE);
-            if (telephony == null) {
-                return "";
-            }
-            String label = labelForNetworkType(telephony.getDataNetworkType());
-            if (label.isEmpty()) {
-                label = labelForNetworkType(telephony.getVoiceNetworkType());
-            }
-            return label;
-        } catch (Throwable th) {
-            Log.w(TAG, "Could not read the fallback cellular network type", th);
-            return "";
+            int sub=(Integer)getActiveDataSubId.invoke(null);
+            return sub>=0?sub:(Integer)getDefaultDataSubId.invoke(null);
+        }catch(Exception unavailable){return -1;}
+    }
+
+    private static final class DataRadioCallback extends TelephonyCallback implements
+            TelephonyCallback.DisplayInfoListener,TelephonyCallback.DataConnectionStateListener,TelephonyCallback.ServiceStateListener {
+        final int subscription;
+        TelephonyDisplayInfo display;
+        DataRadioCallback(int sub){subscription=sub;}
+        private boolean current(){return this==dataRadioCallback&&subscription==activeDataSubscription();}
+        @Override public void onDisplayInfoChanged(TelephonyDisplayInfo info) {
+            if(!current())return;display=info;refreshRadio();
         }
+        @Override public void onDataConnectionStateChanged(int state,int networkType){if(current())refreshRadio();}
+        @Override public void onServiceStateChanged(ServiceState state){if(current())refreshRadio();}
+    }
+
+    private static void observeDataSubscription(int subscription) {
+        if(subscription==observedDataSub&&observedTelephony!=null)return;
+        if(observedTelephony!=null&&dataRadioCallback!=null)try{observedTelephony.unregisterTelephonyCallback(dataRadioCallback);}catch(Exception ignored){}
+        observedDataSub=subscription;observedTelephony=null;dataRadioCallback=null;
+        if(subscription<0||context==null)return;
+        try {
+            TelephonyManager manager=(TelephonyManager)context.getSystemService(Context.TELEPHONY_SERVICE);
+            if(manager==null)return;
+            observedTelephony=manager.createForSubscriptionId(subscription);
+            if(android.os.Build.VERSION.SDK_INT>=31) {
+                DataRadioCallback callback=new DataRadioCallback(subscription);dataRadioCallback=callback;
+                observedTelephony.registerTelephonyCallback(MAIN::post,callback);
+            }
+        }catch(Exception error){logFrameworkStage(Log.WARN,"Active data subscription observer unavailable",error);}
+    }
+
+    private static String readTelephonyNetworkLabel() {
+        if(!cellularDataAvailable())return "";
+        try {
+            int type=observedTelephony.getDataNetworkType();
+            // Wi-Fi calling is not a cellular data generation.
+            if(type==TelephonyManager.NETWORK_TYPE_UNKNOWN||type==TelephonyManager.NETWORK_TYPE_IWLAN)return "";
+            TelephonyDisplayInfo info=dataRadioCallback==null?null:dataRadioCallback.display;
+            if(info!=null&&(info.getOverrideNetworkType()==TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA
+                    ||info.getOverrideNetworkType()==TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_ADVANCED))return "5G";
+            return labelForNetworkType(type);
+        }catch(Exception error){logFrameworkStage(Log.WARN,"Could not read current cellular data type",error);return "";}
+    }
+
+    private static boolean cellularDataAvailable() {
+        if(context==null||observedTelephony==null||observedDataSub!=activeDataSubscription())return false;
+        try {
+            int state=observedTelephony.getDataState();
+            return observedTelephony.isDataEnabled()&&(state==TelephonyManager.DATA_CONNECTED||state==TelephonyManager.DATA_SUSPENDED)
+                    &&observedTelephony.getDataNetworkType()!=TelephonyManager.NETWORK_TYPE_IWLAN;
+        }catch(Exception unavailable){return false;}
     }
 
     private static String labelForNetworkType(int networkType) {
@@ -1865,7 +2232,6 @@ public final class StatusBarModule extends XposedModule {
             case TelephonyManager.NETWORK_TYPE_HSPAP:
                 return "3G";
             case TelephonyManager.NETWORK_TYPE_LTE:
-            case TelephonyManager.NETWORK_TYPE_IWLAN:
             case 19: // LTE_CA
                 return "4G";
             case TelephonyManager.NETWORK_TYPE_NR:
@@ -1879,10 +2245,11 @@ public final class StatusBarModule extends XposedModule {
         float f = viewGroup.getResources().getDisplayMetrics().density;
         float centerX = viewGroup.getWidth() / 2.0f;
         float centerY = viewGroup.getHeight() / 2.0f;
-        float f2 = centerX + (labelOffsetXdp * f);
-        float f3 = centerY + ((labelOffsetYdp - 0.375f) * f);
+        float f2 = NumericPolicy.pixels((double)centerX+NumericPolicy.pixels(labelOffsetXdp,f));
+        float f3 = NumericPolicy.pixels((double)centerY+NumericPolicy.pixels((double)(labelOffsetYdp - 0.375f)*f));
         try {
-            slot.paint.setTypeface(FontRepository.typeface(TEXT.nativeFamily(), fontWeight));
+            slot.paint.setTypeface(FEATURES.enabled("font")||FEATURES.textStyle("label")
+                    ?FontRepository.typeface(TEXT.nativeFamily(),FEATURES.textStyle("label")?fontWeight:nativeWeight(TEXT.nativeFamily())):TEXT.nativeFamily());
             slot.paint.setFakeBoldText(false);
         } catch (Throwable th) {
             slot.paint.setTypeface(Typeface.create("sans-serif-medium", 0));
@@ -1892,8 +2259,8 @@ public final class StatusBarModule extends XposedModule {
         slot.paint.setTextScaleX(1.0f);
         slot.paint.setColor(styleColor("label", slot.tint));
         slot.paint.getTextBounds(networkLabel, 0, networkLabel.length(), slot.textBounds);
-        float glyphScale = ((NETWORK_GLYPH_HEIGHT_DP * f) * labelScalePercent / 100f)
-                / Math.max(1, slot.textBounds.height());
+        float glyphScale = NumericPolicy.scale(labelScalePercent / 100f,
+                (NETWORK_GLYPH_HEIGHT_DP*f)/Math.max(1,slot.textBounds.height()),Math.max(slot.textBounds.width(),slot.textBounds.height()));
         int iSave = canvas.save();
         canvas.scale(slot.appearAmount, slot.appearAmount, centerX, centerY);
         canvas.translate(f2, f3);

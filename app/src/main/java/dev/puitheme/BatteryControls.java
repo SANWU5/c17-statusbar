@@ -24,6 +24,7 @@ import java.util.WeakHashMap;
 public final class BatteryControls {
     private final Handler handler;
     private final BatteryAppearance appearance;
+    private final PuiBatteryStyle puiStyle;
     private final Class<?> horizontal;
     private final Method getStyle, getCharge, getLevel, getChargeId, bodyRect, paintMode;
     private final Method highContrast;
@@ -64,6 +65,7 @@ public final class BatteryControls {
         this.handler = handler;
         this.horizontal = horizontal;
         appearance = new BatteryAppearance(horizontal.getSuperclass());
+        puiStyle = new PuiBatteryStyle(horizontal);
         getStyle = meter.getMethod("getBatteryStyleDrawable");
         getCharge = meter.getMethod("getBatteryCharge");
         getLevel = horizontal.getMethod("getBatteryLevel");
@@ -96,13 +98,13 @@ public final class BatteryControls {
 
     public void configure(Bundle settings,Map<String,Integer> colors,Map<String,Boolean> alpha) {
         appearance.configure(settings,colors,alpha);
-        configure(settings.getBoolean(StatusBarSettings.BATTERY_CHARGE_INSIDE,true),
+        puiStyle.configure(settings);
+        configure(FeatureOptions.from(settings).effective("battery",StatusBarSettings.BATTERY_CHARGE_INSIDE),
                 setting(settings,StatusBarSettings.BATTERY_HOLD,3f),setting(settings,StatusBarSettings.BATTERY_FADE,1f));
     }
 
     private static float setting(Bundle settings,String key,float fallback) {
-        Object stored=settings.get(key);float value=stored instanceof Number?((Number)stored).floatValue():fallback;
-        return Float.isNaN(value)||Float.isInfinite(value)?fallback:value;
+        return NumericPolicy.setting(key,settings.get(key),fallback);
     }
 
     public Object[] nativeColors(Drawable drawable,int progress,int background,int outline) {
@@ -117,6 +119,10 @@ public final class BatteryControls {
         appearance.beforeDraw(owner,canvas);
     }
 
+    public void prepareDraw(Drawable drawable) throws Exception {
+        if(horizontal.isInstance(drawable))puiStyle.prepare(drawable);
+    }
+
     public void attach(View owner) {
         PowerManager power = (PowerManager) owner.getContext().getSystemService("power");
         if (power != null) interactive = power.isInteractive();
@@ -128,6 +134,7 @@ public final class BatteryControls {
         Entry entry = owners.remove(owner);
         if (entry != null) {
             Drawable drawable = entry.drawable.get();
+            puiStyle.detach(owner,drawable);
             if (drawable != null) drawables.remove(drawable);
             restoreExternal(entry);
         }
@@ -149,6 +156,7 @@ public final class BatteryControls {
             Drawable drawable = horizontal.isInstance(candidate) ? (Drawable) candidate : null;
             Drawable previous = entry.drawable.get();
             if (previous != drawable) {
+                if(previous!=null)puiStyle.restore(previous);
                 if (previous != null) drawables.remove(previous);
                 entry.drawable = new WeakReference<>(drawable);
                 if (drawable != null) drawables.put(drawable, entry);
@@ -166,6 +174,7 @@ public final class BatteryControls {
             boolean charging = inside && entry.nativeCharging;
             entry.cycle.setCharging(charging, SystemClock.uptimeMillis());
             appearance.apply(drawable,entry.nativeCharging);
+            if(drawable!=null){puiStyle.prepare(drawable);puiStyle.updateView(owner,drawable);}
             appearance.updateView(owner);
             View outside = entry.external.get();
             if (enabled && charging) {
@@ -224,7 +233,7 @@ public final class BatteryControls {
             if (scheduled) { handler.removeCallbacks(tick); scheduled = false; }
             return;
         }
-        long at = now + Math.max(1, delay);
+        long at = now > Long.MAX_VALUE - delay ? Long.MAX_VALUE : now + Math.max(1, delay);
         if (scheduled && scheduledAt <= at) return;
         handler.removeCallbacks(tick);
         scheduled = true; scheduledAt = at;

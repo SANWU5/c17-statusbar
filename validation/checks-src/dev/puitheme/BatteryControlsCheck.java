@@ -107,5 +107,18 @@ public final class BatteryControlsCheck {
         meter.charge.isVisible=true;controller.sync(meter);settings.putBoolean(StatusBarSettings.BATTERY_CHARGE_INSIDE,false);
         controller.configure(settings,colors,alpha);canvas=new Canvas();
         equal(View.VISIBLE,outside.getVisibility());equal(true,controller.drawContent(battery,canvas,rect));equal(-1,canvas.pathAlpha);equal(102,canvas.textAlpha);
+        settings.putBoolean("battery_enabled",false);controller.configure(settings,colors,alpha);canvas=new Canvas();
+        equal(View.VISIBLE,outside.getVisibility());equal(true,handler.delayed==null);
+        equal(false,controller.drawContent(battery,canvas,rect));equal(0xccffffff,battery.outlineColor);
+        equal(0xff00bd13,battery.progressColor);equal(0x4dffffff,battery.backgroundColor);
+        settings.putBoolean("battery_enabled",true);settings.putBoolean(StatusBarSettings.BATTERY_CHARGE_INSIDE,true);
+        controller.configure(settings,colors,alpha);canvas=new Canvas();
+        equal(View.GONE,outside.getVisibility());equal(true,handler.delayed!=null);
+        equal(true,controller.drawContent(battery,canvas,rect));equal(0xccff4455,canvas.pathColor);equal(255,canvas.maskAlpha);
+        settings.putBoolean("battery_bolt_color_enabled",false);controller.configure(settings,colors,alpha);canvas=new Canvas();
+        equal(true,controller.drawContent(battery,canvas,rect));equal(0xccffffff,canvas.pathColor);
+        settings.putBoolean("battery_text_color_enabled",false);settings.putBoolean(StatusBarSettings.BATTERY_CHARGE_INSIDE,false);
+        controller.configure(settings,colors,alpha);
+        equal(false,controller.drawContent(battery,new Canvas(),rect));equal(View.VISIBLE,outside.getVisibility());
     }
 }

@@ -83,9 +83,69 @@ public final class BatteryAppearanceCheck {
         settings=new Bundle();settings.putFloat(StatusBarSettings.BATTERY_OFFSET_X,Float.NaN);settings.putFloat(StatusBarSettings.BATTERY_SCALE,Float.POSITIVE_INFINITY);
         settings.putFloat(StatusBarSettings.BATTERY_WIDTH_SCALE,300f);settings.putFloat(StatusBarSettings.BATTERY_HEIGHT_SCALE,0f);
         style.configure(settings,StatusBarSettings.COLOR_DEFAULTS,new HashMap<>());canvas=new Canvas();style.beforeDraw(owner,canvas);
-        near(0,canvas.translateX);near(2.5f,canvas.scaleX);near(.25f,canvas.scaleY);
+        near(0,canvas.translateX);near(3f,canvas.scaleX);near(0f,canvas.scaleY);
+        settings.putFloat(StatusBarSettings.BATTERY_OFFSET_X,600.75f);
+        settings.putFloat(StatusBarSettings.BATTERY_OFFSET_Y,-120.25f);
+        settings.putFloat(StatusBarSettings.BATTERY_SCALE,10f);
+        settings.putFloat(StatusBarSettings.BATTERY_WIDTH_SCALE,100f);
+        settings.putFloat(StatusBarSettings.BATTERY_HEIGHT_SCALE,100f);
+        style.configure(settings,StatusBarSettings.COLOR_DEFAULTS,new HashMap<>());canvas=new Canvas();style.beforeDraw(owner,canvas);
+        near(2403f,canvas.translateX);near(-481f,canvas.translateY);near(.1f,canvas.scaleX);near(.1f,canvas.scaleY);
+        settings.putFloat(StatusBarSettings.BATTERY_OFFSET_X,Float.MAX_VALUE);
+        settings.putFloat(StatusBarSettings.BATTERY_OFFSET_Y,-Float.MAX_VALUE);
+        settings.putFloat(StatusBarSettings.BATTERY_SCALE,Float.MAX_VALUE);
+        settings.putFloat(StatusBarSettings.BATTERY_WIDTH_SCALE,Float.MAX_VALUE);
+        settings.putFloat(StatusBarSettings.BATTERY_HEIGHT_SCALE,Float.MAX_VALUE);
+        style.configure(settings,StatusBarSettings.COLOR_DEFAULTS,new HashMap<>());canvas=new Canvas();style.beforeDraw(owner,canvas);
+        near(NumericPolicy.MAX_DRAW_PIXELS,canvas.translateX);near(-NumericPolicy.MAX_DRAW_PIXELS,canvas.translateY);
+        near(NumericPolicy.MAX_DRAW_PIXELS/owner.getWidth(),canvas.scaleX);
+        near(NumericPolicy.MAX_DRAW_PIXELS/owner.getHeight(),canvas.scaleY);
         equal(0f,StatusBarSettings.NUMERIC_DEFAULTS.get(StatusBarSettings.BATTERY_OFFSET_X));
         equal(100f,StatusBarSettings.NUMERIC_DEFAULTS.get(StatusBarSettings.BATTERY_SCALE));
+        independentSwitches();
         System.out.println("BatteryAppearanceCheck passed: "+checks);
+    }
+    private static void independentSwitches() throws Exception {
+        BatteryAppearance style=new BatteryAppearance(Bar.class);Bar bar=new Bar();
+        Map<String,Integer> colors=new HashMap<>(StatusBarSettings.COLOR_DEFAULTS);
+        Map<String,Boolean> alpha=new HashMap<>();Bundle settings=new Bundle();
+        for(String item:new String[]{"battery","battery_text","battery_bolt","battery_charge","battery_alert"}) {
+            colors.put(item+"_color_light",0x80112233);alpha.put(item+"_color_light",true);
+        }
+        settings.putFloat(StatusBarSettings.BATTERY_OFFSET_X,7.25f);
+        settings.putFloat(StatusBarSettings.BATTERY_OFFSET_Y,-1.5f);
+        settings.putFloat(StatusBarSettings.BATTERY_SCALE,125f);
+        style.configure(settings,colors,alpha);update(style,bar,0xff00bd13,0x4d000000,0xe6000000,true);
+        equal(0x80112233,bar.progressColor);equal(0x80112233,bar.outlineColor);
+        settings.putBoolean("battery_charge_color_enabled",false);style.configure(settings,colors,alpha);style.apply(bar,true);
+        equal(0xff00bd13,bar.progressColor);equal(0x80112233,bar.outlineColor);
+        settings.putBoolean("battery_text_color_enabled",false);settings.putBoolean("battery_bolt_color_enabled",false);
+        style.configure(settings,colors,alpha);
+        equal(false,style.hasCustom("battery_text"));equal(false,style.hasCustom("battery_bolt"));
+        equal(0xccffffff,style.contentTint("battery_text",bar,0xccffffff));
+        equal(0xe6000000,style.contentTint("battery_bolt",bar,0xe6000000));
+        settings.putBoolean("battery_alert_color_enabled",false);style.configure(settings,colors,alpha);
+        update(style,bar,0xffff3b30,0x4d000000,0xe6000000,false);equal(0xffff3b30,bar.progressColor);
+        settings.putBoolean("battery_color_enabled",false);style.configure(settings,colors,alpha);style.apply(bar,false);
+        equal(0xffff3b30,bar.progressColor);equal(0x4d000000,bar.backgroundColor);equal(0xe6000000,bar.outlineColor);
+        ViewGroup owner=new ViewGroup(new Context()),parent=new ViewGroup(new Context());owner.parent=parent;
+        Canvas canvas=new Canvas();style.beforeDraw(owner,canvas);near(29,canvas.translateX);near(1.25f,canvas.scaleX);
+        settings.putBoolean("battery_position_enabled",false);style.configure(settings,colors,alpha);canvas=new Canvas();style.beforeDraw(owner,canvas);
+        near(0,canvas.translateX);near(0,canvas.translateY);near(1.25f,canvas.scaleX);
+        settings.putBoolean("battery_size_enabled",false);style.configure(settings,colors,alpha);canvas=new Canvas();style.beforeDraw(owner,canvas);
+        near(1,canvas.scaleX);near(1,canvas.scaleY);equal(true,owner.getClipChildren());equal(true,parent.getClipChildren());
+        settings.putBoolean("battery_position_enabled",true);settings.putBoolean("battery_size_enabled",true);
+        settings.putBoolean("battery_color_enabled",true);settings.putBoolean("battery_charge_color_enabled",true);
+        style.configure(settings,colors,alpha);style.apply(bar,true);canvas=new Canvas();style.beforeDraw(owner,canvas);
+        equal(0x80112233,bar.progressColor);near(29,canvas.translateX);near(1.25f,canvas.scaleX);
+        settings.putBoolean("battery_enabled",false);style.configure(settings,colors,alpha);style.apply(bar,true);canvas=new Canvas();style.beforeDraw(owner,canvas);
+        equal(0xffff3b30,bar.progressColor);equal(0x4d000000,bar.backgroundColor);equal(0xe6000000,bar.outlineColor);
+        near(0,canvas.translateX);near(1,canvas.scaleX);equal(true,parent.getClipChildren());equal(false,style.hasCustom("battery"));
+        settings.putBoolean("battery_enabled",true);style.configure(settings,colors,alpha);style.apply(bar,true);canvas=new Canvas();style.beforeDraw(owner,canvas);
+        equal(0x80112233,bar.progressColor);near(29,canvas.translateX);near(1.25f,canvas.scaleX);
+        ViewGroup wifi=new ViewGroup(new Context());wifi.parent=parent;
+        OverflowControls.shared().acquire(wifi,true);
+        style.detach(owner);equal(false,parent.getClipChildren());
+        OverflowControls.shared().release(wifi);equal(true,parent.getClipChildren());
     }
 }

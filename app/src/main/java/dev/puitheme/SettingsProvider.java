@@ -24,6 +24,10 @@ public final class SettingsProvider extends ContentProvider {
 
     @Override // android.content.ContentProvider
     public Bundle call(String str, String str2, Bundle bundle) {
+        if (ModuleDiagnostics.METHOD_RECORD.equals(str)) {
+            enforceAllowedReader();
+            return ModuleDiagnostics.record(getContext(), bundle);
+        }
         if (!METHOD_READ.equals(str)) {
             return super.call(str, str2, bundle);
         }
@@ -35,14 +39,13 @@ public final class SettingsProvider extends ContentProvider {
             bundle2.putFloat(setting.getKey(), StatusBarSettings.settingNumber(values, setting.getKey(), setting.getValue()));
         }
         for (Map.Entry<String, Integer> color : StatusBarSettings.COLOR_DEFAULTS.entrySet()) {
-            Object stored = values.get(color.getKey());
-            bundle2.putInt(color.getKey(), stored instanceof Number ? ((Number) stored).intValue() : color.getValue());
+            bundle2.putInt(color.getKey(), StatusBarSettings.color(values, color.getKey()));
             bundle2.putBoolean(StatusBarSettings.alphaKey(color.getKey()), StatusBarSettings.customAlpha(values, color.getKey()));
         }
         for (String key : StatusBarSettings.STRING_DEFAULTS.keySet())
             bundle2.putString(key, StatusBarSettings.string(values, key));
-        bundle2.putBoolean(StatusBarSettings.CLOCK_ENABLED, sharedPreferences.getBoolean(StatusBarSettings.CLOCK_ENABLED, false));
-        bundle2.putBoolean(StatusBarSettings.BATTERY_CHARGE_INSIDE, sharedPreferences.getBoolean(StatusBarSettings.BATTERY_CHARGE_INSIDE, true));
+        for (String key : StatusBarSettings.BOOLEAN_DEFAULTS.keySet())
+            bundle2.putBoolean(key, StatusBarSettings.bool(values, key));
         return bundle2;
     }
 

@@ -18,6 +18,7 @@ public final class FontRepository {
     private static final String MODULE = "dev.puitheme.iosstatusbar";
     private static String mode = "system", revision = "";
     private static Context moduleContext;
+    private static boolean contextFailureLogged, fontFailureLogged;
     private static final Map<Integer,Typeface> CACHE = new LinkedHashMap<Integer,Typeface>(32,.75f,true) {
         @Override protected boolean removeEldestEntry(Map.Entry<Integer,Typeface> entry) { return size() > 48; }
     };
@@ -28,12 +29,16 @@ public final class FontRepository {
         if (moduleContext == null) {
             try { moduleContext = MODULE.equals(context.getPackageName()) ? context
                     : context.createPackageContext(MODULE, Context.CONTEXT_IGNORE_SECURITY); }
-            catch (Exception unavailable) { return; }
+            catch (Exception unavailable) {
+                if (!contextFailureLogged) { contextFailureLogged=true;ModuleDiagnostics.error("font","Module font resources unavailable; retaining system font",unavailable); }
+                return;
+            }
         }
         newMode = "pingfang".equals(newMode) || "custom".equals(newMode) ? newMode : "system";
         if (newRevision == null) newRevision = "";
         if (!newMode.equals(mode) || !newRevision.equals(revision)) {
-            mode = newMode; revision = newRevision; CACHE.clear();
+            mode = newMode; revision = newRevision; CACHE.clear();fontFailureLogged=false;
+            ModuleDiagnostics.info("font","Font source changed: "+mode);
         }
     }
 
@@ -54,7 +59,9 @@ public final class FontRepository {
                     }
                 }
                 if (loaded != null) { CACHE.put(bounded, loaded); return loaded; }
-            } catch (Exception invalidFont) { /* Native family remains available. */ }
+            } catch (Exception invalidFont) {
+                if (!fontFailureLogged) { fontFailureLogged=true;ModuleDiagnostics.error("font","Font loading failed; using native family",invalidFont); }
+            }
         }
         Typeface fallback = nativeFace == null ? Typeface.DEFAULT : nativeFace;
         return Build.VERSION.SDK_INT >= 28 ? Typeface.create(fallback, bounded, false)
