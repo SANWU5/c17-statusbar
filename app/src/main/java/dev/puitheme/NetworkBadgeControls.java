@@ -57,7 +57,8 @@ final class NetworkBadgeControls {
     private boolean enabled(State state) {
         if(state==null)return false;
         String group=state.key.startsWith("wifi_")?"wifi":"data";
-        return options==null || options.effective(group,state.key);
+        return options==null || options.effective(group,state.key)
+                || "data_badge_hidden".equals(state.key) && options.hideNetworkLabel();
     }
     int requestedVisibility(View view,int visibility) {
         State state=state(view);

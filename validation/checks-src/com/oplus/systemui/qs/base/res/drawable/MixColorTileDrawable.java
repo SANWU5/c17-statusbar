@@ -4,6 +4,10 @@ import android.graphics.drawable.Drawable;
 public class MixColorTileDrawable extends Drawable {
     public final Paint paint=new Paint(1),highlightPaint=new Paint(1);
     public int maskColor=0xffffffff,alpha=255,draws;
+    public boolean deforming;
+    public final Animator animator=new Animator();
+    public static final class Animator {public boolean running;public boolean isRunning(){return running;}}
+    public boolean isDeforming(){return deforming;}
     public Shader seenShader,seenHighlight;
     public Drawable child;
     public Drawable getDrawable(){return child;}

@@ -290,7 +290,29 @@ public final class ConfigTransferCheck {
         }
         invalidSetting("\"qs_style_wifi_enabled\":true");
         invalidSetting("\"qs_style_wifi_light_opacity\":50");
+        independentShadeClockConfig();
         System.out.println(checks + " checks passed (portable snapshots, strict bounded import, legacy migration, numeric rules, font fallback, one bulk commit)");
+    }
+
+    private static void independentShadeClockConfig() throws Exception {
+        Map<String,Object> independent=new LinkedHashMap<>();
+        independent.put(StatusBarSettings.SHADE_CLOCK_CONTROLS_ENABLED,true);independent.put(StatusBarSettings.SHADE_CLOCK_ENABLED,true);
+        independent.put(StatusBarSettings.SHADE_CLOCK_PATTERN,"'通知' HH:mm:ss");independent.put(StatusBarSettings.SHADE_CLOCK_OFFSET_X,-18.25f);
+        independent.put(StatusBarSettings.SHADE_CLOCK_OFFSET_Y,9.5f);independent.put(StatusBarSettings.SHADE_CLOCK_SCALE,180.25f);
+        independent.put(StatusBarSettings.SHADE_CLOCK_WEIGHT,780f);independent.put(StatusBarSettings.SHADE_CLOCK_SPACING,-.75f);
+        independent.put("shade_clock_color_light",0x55123456);independent.put("shade_clock_color_light_custom_alpha",true);
+        independent.put("shade_clock_color_dark",0xff778899);independent.put("shade_clock_color_dark_custom_alpha",false);
+        for(String suffix:new String[]{"position","size","color","text_style"})independent.put("shade_clock_"+suffix+"_enabled",false);
+        Map<String,Object> imported=ConfigTransfer.prepare(ConfigTransfer.exportJson(independent),true).values();
+        for(Map.Entry<String,Object> item:independent.entrySet())equal(item.getValue(),imported.get(item.getKey()));
+        equal(false,ConfigTransfer.prepare(ConfigTransfer.exportJson(Collections.emptyMap()),true).values().get(StatusBarSettings.SHADE_CLOCK_CONTROLS_ENABLED));
+        FakePreferences prior=new FakePreferences(independent);
+        ConfigTransfer.PreparedImport old=ConfigTransfer.prepare(document("\"clock_pattern\":\"HH:mm\""),true);
+        equal(false,old.values().containsKey(StatusBarSettings.SHADE_CLOCK_CONTROLS_ENABLED));
+        equal(true,ConfigTransfer.commit(prior,old));equal(true,prior.values.get(StatusBarSettings.SHADE_CLOCK_CONTROLS_ENABLED));
+        equal("'通知' HH:mm:ss",prior.values.get(StatusBarSettings.SHADE_CLOCK_PATTERN));
+        for(String invalid:new String[]{"\"shade_clock_pattern\":\"{未知}\"","\"shade_clock_pattern\":\"HH:mm\\nss\"",
+                "\"shade_clock_scale\":-1","\"shade_clock_weight\":901","\"shade_clock_controls_enabled\":\"true\""})invalidSetting(invalid);
     }
 
     private static Map<String, Object> nullMap() { return null; }

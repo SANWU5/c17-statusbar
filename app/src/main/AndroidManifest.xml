@@ -1,16 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="dev.puitheme.iosstatusbar"
-    android:versionCode="29"
-    android:versionName="1.14.1">
+    android:versionCode="30"
+    android:versionName="1.15.0">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <queries>
+        <package android:name="com.android.systemui" />
+    </queries>
     <application
         android:allowBackup="false"
         android:description="@string/module_description"
-        android:icon="@drawable/ic_pui_ios_statusbar"
+        android:icon="@mipmap/ic_c17_launcher"
+        android:roundIcon="@mipmap/ic_c17_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">

@@ -1,0 +1,32 @@
+# 通知栏大时钟效果图
+
+生成方式：内置 image_gen。
+
+方案：竖屏采用上方大时钟、下方通知列表；横屏采用左侧时钟、右侧通知列表。两图使用相同时间、日期、配色与通知内容。
+
+图片：notification-big-clock-portrait-v1.png、notification-big-clock-landscape-v1.png。
+
+以下为用于生成两张效果图的完整提示词。
+
+## 竖屏
+
+```text
+Use case: ui-mockup.
+Asset type: high-fidelity full-screen Android notification shade design concept for the user's "更好的C17状态栏" LSPosed module, with ColorOS 17-inspired restrained glass styling.
+Primary request: show a NEW LARGE CLOCK integrated into the pulled-down NOTIFICATION PANEL. This is the notifications shade with notification cards; distinguish it clearly from a lock screen, home screen, or module settings screen. Single finished screen per image, no comparison collage.
+Visual design: softly blurred pale blue-gray wallpaper with a faint lavender tint and subtle frosted transparency, dark charcoal text, elegant system sans-serif Chinese typography, spacious but practical layout, refined rounded translucent white notification cards with soft edges. Clock is huge, black, slim-to-medium sans-serif digits with clean tabular numerals, left-aligned, exact time "20:17". Date directly underneath in smaller muted text, exact wording "9月30日 星期三". Calm, legible, believable Android SystemUI interface.
+Keep exact UI content consistent across the portrait and landscape concepts: tiny top status symbols show cellular bars, Wi-Fi, and a horizontal battery with "86"; one clock only. Notification section heading "通知", small action "管理". Three cards in this order: 1) "微信" with small "现在", title "家人", body "晚饭准备好了，记得早点回来。"; 2) "日历" with small "10 分钟前", title "明天的安排", body "09:00 · 产品评审"; 3) a compact music notification, label "音乐", title "正在播放", small album placeholder and simple previous/pause/next symbols. Simple recognizable app glyphs, accurate Chinese characters. A small translucent circular clear-all button with a trash-can icon near the bottom. Bottom centered gesture indicator.
+Constraints: pure flat frontal UI screenshot, full bleed, no physical phone bezel, no perspective, no outer mockup canvas, no explanatory captions, no watermark, no developer controls. Safe insets between all content and screen edges. No giant quick-settings grid, no brightness/volume sliders: this concept specifically depicts the notification panel. Do not add weather, calendar widget, unrelated floating widgets or more clocks. Do not use the app's blue settings-page cards. Ensure there is ample visible notification content and no clipping.
+Composition/framing: PORTRAIT smartphone screen, tall 9:20 aspect ratio, preferably 1080x2400. Very small status glyphs upper-right, generous safe top margin. Large clock across the upper-left quarter, about 180 px high at this resolution; the whole clock including its colon fits comfortably on one line. Date just below. Notification heading and cards vertically stacked beneath the clock, using nearly the full width with about 42 px side margins. Three fully readable notification cards, compact music card. Maintain a natural screen density rather than huge notification text. The clock feels like a polished native notification-panel header. Leave a comfortable empty frosted region below notifications and clear-all near the lower center.
+```
+## 横屏
+
+```text
+Use case: ui-mockup.
+Asset type: high-fidelity full-screen Android notification shade design concept for the user's "更好的C17状态栏" LSPosed module, with ColorOS 17-inspired restrained glass styling.
+Primary request: show a NEW LARGE CLOCK integrated into the pulled-down NOTIFICATION PANEL. This is the notifications shade with notification cards; distinguish it clearly from a lock screen, home screen, or module settings screen. Single finished screen per image, no comparison collage.
+Visual design: softly blurred pale blue-gray wallpaper with a faint lavender tint and subtle frosted transparency, dark charcoal text, elegant system sans-serif Chinese typography, spacious but practical layout, refined rounded translucent white notification cards with soft edges. Clock is huge, black, slim-to-medium sans-serif digits with clean tabular numerals, left-aligned, exact time "20:17". Date directly underneath in smaller muted text, exact wording "9月30日 星期三". Calm, legible, believable Android SystemUI interface.
+Keep exact UI content consistent across the portrait and landscape concepts: tiny top status symbols show cellular bars, Wi-Fi, and a horizontal battery with "86"; one clock only. Notification section heading "通知", small action "管理". Three cards in this order: 1) "微信" with small "现在", title "家人", body "晚饭准备好了，记得早点回来。"; 2) "日历" with small "10 分钟前", title "明天的安排", body "09:00 · 产品评审"; 3) a compact music notification, label "音乐", title "正在播放", small album placeholder and simple previous/pause/next symbols. Simple recognizable app glyphs, accurate Chinese characters. A small translucent circular clear-all button with a trash-can icon near the bottom. Bottom centered gesture indicator.
+Constraints: pure flat frontal UI screenshot, full bleed, no physical phone bezel, no perspective, no outer mockup canvas, no explanatory captions, no watermark, no developer controls. Safe insets between all content and screen edges. No giant quick-settings grid, no brightness/volume sliders: this concept specifically depicts the notification panel. Do not add weather, calendar widget, unrelated floating widgets or more clocks. Do not use the app's blue settings-page cards. Ensure there is ample visible notification content and no clipping.
+Composition/framing: LANDSCAPE smartphone screen, wide 20:9 aspect ratio, preferably 2400x1080. Deliberate responsive two-column layout, upright readable text and glyphs. Large clock and date live in the LEFT 36 percent of the display, clock centered vertically within the left header region but text left-aligned, generous left safe inset and enough room for all four digits and the colon. The RIGHT 59 percent contains heading and three compact horizontal notification cards stacked top-to-bottom with consistent gaps; each card is wide and comfortably readable. Separate the columns with whitespace rather than a harsh divider. Top system symbols at the far upper-right. Clear-all button bottom-right of the notification area, gesture indicator at the bottom center. Keep the clock huge but fit the realistic limited vertical height; all three cards fully visible. Preserve the same background, typography, exact time/date, cards, and styling as the portrait concept.
+```

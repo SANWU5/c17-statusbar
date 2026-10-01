@@ -22,7 +22,7 @@ public final class NumericPolicyCheck {
         near(0f,NumericPolicy.number(null,Float.NaN,25f,250f));
         String[] sizes={"wifi_icon_scale","data_icon_scale","label_scale","slot_width",
                 "speed_scale","speed_number_scale","speed_unit_scale","battery_scale",
-                "battery_width_scale","battery_height_scale","clock_scale","carrier_scale",
+                "battery_width_scale","battery_height_scale","clock_scale","shade_clock_scale","carrier_scale",
                 "carrier_notification_scale","carrier_control_scale","battery_hold_seconds",
                 "battery_fade_seconds"};
         for(String key:sizes) {
@@ -35,6 +35,7 @@ public final class NumericPolicyCheck {
                 "data_offset_x","data_offset_y","label_offset_x","label_offset_y",
                 "speed_offset_x","speed_offset_y","speed_line_gap","battery_offset_x",
                 "battery_offset_y","clock_offset_x","clock_offset_y","clock_spacing",
+                "shade_clock_offset_x","shade_clock_offset_y","shade_clock_spacing",
                 "carrier_notification_offset_x","carrier_notification_offset_y",
                 "carrier_notification_spacing","carrier_control_offset_x",
                 "carrier_control_offset_y","carrier_control_spacing"};
@@ -43,7 +44,7 @@ public final class NumericPolicyCheck {
             near(999.99f,NumericPolicy.setting(key,999.99f,0f));
             near(0f,NumericPolicy.setting(key,Float.NaN,0f));
         }
-        for(String key:new String[]{"font_weight","speed_weight","clock_weight",
+        for(String key:new String[]{"font_weight","speed_weight","clock_weight","shade_clock_weight",
                 "carrier_weight","carrier_notification_weight","carrier_control_weight"}) {
             near(100f,NumericPolicy.setting(key,0f,600f));
             near(900f,NumericPolicy.setting(key,99999f,600f));

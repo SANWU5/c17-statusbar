@@ -36,6 +36,7 @@ public final class StatusBarSettings {
     public static final String FONT_WEIGHT = "font_weight";
     public static final String ICON_SCALE = "icon_scale";
     public static final String LABEL_SCALE = "label_scale";
+    public static final String LABEL_HIDDEN = "label_hidden";
     public static final String LABEL_OFFSET_X = "label_offset_x";
     public static final String LABEL_OFFSET_Y = "label_offset_y";
     public static final String OFFSET_X = "offset_x";
@@ -55,6 +56,11 @@ public final class StatusBarSettings {
     public static final String CLOCK_OFFSET_X = "clock_offset_x", CLOCK_OFFSET_Y = "clock_offset_y";
     public static final String CLOCK_SCALE = "clock_scale", CLOCK_WEIGHT = "clock_weight";
     public static final String CLOCK_SPACING = "clock_spacing";
+    public static final String SHADE_CLOCK_CONTROLS_ENABLED = "shade_clock_controls_enabled";
+    public static final String SHADE_CLOCK_ENABLED = "shade_clock_enabled", SHADE_CLOCK_PATTERN = "shade_clock_pattern";
+    public static final String SHADE_CLOCK_OFFSET_X = "shade_clock_offset_x", SHADE_CLOCK_OFFSET_Y = "shade_clock_offset_y";
+    public static final String SHADE_CLOCK_SCALE = "shade_clock_scale", SHADE_CLOCK_WEIGHT = "shade_clock_weight";
+    public static final String SHADE_CLOCK_SPACING = "shade_clock_spacing";
     public static final String CARRIER_MODE = "carrier_mode", CARRIER_PATTERN = "carrier_pattern";
     public static final String CARRIER_TEXT = "carrier_text";
     public static final String CARRIER_OFFSET_X = "carrier_offset_x", CARRIER_OFFSET_Y = "carrier_offset_y";
@@ -85,6 +91,9 @@ public final class StatusBarSettings {
         Map<String, Boolean> booleans = new LinkedHashMap<>(FeatureOptions.DEFAULTS);
         booleans.put(DIAGNOSTICS_ENABLED, false);
         booleans.putAll(QsTileAppearance.BOOLEANS);
+        booleans.putAll(QsMediaAppearance.BOOLEANS);
+        booleans.putAll(NotificationBigClockSettings.BOOLEANS);
+        booleans.putAll(NotificationClearAppearance.BOOLEANS);
         BOOLEAN_DEFAULTS = Collections.unmodifiableMap(booleans);
         Map<String, Float> numbers = new LinkedHashMap<>();
         numbers.put(WIFI_OFFSET_X, 0f);
@@ -115,7 +124,7 @@ public final class StatusBarSettings {
         numbers.put(TILES_LEFT_RANGE,24f);numbers.put(TILES_RIGHT_RANGE,24f);
         numbers.put(TILES_LEFT_OFFSET_X,0f);numbers.put(TILES_RIGHT_OFFSET_X,0f);
         numbers.put(TILES_OFFSET_Y,0f);numbers.put(TILES_REGION_HEIGHT,0f);numbers.put(TILES_VERTICAL_FEATHER,32f);
-        for (String item : new String[]{"clock", "carrier", CarrierPanels.NOTIFICATION, CarrierPanels.CONTROL,
+        for (String item : new String[]{"clock", "shade_clock", "carrier", CarrierPanels.NOTIFICATION, CarrierPanels.CONTROL,
                 CarrierPanels.LOCKSCREEN}) {
             numbers.put(item + "_offset_x", 0f);
             numbers.put(item + "_offset_y", 0f);
@@ -124,9 +133,12 @@ public final class StatusBarSettings {
             numbers.put(item + "_spacing", 0f);
         }
         numbers.putAll(QsTileAppearance.NUMBERS);
+        numbers.putAll(QsMediaAppearance.NUMBERS);
+        numbers.putAll(NotificationBigClockSettings.NUMBERS);
+        numbers.putAll(NotificationClearAppearance.NUMBERS);
         NUMERIC_DEFAULTS = Collections.unmodifiableMap(numbers);
         Map<String, Integer> colors = new LinkedHashMap<>();
-        for (String item : new String[]{"wifi", "data", "label", "speed", "clock", "carrier",
+        for (String item : new String[]{"wifi", "data", "label", "speed", "clock", "shade_clock", "carrier",
                 CarrierPanels.NOTIFICATION, CarrierPanels.CONTROL, CarrierPanels.LOCKSCREEN,
                 "battery", "battery_text", "battery_bolt"}) {
             colors.put(item + "_color_light", 0xff000000);
@@ -135,9 +147,13 @@ public final class StatusBarSettings {
         colors.put("battery_charge_color_light",0xff00bd13);colors.put("battery_charge_color_dark",0xff00bd13);
         colors.put("battery_alert_color_light",0xffff3b30);colors.put("battery_alert_color_dark",0xffff3b30);
         colors.putAll(QsTileAppearance.COLORS);
+        colors.putAll(QsMediaAppearance.COLORS);
+        colors.putAll(NotificationBigClockSettings.COLORS);
+        colors.putAll(NotificationClearAppearance.COLORS);
         COLOR_DEFAULTS = Collections.unmodifiableMap(colors);
         Map<String, String> strings = new LinkedHashMap<>();
         strings.put(CLOCK_PATTERN, TimeFormat.CLOCK_DEFAULT);
+        strings.put(SHADE_CLOCK_PATTERN, TimeFormat.CLOCK_DEFAULT);
         strings.put(CARRIER_PATTERN, TimeFormat.CARRIER_DEFAULT);
         strings.put(CARRIER_MODE, "original");
         strings.put(CARRIER_TEXT, "更好的C17状态栏");
@@ -151,6 +167,7 @@ public final class StatusBarSettings {
         strings.put(FONT_NAME, "未导入字体");
         strings.put(SIGNAL_LAYOUT, "system");
         strings.put(BATTERY_STYLE, "pui");
+        strings.putAll(NotificationBigClockSettings.STRINGS);
         STRING_DEFAULTS = Collections.unmodifiableMap(strings);
     }
 
@@ -211,6 +228,8 @@ public final class StatusBarSettings {
     }
 
     public static float settingNumber(Map<String, ?> values, String key, float fallback) {
+        if (NotificationBigClockSettings.VISIBLE_COUNT.equals(key))
+            return NotificationBigClockSettings.visibleCount(values == null ? null : values.get(key));
         if (values == null || !values.containsKey(key)) {
             if(key.equals(TILES_LEFT_RANGE)||key.equals(TILES_RIGHT_RANGE))return number(values,TILES_FADE_RANGE,fallback);
             if (key.equals(WIFI_OFFSET_X) || key.equals(DATA_OFFSET_X)) return number(values, OFFSET_X, fallback);
@@ -225,8 +244,17 @@ public final class StatusBarSettings {
         SharedPreferences preferences = deviceContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         SharedPreferences migration = deviceContext.getSharedPreferences(MIGRATION_PREFS, Context.MODE_PRIVATE);
         UserManager userManager = (UserManager) context.getSystemService(Context.USER_SERVICE);
-        Context credentialContext = context.isDeviceProtectedStorage()
-                ? context.getApplicationContext() : context;
+        Context credentialContext = null;
+        if (!migration.getBoolean(CREDENTIAL_MIGRATED, false)
+                && userManager != null && userManager.isUserUnlocked()) {
+            // Public createPackageContext starts with flags=0, rather than inheriting a DE
+            // application's storage context. This app does not default to DE storage.
+            try { credentialContext=context.createPackageContext(context.getPackageName(),0); }
+            catch(android.content.pm.PackageManager.NameNotFoundException unavailable) {
+                ModuleDiagnostics.error("settings","Credential settings context unavailable; current configuration retained",unavailable);
+            }
+        }
+        SettingsSnapshot.recoverIfEmpty(deviceContext, preferences);
         if (!migration.getBoolean(CREDENTIAL_MIGRATED, false)
                 && userManager != null && userManager.isUserUnlocked()
                 && credentialContext != null && !credentialContext.isDeviceProtectedStorage()) {
@@ -247,7 +275,7 @@ public final class StatusBarSettings {
     }
 
     @SuppressWarnings("unchecked")
-    private static void copyPreference(SharedPreferences.Editor editor, String key, Object value) {
+    static void copyPreference(SharedPreferences.Editor editor, String key, Object value) {
         if (value instanceof Integer) {
             editor.putInt(key, (Integer) value);
         } else if (value instanceof Long) {

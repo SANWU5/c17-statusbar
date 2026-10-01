@@ -16,9 +16,9 @@ public final class CarrierPanelSettingsCheck {
     private static String l(String suffix) { return CarrierPanels.key(CarrierPanels.LOCKSCREEN, suffix); }
 
     public static void main(String[] args) {
-        equal(9, FeatureOptions.GROUPS.length);
+        equal(10, FeatureOptions.GROUPS.length);
         equal(3, CarrierPanels.GROUPS.length);
-        equal(73, FeatureOptions.DEFAULTS.size());
+        equal(79, FeatureOptions.DEFAULTS.size());
         equal(n("mode"), CarrierPanels.key(CarrierPanels.NOTIFICATION, "_mode"));
         equal(null == CarrierPanels.legacyKey(n("enabled")), true);
         equal(null == CarrierPanels.legacyKey("carrier_mode"), true);

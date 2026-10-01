@@ -24,6 +24,8 @@ public final class NumericPolicy {
     /** Read a runtime setting without imposing an editor slider's upper or lower range. */
     public static float setting(String key, Object stored, float fallback) {
         float value = finite(stored, fallback);
+        if (NotificationBigClockSettings.positiveSize(key) && value <= 0f)
+            return Math.max(Float.MIN_NORMAL, finite(fallback, 1f));
         if (key != null && (key.equals("font_weight") || key.endsWith("_weight")))
             return Math.max(100f, Math.min(900f, value));
         return signed(key) ? value : Math.max(0f, value);

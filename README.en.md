@@ -1,15 +1,19 @@
-# C17 Status Bar 1.14.1
+# C17 Status Bar 1.15.0
 
-Author: aiingjie · Package: `dev.puitheme.iosstatusbar` · versionCode: 29 · LibXposed API 101
+Author: aiingjie · Package: `dev.puitheme.iosstatusbar` · versionCode: 30 · LibXposed API 101
 
-[中文](README.md) · [Repository](https://github.com/SANWU5/c17-statusbar) · [Official release](https://github.com/SANWU5/c17-statusbar/releases/tag/v1.14.1)
+[中文](README.md) · [Repository](https://github.com/SANWU5/c17-statusbar) · [Release](https://github.com/SANWU5/c17-statusbar/releases/tag/v1.15.0)
+
+This version rebuilds the settings interface with native HyperOS-style navigation, search, expandable sections, dark/light themes and an HSB picker. It adds validated settings snapshots, a debounced durable recovery backup, runtime rollback and deduplicated rendering work. The music card can use centered, cropped, blurred artwork while retaining native glass and highlights; the original album thumbnail supports inverse-color or custom-color glow.
+
+The folded notification layout shows at most three complete cards and three bottom layers without deleting notifications. Rounded tail windows now share native path, background and spotlight geometry. The previous native27 build still reproduced the corner defect on hardware; this new implementation has not yet been verified with that gesture. No measured battery-saving percentage is claimed. Existing feature configuration is preserved; no Compose/Miuix runtime is added.
 
 ## This release
 
-- Compact category entries with consistent line icons and a two-column layout on wider screens.
-- Consistent switches, numeric inputs, setting rows and spacing. Independent feature sections retain their expansion state.
-- Grouped HSB color controls with clearer cards and safer spacing.
-- A settings UI update that preserves existing status bar configuration.
+- Rebuilt native HyperOS-style settings with search, four-page navigation and independent expandable sections.
+- Validated complete snapshots, device-protected recovery backups and rollback after configuration failures.
+- Native rounded notification tails, a three-card folded limit and customizable album artwork backgrounds/glow.
+- Deduplicated clock/configuration work and bounded artwork processing; hardware interaction and power measurements remain pending.
 
 ## Features
 
@@ -31,7 +35,7 @@ Adaptation currently targets OnePlus/Oplus SystemUI. Other ROM structures may di
 
 Android Gradle Plugin 8.7.3, compileSdk 35, minSdk 26, targetSdk 35, Java 8, and compile-only `io.github.libxposed:api:101.0.0`.
 
-Resource, production Java, DEX and independent source compilation were completed; APK signature, alignment and archive contents were checked. **No check suites or device UI verification were performed in this release cycle.** Previous results are not counted as results for this version. See [verification record](VALIDATION.md).
+The standalone build completed resource, production Java and DEX compilation; APK signature, alignment and version identifiers were checked. **1.15.0 has not been installed on hardware to verify the new UI, and no check suites were run.** Previous results are not counted as results for this version. See [verification record](VALIDATION.md).
 
 The source archive includes production code, resources, public documentation and reusable check sources. The desktop JSON runtime is excluded from the APK. Private screenshots, settings, logs, original system APKs and signing keys are excluded from the source archive.
 

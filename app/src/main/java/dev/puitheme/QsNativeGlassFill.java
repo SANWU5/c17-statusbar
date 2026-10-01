@@ -15,7 +15,7 @@ import java.util.WeakHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Native AGSL material with only the confirmed active base blend colors substituted. */
+/** Native AGSL material with only confirmed QS base blend colors substituted. */
 final class QsNativeGlassFill {
     private static final Pattern BASE_ARGUMENT=Pattern.compile("vec4\\(u_multiBlendParams\\[i \\+ 1\\],\\s*u_multiBlendParams\\[i \\+ 2\\],\\s*u_multiBlendParams\\[i \\+ 3\\],\\s*u_multiBlendParams\\[i \\+ 4\\]\\)");
     private static final String MAIN="half4 main(float2 position) {";
@@ -39,6 +39,12 @@ final class QsNativeGlassFill {
         }
     }
     Swap prepare(Drawable engine,QsTileAppearance.Style style) throws ReflectiveOperationException {
+        return prepare(engine,style,false);
+    }
+    Swap prepare(Drawable engine,QsTileAppearance.Style style,boolean deviceCard) throws ReflectiveOperationException {
+        return prepare(engine,style,deviceCard,false);
+    }
+    Swap prepare(Drawable engine,QsTileAppearance.Style style,boolean deviceCard,boolean activeTransition) throws ReflectiveOperationException {
         reason.set("ready");
         Object nativeShader=QsTileAppearance.field(engine,"drawableShader"),original=QsTileAppearance.field(nativeShader,"shader");
         if(!(original instanceof RuntimeShader))return reject("native RuntimeShader absent");
@@ -46,6 +52,8 @@ final class QsNativeGlassFill {
         Object multi=QsTileAppearance.field(nativeShader,"multiBlendParam"),summary=QsTileAppearance.field(nativeShader,"summaryBlendParam");
         if(!(multi instanceof List)||!(summary instanceof List))return reject("native blend lists absent");
         List<?> params=(List<?>)multi,all=(List<?>)summary;int[] slots=activeSlots(params,all);
+        if(slots==null&&deviceCard)slots=inactiveDeviceSlots(params,all);
+        if(slots==null&&activeTransition)slots=transitionSlots(params,all);
         if(slots==null)return reject("native active slots unsupported multi "+params.size()+" summary "+all.size()+" foregroundTop "+nativeParam(params,2)+" foregroundBottom "+nativeParam(params,3));
         Object corner=QsTileAppearance.call(QsTileAppearance.field(nativeShader,"mCornerParams"),"getType");
         Object meta=QsTileAppearance.field(nativeShader,"metaBallParams"),valid=QsTileAppearance.field(meta,"valid");
@@ -89,6 +97,46 @@ final class QsNativeGlassFill {
         int i=-1,j=-1;for(int n=0;n<summary.size();n++){if(summary.get(n)==top)i=n;if(summary.get(n)==bottom)j=n;}
         return i>=0&&j>=0&&i!=j?new int[]{i,j}:null;
     }
+    /** Confirmed devices-row inactive material, admitted only after the exact native card/base gate. */
+    static int[] inactiveDeviceSlots(List<?> params,List<?> summary) {
+        if(params.size()!=4)return null;
+        Object top=params.get(2),bottom=params.get(3);
+        Object a=QsTileAppearance.field(top,"color"),b=QsTileAppearance.field(bottom,"color"),am=QsTileAppearance.field(top,"mode"),bm=QsTileAppearance.field(bottom,"mode");
+        if(!(a instanceof Number)||!(b instanceof Number)||!(am instanceof Number)||!(bm instanceof Number))return null;
+        int first=((Number)a).intValue(),second=((Number)b).intValue();
+        boolean known=first==0x19404040&&second==0x4d737373||first==0x80404040&&second==0xb2737373
+                ||first==0x40404040&&second==0x667b7b7b||first==0x5a404040&&second==0xb27b7b7b;
+        if(!known||((Number)am).intValue()!=5||((Number)bm).intValue()!=3)return null;
+        int i=-1,j=-1;for(int n=0;n<summary.size();n++){if(summary.get(n)==top)i=n;if(summary.get(n)==bottom)j=n;}
+        return i>=0&&j>=0&&i!=j?new int[]{i,j}:null;
+    }
+    /** Native active-to-inactive ArgbEvaluator segment, gated by an active tile's running native animator. */
+    static int[] transitionSlots(List<?> params,List<?> summary) {
+        if(params.size()!=4)return null;
+        Object top=params.get(2),bottom=params.get(3),a=QsTileAppearance.field(top,"color"),b=QsTileAppearance.field(bottom,"color");
+        Object am=QsTileAppearance.field(top,"mode"),bm=QsTileAppearance.field(bottom,"mode");
+        if(!(a instanceof Number)||!(b instanceof Number)||!(am instanceof Number)||!(bm instanceof Number)
+                ||((Number)am).intValue()!=5||((Number)bm).intValue()!=3)return null;
+        int first=((Number)a).intValue(),second=((Number)b).intValue();boolean known=false;
+        for(int[] pair:new int[][]{{0x19404040,0x4d737373,0x73e6e6e6},{0x80404040,0xb2737373,0x73e6e6e6},
+                {0x40404040,0x667b7b7b,0x7de6e6e6},{0x5a404040,0xb27b7b7b,0x7de6e6e6}}) {
+            // Android ArgbEvaluator interpolates RGB in linear light (gamma 2.2), alpha linearly.
+            double start=linear(pair[0]&255),end=linear(pair[2]&255);
+            float fraction=(float)((linear(first&255)-start)/(end-start));
+            if(fraction>=0f&&fraction<=1f&&interpolated(first,pair[0],pair[2],fraction)&&interpolated(second,pair[1],0x40cccccc,fraction)){known=true;break;}
+        }
+        if(!known)return null;
+        int i=-1,j=-1;for(int n=0;n<summary.size();n++){if(summary.get(n)==top)i=n;if(summary.get(n)==bottom)j=n;}
+        return i>=0&&j>=0&&i!=j?new int[]{i,j}:null;
+    }
+    private static boolean interpolated(int value,int start,int end,float fraction) {
+        for(int shift:new int[]{0,8,16,24}) {
+            int a=(start>>>shift)&255,b=(end>>>shift)&255,actual=(value>>>shift)&255;
+            double expected=shift==24?a+(b-a)*fraction:Math.pow(linear(a)+(linear(b)-linear(a))*fraction,1.0/2.2)*255.0;
+            if(Math.abs(actual-expected)>2f)return false;
+        }return true;
+    }
+    private static double linear(int channel){return Math.pow(channel/255.0,2.2);}
     static float[] uniforms(List<?> params) {
         float[] result=new float[params.size()*5];
         for(int i=0;i<params.size();i++) {

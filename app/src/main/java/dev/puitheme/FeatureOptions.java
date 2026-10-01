@@ -10,7 +10,7 @@ import java.util.Map;
 
 /** Immutable feature switches. A group switch gates every effect owned by that group. */
 public final class FeatureOptions {
-    public static final String[] GROUPS = {"speed", "data", "wifi", "label", "clock", "carrier", "font", "battery", "tiles"};
+    public static final String[] GROUPS = {"speed", "data", "wifi", "label", "clock", "shade_clock", "carrier", "font", "battery", "tiles"};
     public static final Map<String, Boolean> DEFAULTS;
     /** Maps each switch to its owning UI group, in display order. */
     public static final Map<String, String> GROUP_BY_KEY;
@@ -19,14 +19,14 @@ public final class FeatureOptions {
     static {
         Map<String, Boolean> defaults = new LinkedHashMap<>();
         Map<String, String> groups = new LinkedHashMap<>();
-        for (String group : GROUPS) add(defaults, groups, group, masterKey(group), true);
+        for (String group : GROUPS) add(defaults, groups, group, masterKey(group), !"shade_clock".equals(group));
         for (String group : GROUPS) {
             if ("font".equals(group) || "tiles".equals(group)) continue;
             add(defaults, groups, group, group + "_position_enabled", true);
             add(defaults, groups, group, group + "_size_enabled", true);
             add(defaults, groups, group, group + "_color_enabled", true);
         }
-        for (String group : new String[]{"speed", "label", "clock", "carrier"})
+        for (String group : new String[]{"speed", "label", "clock", "shade_clock", "carrier"})
             add(defaults, groups, group, group + "_text_style_enabled", true);
         add(defaults, groups, "speed", "speed_lines_enabled", true);
         add(defaults, groups, "data", "data_icon_enabled", true);
@@ -36,9 +36,11 @@ public final class FeatureOptions {
         add(defaults, groups, "wifi", "wifi_icon_enabled", true);
         add(defaults, groups, "wifi", "wifi_badge_hidden", true);
         add(defaults, groups, "wifi", "wifi_activity_hidden", true);
+        add(defaults, groups, "label", StatusBarSettings.LABEL_HIDDEN, false);
         add(defaults, groups, "label", "label_normalize_enabled", true);
         // This existing switch controls formatting, not the whole clock group.
         add(defaults, groups, "clock", "clock_enabled", false);
+        add(defaults, groups, "shade_clock", "shade_clock_enabled", false);
         add(defaults, groups, "carrier", "carrier_replace_enabled", true);
         for (String panel : CarrierPanels.GROUPS)
             for (String suffix : new String[]{"enabled", "replace_enabled", "position_enabled",
@@ -83,7 +85,7 @@ public final class FeatureOptions {
     }
 
     public static String masterKey(String group) {
-        return "clock".equals(group) ? "clock_controls_enabled" : group + "_enabled";
+        return "clock".equals(group) || "shade_clock".equals(group) ? group + "_controls_enabled" : group + "_enabled";
     }
 
     public boolean enabled(String group) {
@@ -96,5 +98,7 @@ public final class FeatureOptions {
     public boolean size(String group) { return effective(group, group + "_size_enabled"); }
     public boolean color(String group) { return effective(group, group + "_color_enabled"); }
     public boolean textStyle(String group) { return effective(group, group + "_text_style_enabled"); }
+    /** Hiding owns only the label; disabling its group restores the native label behavior. */
+    public boolean hideNetworkLabel() { return effective("label", StatusBarSettings.LABEL_HIDDEN); }
     public Map<String, Boolean> values() { return values; }
 }

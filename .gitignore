@@ -2,6 +2,7 @@
 .gradle/
 .idea/
 **/build/
+validation/build-checks/
 local.properties
 *.apk
 *.aab
@@ -14,3 +15,8 @@ prefs-*.xml
 *screen*.png
 *device-capture*.png
 test-ui.xml
+
+# Local migration toolchain and private SystemUI references
+/.local-native-reference/
+/.local-toolchain/
+/.local-private/

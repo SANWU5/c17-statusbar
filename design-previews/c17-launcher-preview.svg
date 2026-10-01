@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="740" viewBox="0 0 1200 740">
+  <title>C17 图标升级预览</title>
+  <defs>
+    <g id="mark" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M54.73 41.27 C51.47 38.02 46.97 36 42 36 C32.06 36 24 44.06 24 54 C24 63.94 32.06 72 42 72 C46.97 72 51.47 69.98 54.73 66.73" stroke="#F8FBFF" stroke-width="5.5"/>
+      <path d="M42 44.5 L42 54 L48.5 58" stroke="#F8FBFF" stroke-width="3.5"/>
+      <path d="M62 46 L65 43 L65 65 M72 43 L81 43 L73 65" stroke="#72D0F2" stroke-width="5.5"/>
+    </g>
+    <g id="mono" fill="none" stroke="#335B7D" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M54.73 41.27 C51.47 38.02 46.97 36 42 36 C32.06 36 24 44.06 24 54 C24 63.94 32.06 72 42 72 C46.97 72 51.47 69.98 54.73 66.73" stroke-width="5.5"/>
+      <path d="M42 44.5 L42 54 L48.5 58" stroke-width="3.5"/>
+      <path d="M62 46 L65 43 L65 65 M72 43 L81 43 L73 65" stroke-width="5.5"/>
+    </g>
+    <!-- Android's 1.5 adaptive expansion times the foreground's 0.84 scale equals 1.26. -->
+    <g id="square"><rect x="4" y="4" width="100" height="100" rx="23" fill="#15223D"/><g transform="translate(-14.04 -14.04) scale(1.26)"><use href="#mark"/></g></g>
+    <g id="circle"><circle cx="54" cy="54" r="50" fill="#15223D"/><g transform="translate(-14.04 -14.04) scale(1.26)"><use href="#mark"/></g></g>
+    <g id="theme"><rect x="4" y="4" width="100" height="100" rx="23" fill="#D1E7F6"/><g transform="translate(-14.04 -14.04) scale(1.26)"><use href="#mono"/></g></g>
+  </defs>
+  <rect width="1200" height="740" fill="#F1F4F8"/>
+  <g font-family="Microsoft YaHei,Arial,sans-serif">
+    <text x="72" y="90" fill="#15223D" font-size="42" font-weight="700">C17</text>
+    <text x="72" y="127" fill="#66748B" font-size="20">更好的 C17 状态栏 · 图标升级</text>
+    <rect x="64" y="176" width="468" height="492" rx="28" fill="#FFFFFF"/>
+    <use href="#square" transform="translate(135 221) scale(3)"/>
+    <text x="298" y="599" text-anchor="middle" fill="#15223D" font-size="25" font-weight="600">时钟 × C17</text>
+    <text x="298" y="631" text-anchor="middle" fill="#66748B" font-size="18">清晰字标，留白与轻量线条</text>
+    <rect x="556" y="176" width="580" height="492" rx="28" fill="#FFFFFF"/>
+    <text x="600" y="230" fill="#15223D" font-size="22" font-weight="600">桌面显示</text>
+    <use href="#square" transform="translate(603 278) scale(1.1)"/>
+    <use href="#circle" transform="translate(790 278) scale(1.1)"/>
+    <use href="#theme" transform="translate(977 278) scale(1.1)"/>
+    <text x="662" y="441" text-anchor="middle" fill="#66748B" font-size="18">圆角</text>
+    <text x="849" y="441" text-anchor="middle" fill="#66748B" font-size="18">圆形</text>
+    <text x="1036" y="441" text-anchor="middle" fill="#66748B" font-size="18">主题图标</text>
+    <path d="M600 480 H1092" stroke="#E6ECF3" stroke-width="1"/>
+    <use href="#square" transform="translate(622 518) scale(0.65)"/>
+    <use href="#square" transform="translate(771 532) scale(0.48)"/>
+    <use href="#square" transform="translate(905 542) scale(0.32)"/>
+    <text x="600" y="631" fill="#66748B" font-size="18">小尺寸也保留完整 C17 与时钟轮廓</text>
+  </g>
+</svg>

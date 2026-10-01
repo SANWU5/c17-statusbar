@@ -17,6 +17,7 @@ public final class FeatureOptionsCheck {
         Map<String,Boolean> expectedBooleans = new HashMap<>(FeatureOptions.DEFAULTS);
         expectedBooleans.put(StatusBarSettings.DIAGNOSTICS_ENABLED, false);
         expectedBooleans.putAll(QsTileAppearance.BOOLEANS);
+        expectedBooleans.putAll(NotificationBigClockSettings.BOOLEANS);
         equal(expectedBooleans, StatusBarSettings.BOOLEAN_DEFAULTS);
         equal(false, StatusBarSettings.bool(new HashMap<String,Object>(), QsTileAppearance.MASTER));
         equal(false, StatusBarSettings.bool(new HashMap<String,Object>(), StatusBarSettings.DIAGNOSTICS_ENABLED));
@@ -27,8 +28,19 @@ public final class FeatureOptionsCheck {
         equal(true, defaults.effective("wifi", "wifi_activity_hidden"));
         equal(false, defaults.enabled("unknown"));
         equal(false, defaults.isEnabled("unknown"));
-        equal(9, FeatureOptions.GROUPS.length);
-        equal(73, FeatureOptions.DEFAULTS.size());
+        equal(10, FeatureOptions.GROUPS.length);
+        equal(79, FeatureOptions.DEFAULTS.size());
+        equal("shade_clock_controls_enabled", FeatureOptions.masterKey("shade_clock"));
+        equal(false, defaults.enabled("shade_clock"));
+        equal(false, defaults.isEnabled("shade_clock_enabled"));
+        Map<String,Object> independentClock = new HashMap<>();
+        independentClock.put("clock_controls_enabled", false); independentClock.put("shade_clock_controls_enabled", true);
+        independentClock.put("shade_clock_enabled", true);
+        FeatureOptions shade = FeatureOptions.from(independentClock);
+        equal(false, shade.enabled("clock")); equal(true, shade.enabled("shade_clock"));
+        equal(true, shade.effective("shade_clock", "shade_clock_enabled"));
+        equal(true, shade.position("shade_clock")); equal(true, shade.size("shade_clock"));
+        equal(true, shade.color("shade_clock")); equal(true, shade.textStyle("shade_clock"));
         equal(true, defaults.enabled("tiles"));
         equal(true, defaults.effective("tiles", "tiles_fade_enabled"));
         equal(false, defaults.effective("tiles", "tiles_blur_enabled"));
@@ -87,6 +99,7 @@ public final class FeatureOptionsCheck {
         FeatureOptions upgraded = FeatureOptions.from(legacy);
         equal(true, upgraded.enabled("clock"));
         equal(true, upgraded.effective("clock", "clock_enabled"));
+        equal(false, upgraded.enabled("shade_clock"));
         equal(false, upgraded.effective("battery", "battery_charge_inside"));
         equal(true, upgraded.enabled("battery"));
         equal(FeatureOptions.from(new HashMap<String, Object>()).values(), FeatureOptions.from((Bundle) null).values());

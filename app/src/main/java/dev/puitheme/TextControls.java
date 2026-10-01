@@ -20,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Locale;
 import java.util.WeakHashMap;
+import java.util.function.BooleanSupplier;
 
 /** Tracks native text and styling per view; one visible-view scheduler serves all time locations. */
 public final class TextControls {
@@ -29,15 +30,14 @@ public final class TextControls {
     private final ThreadLocal<Integer> internal = ThreadLocal.withInitial(() -> 0);
     private Context context;
     private boolean interactive = true, pending;
-    private volatile boolean clockEnabled;
-    private volatile String clockPattern = TimeFormat.CLOCK_DEFAULT;
+    private volatile Map<String, ClockStyle> clockStyles = clockStyles(new Bundle(), FeatureOptions.from(Collections.emptyMap()));
     private volatile Map<String, CarrierStyle> carrierStyles = carrierStyles(new Bundle());
     private volatile Map<String,Integer> colors = StatusBarSettings.COLOR_DEFAULTS;
     private volatile Map<String,Boolean> alpha = Collections.emptyMap();
     private volatile FeatureOptions features = FeatureOptions.from(Collections.emptyMap());
-    private float clockX, clockY, clockScale = 100, clockSpacing;
-    private int clockWeight = 600;
-    private final Runnable tick = () -> { pending = false; refresh(); };
+    private BooleanSupplier additionalClockVisible, additionalClockSeconds;
+    private Runnable additionalClockUpdate;
+    private final Runnable tick = () -> { pending = false; refresh(false); };
 
     private static final class Entry {
         int kind, nativeTint;
@@ -58,6 +58,7 @@ public final class TextControls {
 
     private static final class CarrierStyle {
         final String mode, pattern, text, colorGroup;
+        final boolean seconds;
         final float x, y, scale, spacing;
         final int weight;
         CarrierStyle(Bundle settings, String group) {
@@ -66,6 +67,7 @@ public final class TextControls {
             mode = selected.equals("time") || selected.equals("text") ? selected : "original";
             Object storedPattern = panelValue(settings, group, "pattern");
             pattern = validPattern(storedPattern instanceof String ? (String) storedPattern : null, TimeFormat.CARRIER_DEFAULT);
+            seconds = TimeFormat.hasSeconds(pattern);
             Object storedText = panelValue(settings, group, "text");
             String input = storedText instanceof String ? ((String) storedText).replace('\n', ' ').replace('\r', ' ') : "";
             text = input.length() > TimeFormat.MAX_TEXT ? input.substring(0, TimeFormat.MAX_TEXT) : input;
@@ -79,6 +81,34 @@ public final class TextControls {
             colorGroup = CarrierPanels.isPanel(group) && CarrierPanels.legacyKey(CarrierPanels.key(group, "mode")) != null
                     && !hasPanelConfiguration(settings, group) ? "carrier" : group;
         }
+    }
+
+    private static final class ClockStyle {
+        final boolean enabled, seconds;
+        final String pattern;
+        final float x, y, scale, spacing;
+        final int weight;
+        ClockStyle(Bundle settings, String group, FeatureOptions features) {
+            enabled = features.effective(group, group + "_enabled");
+            pattern = validPattern(settings.getString(group + "_pattern"), TimeFormat.CLOCK_DEFAULT);
+            seconds = TimeFormat.hasSeconds(pattern);
+            x = value(settings, group + "_offset_x", 0, -80, 80);
+            y = value(settings, group + "_offset_y", 0, -24, 24);
+            scale = value(settings, group + "_scale", 100, 25, 250);
+            weight = Math.round(value(settings, group + "_weight", 600, 100, 900));
+            spacing = value(settings, group + "_spacing", 0, -2, 8);
+        }
+    }
+
+    private static Map<String, ClockStyle> clockStyles(Bundle settings, FeatureOptions features) {
+        Map<String, ClockStyle> result = new LinkedHashMap<>();
+        for (String group : new String[]{"clock", "shade_clock"}) result.put(group, new ClockStyle(settings, group, features));
+        return Collections.unmodifiableMap(result);
+    }
+
+    private ClockStyle clockStyle(String group) {
+        ClockStyle style = clockStyles.get(group);
+        return style == null ? clockStyles.get("clock") : style;
     }
 
     private static Map<String, CarrierStyle> carrierStyles(Bundle settings) {
@@ -125,6 +155,8 @@ public final class TextControls {
 
     public static int namedKind(String className, String resourceName, String parentClass) {
         if (className.equals("com.oplus.systemui.statusbar.widget.StatClock")) return CLOCK;
+        if (isShadeClockClass(className)) return CLOCK;
+        if (isShadeClockResource(resourceName) && isShadeParent(parentClass)) return CLOCK;
         if (className.equals("com.android.systemui.statusbar.policy.Clock")) {
             String parent = parentClass.toLowerCase(Locale.ROOT);
             if (parent.contains("qs") || parent.contains("shade") || parent.contains("keyguard")) return NONE;
@@ -142,9 +174,26 @@ public final class TextControls {
         return NONE;
     }
 
+    private static boolean isShadeClockClass(String className) {
+        return className.equals("com.oplus.systemui.qs.widget.OplusQSClock")
+                || className.equals("com.oplus.systemui.qs.widget.SimpleQsClock")
+                || className.equals("com.oplus.systemui.qs.fake.view.QsClock");
+    }
+
+    private static boolean isShadeClockResource(String resourceName) {
+        return resourceName.matches("qs_footer_clock|oplus_qs_clock");
+    }
+
+    private static boolean isShadeClock(View view) {
+        for (Class<?> type = view.getClass(); type != null; type = type.getSuperclass())
+            if (isShadeClockClass(type.getName())) return true;
+        return false;
+    }
+
     private static boolean isShadeParent(String className) {
         String name = className.toLowerCase(Locale.ROOT);
-        return name.contains(".qs.") || name.contains(".shade.") || name.endsWith("qsheader")
+        return className.equals("com.oplus.systemui.separate.OplusQSSimpleHeader")
+                || name.contains(".qs.") || name.contains(".shade.") || name.endsWith("qsheader")
                 || name.contains("quickstatusbarheader") || name.contains("shadestatusbar");
     }
 
@@ -184,6 +233,9 @@ public final class TextControls {
         String name = view.getClass().getName();
         if (namedClass(view.getClass(), "com.oplus.systemui.qs.widget.OplusQSCarrierText")) return NONE;
         if (name.equals("com.oplus.systemui.statusbar.widget.StatClock")) return CLOCK;
+        // Real and animation shade clocks belong to one clock family; group() selects
+        // status-following or independent shade settings. Carrier replacements stay separate.
+        if (isShadeClock(view)) return CLOCK;
         if (name.equals("com.oplus.systemui.qs.widget.OplusSecondCarrierText")) return CARRIER;
         if (isLockscreenCarrier(view)) return CARRIER;
         String parent = view.getParent() == null ? "" : view.getParent().getClass().getName();
@@ -195,14 +247,16 @@ public final class TextControls {
         } }
         catch (Exception ignored) { }
         int result = namedKind(name, resource, parent);
-        if (result != NONE && (result == CLOCK || "com.android.systemui".equals(resourcePackage))) return result;
+        boolean shadeClock = isShadeClockResource(resource);
+        if (result != NONE && ((result == CLOCK && !shadeClock) || "com.android.systemui".equals(resourcePackage))) return result;
         // Both separated notification and settings headers can inflate ordinary TextViews.
         // Match the SystemUI ID and its header ancestry rather than every carrier-looking text.
         boolean shadeCarrier = resource.matches("qs_carrier_text|qs_header_carrier_text");
         boolean lockCarrier = isLockscreenCarrierResource(resource);
-        if (!"com.android.systemui".equals(resourcePackage) || (!shadeCarrier && !lockCarrier)) return NONE;
+        if (!"com.android.systemui".equals(resourcePackage) || (!shadeClock && !shadeCarrier && !lockCarrier)) return NONE;
         ViewParent ancestor = view.getParent();
         for (int depth = 0; ancestor != null && depth < 16; depth++) {
+            if (shadeClock && isShadeParent(ancestor.getClass().getName())) return CLOCK;
             if (shadeCarrier && isShadeParent(ancestor.getClass().getName())) return CARRIER;
             if (lockCarrier && isLockscreenParent(ancestor.getClass())) return CARRIER;
             if (!(ancestor instanceof View)) break;
@@ -211,6 +265,8 @@ public final class TextControls {
                 if (owner.getId() != View.NO_ID
                         && "com.android.systemui".equals(owner.getResources().getResourcePackageName(owner.getId()))) {
                     String ownerId = owner.getResources().getResourceEntryName(owner.getId());
+                    if (shadeClock && (isShadeResource(ownerId)
+                            || ownerId.matches("qs_fake_clock_container|oplus_fake_clock_container|separateqs_fake_status_layout"))) return CLOCK;
                     if ((shadeCarrier && isShadeResource(ownerId)) || (lockCarrier && isLockscreenResource(ownerId))) return CARRIER;
                 }
             } catch (Exception ignored) { }
@@ -222,7 +278,7 @@ public final class TextControls {
     /** Current owner, resolved again after header recreation or view reparenting. */
     public String group(View view) {
         int kind = kind(view);
-        if (kind == CLOCK) return "clock";
+        if (kind == CLOCK) return features.enabled("shade_clock") && isShadeClockLocation(view) ? "shade_clock" : "clock";
         if (kind != CARRIER) return "";
         boolean control = false, lockscreen = isLockscreenCarrier(view);
         ViewParent ancestor = view.getParent();
@@ -244,6 +300,20 @@ public final class TextControls {
         }
         // A notification header contains a QuickStatusBarHeader too: the outer SimpleHeader wins.
         return control ? CarrierPanels.CONTROL : lockscreen ? CarrierPanels.LOCKSCREEN : "carrier";
+    }
+
+    private static boolean isShadeClockLocation(View view) {
+        if (isShadeClock(view)) return true;
+        try {
+            return view.getId() != View.NO_ID
+                    && "com.android.systemui".equals(view.getResources().getResourcePackageName(view.getId()))
+                    && isShadeClockResource(view.getResources().getResourceEntryName(view.getId()));
+        } catch (Exception ignored) { return false; }
+    }
+
+    /** Measures follow the selected owner even when the status-bar clock group is disabled. */
+    public boolean clockControlsEnabled(TextView view) {
+        return kind(view) == CLOCK && features.enabled(group(view));
     }
 
     private static boolean namedClass(Class<?> source, String name) {
@@ -295,7 +365,7 @@ public final class TextControls {
     public boolean replaces(TextView view) {
         int kind = kind(view);
         String group = group(view);
-        return kind == CLOCK ? clockEnabled : kind == CARRIER && carrierReplacement(group) && !carrierStyle(group).mode.equals("original");
+        return kind == CLOCK ? clockStyle(group).enabled : kind == CARRIER && carrierReplacement(group) && !carrierStyle(group).mode.equals("original");
     }
 
     private boolean carrierReplacement(String group) { return features.effective(group, group + "_replace_enabled"); }
@@ -318,7 +388,7 @@ public final class TextControls {
 
     private float textSize(Entry entry) {
         if (!features.size(group(entry))) return entry.nativeSize;
-        double scale = (entry.kind == CLOCK ? clockScale : carrierStyle(entry.group).scale) / 100d;
+        double scale = (entry.kind == CLOCK ? clockStyle(entry.group).scale : carrierStyle(entry.group).scale) / 100d;
         return NumericPolicy.textPixels(entry.nativeSize * scale);
     }
 
@@ -327,19 +397,22 @@ public final class TextControls {
         if (entry != null) applyStyle(view, entry);
     }
 
+    /** Vendor width probes write the native clock size into Paint; restore style and width together. */
+    public float restoreClockWidth(TextView view, float nativeWidth, float measuredSize) {
+        if (!clockControlsEnabled(view)) return nativeWidth;
+        beforeMeasure(view);
+        double ratio = measuredSize > 0f && !Float.isNaN(measuredSize) && !Float.isInfinite(measuredSize)
+                ? (double) styledSize(view) / measuredSize : 1d;
+        return Math.max(0f, NumericPolicy.drawPixels((double) nativeWidth * ratio));
+    }
+
     public void setInteractive(boolean value) { interactive = value; if (value) refresh(); else cancel(); }
 
     public void configure(Bundle settings, Map<String,Integer> colors, Map<String,Boolean> alpha) {
         this.colors = colors; this.alpha = alpha;
         features = FeatureOptions.from(settings);
-        clockEnabled = features.effective("clock", StatusBarSettings.CLOCK_ENABLED);
-        clockPattern = validPattern(settings.getString(StatusBarSettings.CLOCK_PATTERN), TimeFormat.CLOCK_DEFAULT);
+        clockStyles = clockStyles(settings, features);
         carrierStyles = carrierStyles(settings);
-        clockX = value(settings, StatusBarSettings.CLOCK_OFFSET_X, 0, -80, 80);
-        clockY = value(settings, StatusBarSettings.CLOCK_OFFSET_Y, 0, -24, 24);
-        clockScale = value(settings, StatusBarSettings.CLOCK_SCALE, 100, 25, 250);
-        clockWeight = Math.round(value(settings, StatusBarSettings.CLOCK_WEIGHT, 600, 100, 900));
-        clockSpacing = value(settings, StatusBarSettings.CLOCK_SPACING, 0, -2, 8);
         refresh();
     }
 
@@ -365,7 +438,7 @@ public final class TextControls {
         Entry entry = entry(view);
         if (entry == null) return color;
         entry.nativeTint = color;
-        String colorGroup = entry.kind == CLOCK ? "clock" : carrierStyle(entry.group).colorGroup;
+        String colorGroup = entry.kind == CLOCK ? entry.group : carrierStyle(entry.group).colorGroup;
         return features.color(group(entry)) ? IconAppearance.color(colorGroup, color, colors, alpha) : color;
     }
 
@@ -396,7 +469,8 @@ public final class TextControls {
     }
 
     private CharSequence replacement(Entry entry, long now) {
-        if (entry.kind == CLOCK && clockEnabled) return TimeFormat.format(clockPattern, now);
+        ClockStyle clock = clockStyle(entry.group);
+        if (entry.kind == CLOCK && clock.enabled) return TimeFormat.format(clock.pattern, now);
         if (entry.kind == CARRIER && carrierReplacement(entry.group)) {
             CarrierStyle style = carrierStyle(entry.group);
             if (style.mode.equals("time")) return TimeFormat.format(style.pattern, now);
@@ -411,8 +485,9 @@ public final class TextControls {
         applyStyle(view, entry);
         float density = view.getResources().getDisplayMetrics().density;
         CarrierStyle style = carrierStyle(entry.group);
-        if (features.position(group(entry))) canvas.translate(NumericPolicy.pixels(entry.kind == CLOCK ? clockX : style.x, density),
-                NumericPolicy.pixels(entry.kind == CLOCK ? clockY : style.y, density));
+        ClockStyle clock = clockStyle(entry.group);
+        if (features.position(group(entry))) canvas.translate(NumericPolicy.pixels(entry.kind == CLOCK ? clock.x : style.x, density),
+                NumericPolicy.pixels(entry.kind == CLOCK ? clock.y : style.y, density));
     }
 
     private void applyStyle(TextView view, Entry entry) {
@@ -422,25 +497,30 @@ public final class TextControls {
         try {
             String group = group(entry);
             CarrierStyle carrier = carrierStyle(group);
+            ClockStyle clock = clockStyle(group);
             float size = textSize(entry);
             if (Math.abs(view.getTextSize() - size) > .001f) view.setTextSize(TypedValue.COMPLEX_UNIT_PX, size);
             int nativeWeight = entry.nativeFace == null ? 400 : Build.VERSION.SDK_INT >= 28
                     ? entry.nativeFace.getWeight() : entry.nativeFace.isBold() ? 700 : 400;
             Typeface face = features.enabled(group) && (features.enabled("font") || features.textStyle(group))
                     ? FontRepository.typeface(entry.nativeFace, features.textStyle(group)
-                            ? (entry.kind == CLOCK ? clockWeight : carrier.weight) : nativeWeight)
+                            ? (entry.kind == CLOCK ? clock.weight : carrier.weight) : nativeWeight)
                     : entry.nativeFace;
             if (view.getTypeface() != face) view.setTypeface(face);
             float spacing = entry.nativeSpacing + NumericPolicy.pixels(features.textStyle(group)
-                    ? (entry.kind == CLOCK ? clockSpacing : carrier.spacing) : 0,
+                    ? (entry.kind == CLOCK ? clock.spacing : carrier.spacing) : 0,
                     view.getResources().getDisplayMetrics().density) / Math.max(1f, size);
             if (Math.abs(view.getLetterSpacing() - spacing) > .0001f) view.setLetterSpacing(spacing);
-            int tint = features.color(group) ? IconAppearance.color(entry.kind == CLOCK ? "clock" : carrier.colorGroup, entry.nativeTint, colors, alpha) : entry.nativeTint;
+            int tint = features.color(group) ? IconAppearance.color(entry.kind == CLOCK ? group : carrier.colorGroup, entry.nativeTint, colors, alpha) : entry.nativeTint;
             if (view.getCurrentTextColor() != tint) view.setTextColor(tint);
         } finally { exit(); }
     }
 
     private void apply(TextView view, Entry entry, long now) {
+        apply(view, entry, now, true);
+    }
+
+    private void apply(TextView view, Entry entry, long now, boolean redrawUnchanged) {
         entry.group = group(view);
         // A disabled location starts as a native pass-through, including spans, font and alpha.
         // Once enabled, one restoration pass is needed when it is disabled or moved elsewhere.
@@ -459,8 +539,12 @@ public final class TextControls {
             entry.textApplied = true;
             entry.appliedReplacement = replaced;
             if (!replaced) entry.appliedNativeTextVersion = entry.nativeTextVersion;
-            view.setContentDescription(replaced ? text : entry.nativeDescription);
-            view.invalidate();
+            CharSequence description = replaced ? text : entry.nativeDescription;
+            if (redrawUnchanged || force || !sameCharacters(view.getContentDescription(), description))
+                view.setContentDescription(description);
+            // Text/style setters invalidate actual changes. Explicit refreshes also redraw
+            // unchanged text because position settings are applied only inside beforeDraw.
+            if (redrawUnchanged) view.invalidate();
             if (!features.enabled(entry.group)) entry.managed = false;
         } finally { exit(); }
     }
@@ -473,14 +557,26 @@ public final class TextControls {
     }
 
     public void refresh() {
+        refresh(true);
+    }
+
+    private void refresh(boolean redrawUnchanged) {
         cancel();
         long now = System.currentTimeMillis();
         synchronized (views) {
             for (Map.Entry<TextView,Entry> item : views.entrySet()) {
-                if (item.getKey().isAttachedToWindow()) apply(item.getKey(), item.getValue(), now);
+                if (item.getKey().isAttachedToWindow()) apply(item.getKey(), item.getValue(), now, redrawUnchanged);
             }
         }
+        if (additionalClockVisible != null && additionalClockVisible.getAsBoolean()
+                && additionalClockUpdate != null) additionalClockUpdate.run();
         schedule();
+    }
+
+    /** Shares the existing visible-time scheduler with overlays; no extra timer is created. */
+    public void setAdditionalClock(BooleanSupplier visible, BooleanSupplier seconds, Runnable update) {
+        additionalClockVisible = visible; additionalClockSeconds = seconds; additionalClockUpdate = update;
+        restart();
     }
 
     private void cancel() { if (pending) handler.removeCallbacks(tick); pending = false; }
@@ -489,15 +585,17 @@ public final class TextControls {
 
     private void schedule() {
         if (pending || !interactive) return;
-        boolean active = false, seconds = false;
+        boolean active = additionalClockVisible != null && additionalClockVisible.getAsBoolean();
+        boolean seconds = active && additionalClockSeconds != null && additionalClockSeconds.getAsBoolean();
         synchronized (views) {
             for (Map.Entry<TextView,Entry> item : views.entrySet()) {
                 TextView view = item.getKey(); Entry entry = item.getValue();
                 if (!view.isAttachedToWindow() || !view.isShown()) continue;
                 entry.group = group(view);
-                if (entry.kind == CLOCK && clockEnabled) { active = true; seconds |= TimeFormat.hasSeconds(clockPattern); }
+                ClockStyle clock = clockStyle(entry.group);
+                if (entry.kind == CLOCK && clock.enabled) { active = true; seconds |= clock.seconds; }
                 CarrierStyle style = carrierStyle(entry.group);
-                if (entry.kind == CARRIER && carrierReplacement(entry.group) && style.mode.equals("time")) { active = true; seconds |= TimeFormat.hasSeconds(style.pattern); }
+                if (entry.kind == CARRIER && carrierReplacement(entry.group) && style.mode.equals("time")) { active = true; seconds |= style.seconds; }
             }
         }
         if (active) { pending = true; handler.postDelayed(tick, TimeFormat.nextDelay(System.currentTimeMillis(), seconds)); }

@@ -65,6 +65,17 @@ public final class SettingsCheck {
         equal(24f, StatusBarSettings.NUMERIC_DEFAULTS.get(StatusBarSettings.TILES_FADE_RANGE));
         equal(8f, StatusBarSettings.NUMERIC_DEFAULTS.get(StatusBarSettings.TILES_BLUR_RADIUS));
         equal(100f, StatusBarSettings.NUMERIC_DEFAULTS.get(StatusBarSettings.TILES_STRENGTH));
+        equal(false, StatusBarSettings.bool(settings, StatusBarSettings.SHADE_CLOCK_CONTROLS_ENABLED));
+        equal(false, StatusBarSettings.bool(settings, StatusBarSettings.SHADE_CLOCK_ENABLED));
+        equal(TimeFormat.CLOCK_DEFAULT, StatusBarSettings.string(settings, StatusBarSettings.SHADE_CLOCK_PATTERN));
+        equal(0f, StatusBarSettings.NUMERIC_DEFAULTS.get(StatusBarSettings.SHADE_CLOCK_OFFSET_X));
+        equal(0f, StatusBarSettings.NUMERIC_DEFAULTS.get(StatusBarSettings.SHADE_CLOCK_OFFSET_Y));
+        equal(100f, StatusBarSettings.NUMERIC_DEFAULTS.get(StatusBarSettings.SHADE_CLOCK_SCALE));
+        equal(600f, StatusBarSettings.NUMERIC_DEFAULTS.get(StatusBarSettings.SHADE_CLOCK_WEIGHT));
+        equal(0f, StatusBarSettings.NUMERIC_DEFAULTS.get(StatusBarSettings.SHADE_CLOCK_SPACING));
+        equal(0xff000000, StatusBarSettings.color(settings, "shade_clock_color_light"));
+        equal(0xffffffff, StatusBarSettings.color(settings, "shade_clock_color_dark"));
+        equal(false, settings.containsKey(StatusBarSettings.SHADE_CLOCK_CONTROLS_ENABLED));
         System.out.println(checks + " checks passed (network names, numeric compatibility, alpha modes)");
     }
 }

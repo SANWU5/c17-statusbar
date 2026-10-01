@@ -19,6 +19,7 @@ import java.util.Map;
 /* JADX INFO: loaded from: classes.dex */
 public final class SettingsProvider extends ContentProvider {
     private static final String METHOD_READ = "read_statusbar_settings";
+    private Bundle lastGood;
 
     @Override // android.content.ContentProvider
     public boolean onCreate() {
@@ -27,6 +28,9 @@ public final class SettingsProvider extends ContentProvider {
 
     @Override // android.content.ContentProvider
     public Bundle call(String str, String str2, Bundle bundle) {
+        if (ModuleRuntimeStatus.METHOD_BEGIN.equals(str)) return ModuleRuntimeStatus.beginProbe(getContext(), bundle);
+        if (ModuleRuntimeStatus.METHOD_QUERY.equals(str)) return ModuleRuntimeStatus.queryStatus(getContext(), bundle);
+        if (ModuleRuntimeStatus.METHOD_REPORT.equals(str)) return ModuleRuntimeStatus.recordSystemUiReport(getContext(), bundle);
         if (ModuleDiagnostics.METHOD_RECORD.equals(str)) {
             enforceAllowedReader();
             return ModuleDiagnostics.record(getContext(), bundle);
@@ -35,21 +39,26 @@ public final class SettingsProvider extends ContentProvider {
             return super.call(str, str2, bundle);
         }
         enforceAllowedReader();
-        SharedPreferences sharedPreferences = StatusBarSettings.preferences(getContext());
-        Bundle bundle2 = new Bundle();
-        Map<String, ?> values = sharedPreferences.getAll();
-        for (Map.Entry<String, Float> setting : StatusBarSettings.NUMERIC_DEFAULTS.entrySet()) {
-            bundle2.putFloat(setting.getKey(), StatusBarSettings.settingNumber(values, setting.getKey(), setting.getValue()));
+        try {
+            SharedPreferences preferences=StatusBarSettings.preferences(getContext());
+            Map<String,?> values=preferences.getAll();
+            if(values.isEmpty())synchronized(this) {
+                if(lastGood!=null)return new Bundle(lastGood);
+            }
+            Bundle snapshot=SettingsSnapshot.fromPreferences(values);
+            if(snapshot!=null) {
+                synchronized(this) { lastGood=new Bundle(snapshot); }
+                SettingsSnapshot.scheduleSave(getContext(),preferences,null);
+                return snapshot;
+            }
+            ModuleDiagnostics.info("settings","Malformed stored settings; retaining last complete snapshot");
+        } catch(RuntimeException unavailable) {
+            ModuleDiagnostics.error("settings","Settings provider read failed; retaining last complete snapshot",unavailable);
         }
-        for (Map.Entry<String, Integer> color : StatusBarSettings.COLOR_DEFAULTS.entrySet()) {
-            bundle2.putInt(color.getKey(), StatusBarSettings.color(values, color.getKey()));
-            bundle2.putBoolean(StatusBarSettings.alphaKey(color.getKey()), StatusBarSettings.customAlpha(values, color.getKey()));
+        synchronized(this) {
+            if(lastGood==null)lastGood=SettingsSnapshot.durableSnapshot(getContext());
+            return lastGood==null?null:new Bundle(lastGood);
         }
-        for (String key : StatusBarSettings.STRING_DEFAULTS.keySet())
-            bundle2.putString(key, StatusBarSettings.string(values, key));
-        for (String key : StatusBarSettings.BOOLEAN_DEFAULTS.keySet())
-            bundle2.putBoolean(key, StatusBarSettings.bool(values, key));
-        return bundle2;
     }
 
     @Override public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {

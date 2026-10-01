@@ -48,7 +48,7 @@ public final class ConfigTransfer {
         public String warning() { return warning; }
     }
 
-    /** Known defaults are the registry, never keys found in a preference file. */
+    /** Known defaults include clock entry/border and independent clear styles, never arbitrary preferences. */
     private static Map<String, Type> registry() {
         Map<String, Type> result = new LinkedHashMap<>();
         for (String key : StatusBarSettings.BOOLEAN_DEFAULTS.keySet())
@@ -68,6 +68,8 @@ public final class ConfigTransfer {
     private static boolean portableString(String key) {
         if (key.equals(StatusBarSettings.FONT_MODE) || key.equals(StatusBarSettings.SIGNAL_LAYOUT)
                 || key.equals(StatusBarSettings.BATTERY_STYLE) || key.equals(StatusBarSettings.CLOCK_PATTERN)
+                || key.equals(StatusBarSettings.SHADE_CLOCK_PATTERN)
+                || NotificationBigClockSettings.STRINGS.containsKey(key)
                 || key.equals(StatusBarSettings.CARRIER_MODE) || key.equals(StatusBarSettings.CARRIER_PATTERN)
                 || key.equals(StatusBarSettings.CARRIER_TEXT)) return true;
         for (String group : CarrierPanels.GROUPS)
@@ -206,8 +208,12 @@ public final class ConfigTransfer {
             }
             validated.put(key, value);
         }
-        boolean fallback = "custom".equals(validated.get(StatusBarSettings.FONT_MODE)) && !customFontAvailable;
-        if (fallback) validated.put(StatusBarSettings.FONT_MODE, "system");
+        boolean fallback = !customFontAvailable && ("custom".equals(validated.get(StatusBarSettings.FONT_MODE))
+                || "custom".equals(validated.get(NotificationBigClockSettings.FONT)));
+        if (!customFontAvailable) {
+            if ("custom".equals(validated.get(StatusBarSettings.FONT_MODE))) validated.put(StatusBarSettings.FONT_MODE, "system");
+            if ("custom".equals(validated.get(NotificationBigClockSettings.FONT))) validated.put(NotificationBigClockSettings.FONT, "system");
+        }
         return new PreparedImport(validated, fallback);
     }
 
@@ -252,13 +258,20 @@ public final class ConfigTransfer {
 
     private static String validateString(String key, String value) throws IOException {
         if (value == null || !validUnicode(value)) throw invalid("文本包含无效字符");
-        if (key.endsWith("_pattern")) {
+        if (NotificationBigClockSettings.FOOTER_PATTERN.equals(key)) {
+            if (NotificationBigClockSettings.footerValidationError(value) != null) throw invalid("配置中的底部内容格式无效");
+        } else if (key.endsWith("_pattern")) {
             if (TimeFormat.validationError(value) != null) throw invalid("配置中的时间格式无效");
         } else if (key.endsWith("_text")) {
             if (value.length() > TimeFormat.MAX_TEXT || value.indexOf('\n') >= 0 || value.indexOf('\r') >= 0)
                 throw invalid("自定义文字需要单行且不超过 120 个字符");
             for (int i = 0; i < value.length(); i++) if (Character.isISOControl(value.charAt(i)))
                 throw invalid("自定义文字包含控制字符");
+        } else if (NotificationBigClockSettings.FONT.equals(key)) {
+            requireChoice(value, "native", "system", "pingfang", "custom");
+        } else if (NotificationBigClockSettings.ALIGNMENT.equals(key)||NotificationBigClockSettings.DATE_ALIGNMENT.equals(key)
+                ||NotificationBigClockSettings.FOOTER_ALIGNMENT.equals(key)) {
+            requireChoice(value, "left", "center", "right");
         } else if (key.equals(StatusBarSettings.FONT_MODE)) {
             requireChoice(value, "system", "pingfang", "custom");
         } else if (key.equals(StatusBarSettings.SIGNAL_LAYOUT)) {

@@ -1,4 +1,32 @@
-# 1.14.1 构建与交付记录
+# 1.15.0 构建与交付记录
+
+记录日期：2026-10-01（Asia/Shanghai） · versionCode：30 · native28。
+
+## 当前版本核对
+
+| 项目 | 结果 |
+| --- | --- |
+| Android 资源编译、链接 | 完成 |
+| 全部生产 Java 源码编译、DEX 生成 | 完成 |
+| APK 签名 | v2 / v3 验证通过 |
+| APK 对齐 | 通过 |
+| 安装包标识 | `dev.puitheme.iosstatusbar` / `1.15.0` / `30` |
+| APK 字节数 | `538472` |
+| APK SHA-256 | `2d0f958dd88502da6451a7085bc02e2315cb6f6f129d47de86c56ce80dd17828` |
+| 签名证书 SHA-256 | `fa5825bd1a0ed867432f71c57bf40ce2445d14f4c961a65edb7157ae040a9966`；与手机 native27 开发包一致 |
+| 注入标识 | `c17-runtime-20261001-ui-power-native28-2e93dbc6` |
+
+发布包增加签名升级链：旧正式版证书 `c638796489567dab85b14b18635fb58ef40a9171939b90959af09de29ee3d829` → 当前证书 `fa5825bd1a0ed867432f71c57bf40ce2445d14f4c961a65edb7157ae040a9966`。链中 installed-data capability 为 true、rollback 为 false；API 26、28、35、37 的签名核对通过，API 26 使用旧证书、API 28+ 使用当前证书。重签前后所有生产条目完全一致，只有签名元数据和签名块改变。没有实机执行升级安装。
+
+构建使用 Windows 独立构建工具、JDK 17 和 Android SDK 35。没有运行 `validation/` 检查套件，没有新增自动测试。此次源码审查与编译不能代替设备交互验证。
+
+**1.15.0 未安装到手机，整套新 UI、音乐卡片、堆叠薄窗圆角和功耗效果尚未实机复核。** native27 的尾角问题仍有用户复现记录，不能将旧版瞬态恢复或本版构建成功写为修复通过。临时日志和手机充电常亮已恢复关闭。
+
+公开源码与安装包不含手机截图、私人配置、录屏、日志、原始系统 APK 或签名私钥。`design-previews/` 的图片是生成的历史概念图，不是本版实机截图；第三方条款见 `THIRD_PARTY_NOTICES.md`。
+
+发布入口：[1.15.0](https://github.com/SANWU5/c17-statusbar/releases/tag/v1.15.0)。
+
+## 历史：1.14.1 构建与交付记录
 
 记录日期：2026-09-30（Asia/Shanghai） · versionCode：29
 

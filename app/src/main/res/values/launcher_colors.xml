@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="c17_launcher_background">#15223D</color>
+    <color name="c17_launcher_foreground">#F8FBFF</color>
+    <color name="c17_launcher_accent">#72D0F2</color>
+</resources>
