@@ -36,7 +36,7 @@ public final class TilePageEffectsCheck {
         public int[] currScrollOffset() {return new int[]{offset,0};}
     }
     private static Bundle settings(boolean fade,boolean blur,float range,float radius,float strength) {
-        Bundle values=new Bundle();values.putBoolean("tiles_fade_enabled",fade);values.putBoolean("tiles_blur_enabled",blur);
+        Bundle values=new Bundle();values.putBoolean("tiles_enabled",true);values.putBoolean("tiles_fade_enabled",fade);values.putBoolean("tiles_blur_enabled",blur);
         values.putFloat("tiles_fade_range",range);values.putFloat("tiles_blur_radius",radius);values.putFloat("tiles_strength",strength);
         return values;
     }
@@ -64,6 +64,7 @@ public final class TilePageEffectsCheck {
             near(TilePageEffects.edgeWeight(x,0,1000,100),TilePageEffects.edgeWeight(1000-x,0,1000,100));
         }
         ParallelCOUIRecyclerView view=new ParallelCOUIRecyclerView();TilePageEffects effects=new TilePageEffects();
+        effects.configure(settings(true,false,24,8,100));
         equal(true,effects.identifies(view));view.resourceName="personal_tiles_container";equal(false,effects.identifies(view));
         view.resourceName="other_tiles_container";equal(false,effects.identifies(new View(new android.content.Context())));
         equal(0,draw(effects,view,true).layers);

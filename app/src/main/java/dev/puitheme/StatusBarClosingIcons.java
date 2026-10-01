@@ -23,17 +23,19 @@ public final class StatusBarClosingIcons {
     private static final float RETURN_FRACTION = .2f;
     private static final float LIFT_DP = 8f;
     private final Map<View, SourceState> sources = new WeakHashMap<>();
+    private final ArrayList<SourceState> drawingSources = new ArrayList<>(2);
     private final int[] rootLocation = new int[2], sourceLocation = new int[2];
     private final Rect bounds = new Rect();
     private final RectF layerBounds = new RectF(), nodeBounds = new RectF();
     private final Matrix[] descendantMatrices = new Matrix[20];
+    private final float[] matrixValues = new float[9];
     private WeakReference<View> root = new WeakReference<>(null);
     private WeakReference<View> failedRoot = new WeakReference<>(null);
     private ClosingSlot slot = new ClosingSlot();
     private ViewTreeObserver observer;
     private Runnable failureListener;
     private float fraction = 1f, opacity;
-    private boolean added, busy;
+    private boolean added, busy, positionChanged;
     private long generation;
     private int measuredNodes, warnings;
 
@@ -41,7 +43,7 @@ public final class StatusBarClosingIcons {
         if (!added) return true;
         try {
             if (!position()) unavailable(null, true);
-            else slot.invalidateSelf();
+            else requestRedraw(positionChanged);
         } catch (Throwable error) { unavailable(error, true); }
         return true;
     };
@@ -66,6 +68,12 @@ public final class StatusBarClosingIcons {
             release();
             return false;
         }
+        float nextFraction = Math.max(0f, Math.min(1f, nativeFraction));
+        if (Math.round(closingOpacity(nextFraction) * 255f) <= 0) {
+            // Keep the caller's source-alpha ownership, but retain no invisible slot
+            // or preDraw observer during the first 80% of panel expansion.
+            release(); return true;
+        }
         if (failedRoot.get() == shadeRoot) return false;
         // An empty notification area is normal. It must not cancel the clock's return slot.
         if (source.getVisibility() == View.GONE || source.getWidth() <= 0 || source.getHeight() <= 0) {
@@ -78,13 +86,15 @@ public final class StatusBarClosingIcons {
             failedRoot.clear();
             root = new WeakReference<>(shadeRoot);
         }
-        fraction = Math.max(0f, Math.min(1f, nativeFraction));
+        fraction = nextFraction;
         try {
-            if (!sources.containsKey(source)) {
+            boolean newSource = !sources.containsKey(source);
+            if (newSource) {
                 sources.put(source, new SourceState(source));
                 source.addOnAttachStateChangeListener(attachment);
             }
             if (!position()) { release(); return false; }
+            boolean first = !added;
             if (!added) {
                 added = true;
                 shadeRoot.getOverlay().add(slot);
@@ -93,7 +103,7 @@ public final class StatusBarClosingIcons {
                 observer.addOnPreDrawListener(preDraw);
                 shadeRoot.addOnAttachStateChangeListener(attachment);
             }
-            slot.invalidateSelf();
+            requestRedraw(first || newSource || positionChanged);
             return true;
         } catch (Throwable error) { unavailable(error, false); return false; }
     }
@@ -110,6 +120,7 @@ public final class StatusBarClosingIcons {
     }
 
     private boolean position() {
+        positionChanged = false;
         View host = root.get();
         if (host == null || !host.isAttachedToWindow() || host.getWindowToken() == null
                 || host.getDisplay() == null || host.getWidth() <= 0 || host.getHeight() <= 0
@@ -117,7 +128,9 @@ public final class StatusBarClosingIcons {
         host.getLocationOnScreen(rootLocation);
         float progress = Math.max(0f, Math.min(1f, fraction / RETURN_FRACTION));
         float hidden = progress * progress * (3f - 2f * progress);
-        opacity = 1f - hidden;
+        float nextOpacity = 1f - hidden;
+        positionChanged = opacity != nextOpacity;
+        opacity = nextOpacity;
         float density = host.getResources().getDisplayMetrics().density;
         float lift = LIFT_DP * density * hidden;
         layerBounds.setEmpty();
@@ -130,13 +143,20 @@ public final class StatusBarClosingIcons {
                     || source.getDisplay().getDisplayId() != host.getDisplay().getDisplayId()) return false;
             if (source.getVisibility() == View.GONE || source.getWidth() <= 0 || source.getHeight() <= 0) continue;
             source.getLocationOnScreen(sourceLocation);
-            state.x = sourceLocation[0] - rootLocation[0];
-            state.y = sourceLocation[1] - rootLocation[1] - lift;
+            float x = sourceLocation[0] - rootLocation[0];
+            float y = sourceLocation[1] - rootLocation[1] - lift;
+            positionChanged |= state.x != x || state.y != y
+                    || state.width != source.getWidth() || state.height != source.getHeight();
+            state.x = x; state.y = y; state.width = source.getWidth(); state.height = source.getHeight();
             // Screen location already includes this View's translation and pivot offset.
             // Keep its native linear transform without adding that movement twice.
-            state.linear.set(source.getMatrix());
-            state.linear.getValues(state.values);
-            state.values[Matrix.MTRANS_X] = state.values[Matrix.MTRANS_Y] = 0f;
+            source.getMatrix().getValues(matrixValues);
+            matrixValues[Matrix.MTRANS_X] = matrixValues[Matrix.MTRANS_Y] = 0f;
+            for (int i = 0; i < matrixValues.length; i++) {
+                positionChanged |= state.values[i] != matrixValues[i];
+                state.values[i] = matrixValues[i];
+            }
+            if (state.linear == null) state.linear = new Matrix();
             state.linear.setValues(state.values);
             Matrix mapping = matrixAt(0);
             mapping.setTranslate(state.x, state.y);
@@ -148,8 +168,24 @@ public final class StatusBarClosingIcons {
         layerBounds.inset(-outset, -outset);
         if (!layerBounds.intersect(0f, 0f, host.getWidth(), host.getHeight())) return false;
         layerBounds.roundOut(bounds);
-        if (!slot.getBounds().equals(bounds)) slot.setBounds(bounds);
+        if (!slot.getBounds().equals(bounds)) { positionChanged = true; slot.setBounds(bounds); }
         return true;
+    }
+
+    private static float closingOpacity(float fraction) {
+        float progress = Math.max(0f, Math.min(1f, fraction / RETURN_FRACTION));
+        return 1f - progress * progress * (3f - 2f * progress);
+    }
+
+    private void requestRedraw(boolean changed) {
+        if (!added || Math.round(opacity * 255f) <= 0) return;
+        if (changed) { slot.invalidateSelf(); return; }
+        for (SourceState state : sources.values()) {
+            View source = state.view.get();
+            if (source != null && source.getVisibility() != View.GONE && source.isDirty()) {
+                slot.invalidateSelf(); return;
+            }
+        }
     }
 
     private Matrix matrixAt(int depth) {
@@ -195,9 +231,12 @@ public final class StatusBarClosingIcons {
     }
 
     private void release() {
+        if (!added && observer == null && sources.isEmpty() && root.get() == null) {
+            fraction = 1f; opacity = 0f; return;
+        }
+        generation++;
         View host = root.get();
         boolean remove = added;
-        generation++;
         added = false;
         ClosingSlot retired = slot;
         if (observer != null) {
@@ -231,9 +270,10 @@ public final class StatusBarClosingIcons {
 
     private static final class SourceState {
         final WeakReference<View> view;
-        final Matrix linear = new Matrix();
+        Matrix linear;
         final float[] values = new float[9];
         float x, y;
+        int width, height;
         SourceState(View source) { view = new WeakReference<>(source); }
     }
 
@@ -245,10 +285,14 @@ public final class StatusBarClosingIcons {
             busy = true;
             try {
                 // Native state may detach a source during View.draw; use a bounded snapshot.
-                for (SourceState state : new ArrayList<>(sources.values())) {
+                drawingSources.clear();
+                for (SourceState state : sources.values()) drawingSources.add(state);
+                for (int i = 0; i < drawingSources.size(); i++) {
+                    SourceState state = drawingSources.get(i);
                     if (!added || this != slot) break;
                     View source = state.view.get();
                     if (source == null) { unavailable(null, true); break; }
+                    if (sources.get(source) != state) continue;
                     if (source.getVisibility() == View.GONE || source.getWidth() <= 0 || source.getHeight() <= 0) continue;
                     int saved = alpha >= 255 ? canvas.save() : canvas.saveLayerAlpha(layerBounds, alpha);
                     try {
@@ -260,7 +304,7 @@ public final class StatusBarClosingIcons {
                     } finally { canvas.restoreToCount(saved); }
                 }
             } catch (Throwable error) { unavailable(error, true); }
-            finally { busy = false; }
+            finally { drawingSources.clear(); busy = false; }
         }
         @Override public void setAlpha(int alpha) { }
         @Override public void setColorFilter(ColorFilter filter) { }

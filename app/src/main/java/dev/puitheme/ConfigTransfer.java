@@ -17,6 +17,8 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -52,7 +54,8 @@ public final class ConfigTransfer {
     private static Map<String, Type> registry() {
         Map<String, Type> result = new LinkedHashMap<>();
         for (String key : StatusBarSettings.BOOLEAN_DEFAULTS.keySet())
-            if (!StatusBarSettings.DIAGNOSTICS_ENABLED.equals(key)) result.put(key, Type.BOOLEAN);
+            if (!StatusBarSettings.DIAGNOSTICS_ENABLED.equals(key) && !StatusBarSettings.SAFE_MODE.equals(key))
+                result.put(key, Type.BOOLEAN);
         for (String key : StatusBarSettings.NUMERIC_DEFAULTS.keySet()) result.put(key, Type.NUMBER);
         for (String key : StatusBarSettings.COLOR_DEFAULTS.keySet()) {
             result.put(key, Type.COLOR);
@@ -66,6 +69,7 @@ public final class ConfigTransfer {
     public static Map<String, Type> types() { return TYPES; }
 
     private static boolean portableString(String key) {
+        if (NotificationIconArea.MODE.equals(key) || NotificationIconArea.TEXT.equals(key)) return true;
         if (key.equals(StatusBarSettings.FONT_MODE) || key.equals(StatusBarSettings.SIGNAL_LAYOUT)
                 || key.equals(StatusBarSettings.BATTERY_STYLE) || key.equals(StatusBarSettings.CLOCK_PATTERN)
                 || key.equals(StatusBarSettings.SHADE_CLOCK_PATTERN)
@@ -173,9 +177,19 @@ public final class ConfigTransfer {
         if (settings.isEmpty()) throw invalid("配置文件没有可导入的设置");
         Map<String, Object> validated = new LinkedHashMap<>();
         for (Map.Entry<?, ?> entry : settings.entrySet()) {
-            String key = (String) entry.getKey(); Type type = TYPES.get(key);
+            String key = (String) entry.getKey();
+            if (QsTileCorners.LEGACY_RADIUS.equals(key)) {
+                if (settings.containsKey(QsTileCorners.RADIUS)) continue;
+                key = QsTileCorners.RADIUS;
+            }
+            Type type = TYPES.get(key);
             if (type == null) throw invalid("配置文件包含不支持或不可移植的设置");
             Object value = entry.getValue();
+            if (StatusBarSettings.DATA_ACTIVITY_HIDDEN.equals(key)) {
+                // Ignore the former switch's value and type without discarding the user's import.
+                validated.put(key, true);
+                continue;
+            }
             switch (type) {
                 case BOOLEAN:
                     if (!(value instanceof Boolean)) throw invalid("开关设置类型不正确");
@@ -186,6 +200,8 @@ public final class ConfigTransfer {
                     if (Float.isNaN(number) || Float.isInfinite(number)
                             || number == 0f && ((BigDecimal) value).signum() != 0)
                         throw invalid("数值超出可保存范围");
+                    if (QsTileCorners.RADIUS.equals(key) && (number < 0f || number > QsTileCorners.MAX_RADIUS))
+                        throw invalid("圆角半径应为 0 到 80 dp");
                     float normalized = NumericPolicy.setting(key, number, 0f);
                     if (Float.compare(number, normalized) != 0 && number != normalized)
                         throw invalid("数值不符合位置、大小或字重规则");
@@ -232,6 +248,8 @@ public final class ConfigTransfer {
             else if (value instanceof Integer) editor.putInt(key, (Integer) value);
             else editor.putString(key, (String) value);
         }
+        if (!prepared.values.containsKey(StatusBarSettings.DATA_ACTIVITY_HIDDEN))
+            editor.putBoolean(StatusBarSettings.DATA_ACTIVITY_HIDDEN, true);
         return editor.commit();
     }
 
@@ -258,7 +276,12 @@ public final class ConfigTransfer {
 
     private static String validateString(String key, String value) throws IOException {
         if (value == null || !validUnicode(value)) throw invalid("文本包含无效字符");
-        if (NotificationBigClockSettings.FOOTER_PATTERN.equals(key)) {
+        if (NotificationIconArea.MODE.equals(key)) {
+            requireChoice(value, "native", "heart", "text", "image");
+        } else if (NotificationIconArea.TEXT.equals(key)) {
+            if (value.codePointCount(0,value.length()) > 12) throw invalid("通知图标文字最多 12 个字符");
+            for(int i=0;i<value.length();i++)if(Character.isISOControl(value.charAt(i)))throw invalid("通知图标文字需要单行");
+        } else if (NotificationBigClockSettings.FOOTER_PATTERN.equals(key)) {
             if (NotificationBigClockSettings.footerValidationError(value) != null) throw invalid("配置中的底部内容格式无效");
         } else if (key.endsWith("_pattern")) {
             if (TimeFormat.validationError(value) != null) throw invalid("配置中的时间格式无效");
@@ -333,14 +356,16 @@ public final class ConfigTransfer {
             whitespace(); if (at >= text.length()) throw invalid("配置 JSON 不完整");
             char c = text.charAt(at);
             if (c == '{') return object(depth + 1);
+            if (c == '[') return array(depth + 1);
             if (c == '"') return string();
             if (text.startsWith("true", at)) { at += 4; return Boolean.TRUE; }
             if (text.startsWith("false", at)) { at += 5; return Boolean.FALSE; }
+            if (text.startsWith("null", at)) { at += 4; return null; }
             if (c == '-' || c >= '0' && c <= '9') return number();
             throw invalid("配置 JSON 包含不支持的数据");
         }
         private Map<String, Object> object(int depth) throws IOException {
-            if (depth > 2) throw invalid("配置 JSON 对象嵌套过深");
+            if (depth > 16) throw invalid("配置 JSON 对象嵌套过深");
             at++; Map<String, Object> result = new LinkedHashMap<>(); whitespace();
             if (take('}')) return result;
             while (true) {
@@ -349,6 +374,16 @@ public final class ConfigTransfer {
                 if (result.containsKey(name)) throw invalid("配置 JSON 包含重复设置名称");
                 result.put(name, value(depth)); whitespace();
                 if (take('}')) return result;
+                require(',');
+            }
+        }
+        private List<Object> array(int depth) throws IOException {
+            if (depth > 16) throw invalid("配置 JSON 数组嵌套过深");
+            at++; List<Object> result = new ArrayList<>(); whitespace();
+            if (take(']')) return result;
+            while (true) {
+                result.add(value(depth)); whitespace();
+                if (take(']')) return result;
                 require(',');
             }
         }

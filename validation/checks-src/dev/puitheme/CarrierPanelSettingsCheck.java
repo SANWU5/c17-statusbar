@@ -18,7 +18,7 @@ public final class CarrierPanelSettingsCheck {
     public static void main(String[] args) {
         equal(10, FeatureOptions.GROUPS.length);
         equal(3, CarrierPanels.GROUPS.length);
-        equal(79, FeatureOptions.DEFAULTS.size());
+        equal(80, FeatureOptions.DEFAULTS.size());
         equal(n("mode"), CarrierPanels.key(CarrierPanels.NOTIFICATION, "_mode"));
         equal(null == CarrierPanels.legacyKey(n("enabled")), true);
         equal(null == CarrierPanels.legacyKey("carrier_mode"), true);
@@ -28,7 +28,7 @@ public final class CarrierPanelSettingsCheck {
                     "size_enabled", "color_enabled", "text_style_enabled"}) {
                 String key = CarrierPanels.key(panel, suffix);
                 equal("carrier", FeatureOptions.GROUP_BY_KEY.get(key));
-                equal(!(CarrierPanels.LOCKSCREEN.equals(panel) && "enabled".equals(suffix)),
+                equal(!"enabled".equals(suffix),
                         StatusBarSettings.bool(null, key));
             }
             for (String suffix : new String[]{"offset_x", "offset_y", "scale", "weight", "spacing"})
@@ -40,6 +40,7 @@ public final class CarrierPanelSettingsCheck {
         }
 
         Map<String, Object> values = new HashMap<>();
+        values.put(n("enabled"), true);values.put(c("enabled"), true);
         values.put("carrier_mode", "time");
         values.put("carrier_pattern", "yyyy年MM月dd日 EEEE");
         values.put("carrier_text", "共同文本");
@@ -122,8 +123,8 @@ public final class CarrierPanelSettingsCheck {
         values.put("carrier_enabled", false);
         FeatureOptions globalOff = FeatureOptions.from(values);
         equal(false, globalOff.enabled(CarrierPanels.NOTIFICATION));
-        equal(false, globalOff.enabled(CarrierPanels.CONTROL));
-        equal(false, globalOff.effective(CarrierPanels.CONTROL, c("replace_enabled")));
+        equal(true, globalOff.enabled(CarrierPanels.CONTROL));
+        equal(true, globalOff.effective(CarrierPanels.CONTROL, c("replace_enabled")));
         equal(true, globalOff.isEnabled(c("enabled")));
         values.put("carrier_enabled", true);
         values.put(n("enabled"), true);
@@ -188,7 +189,7 @@ public final class CarrierPanelSettingsCheck {
         equal(false, FeatureOptions.from(values).position(CarrierPanels.LOCKSCREEN));
         equal(true, FeatureOptions.from(values).position(CarrierPanels.NOTIFICATION));
         values.put("carrier_enabled", false);
-        equal(false, FeatureOptions.from(values).enabled(CarrierPanels.LOCKSCREEN));
+        equal(true, FeatureOptions.from(values).enabled(CarrierPanels.LOCKSCREEN));
         equal(true, FeatureOptions.from(values).isEnabled(l("enabled")));
         values.put("carrier_enabled", true);
         values.put(l("enabled"), "true");

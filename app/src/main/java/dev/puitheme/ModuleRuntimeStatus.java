@@ -33,7 +33,7 @@ public final class ModuleRuntimeStatus {
     public static final String METHOD_QUERY = "query_runtime_status";
     public static final String METHOD_REPORT = "report_runtime_status";
     // Change this whenever distributing a build whose runtime gate must replace an earlier build.
-    public static final String BUILD_TOKEN = "c17-runtime-20261001-ui-power-native28-2e93dbc6";
+    public static final String BUILD_TOKEN = "c17-runtime-20261002-inner-tiles-native-drivers-beta1";
     public static final String KEY_NONCE = "nonce";
     public static final String KEY_PID = "pid";
     public static final String KEY_UPTIME = "uptime_ms";
@@ -197,6 +197,10 @@ public final class ModuleRuntimeStatus {
         registerSystemUiReceiver(context, framework.getFrameworkName(), framework.getFrameworkVersion(), framework.getApiVersion());
     }
 
+    public interface VerifiedProbeListener { void onVerifiedProbe(String nonce); }
+    private static volatile VerifiedProbeListener verifiedProbeListener;
+    public static void setVerifiedProbeListener(VerifiedProbeListener listener) { verifiedProbeListener = listener; }
+
     /** Call once from injected SystemUI after its application context becomes available. */
     public static void registerSystemUiReceiver(Context supplied, String framework, String version, int api) {
         if (!SYSTEM_UI.equals(supplied.getPackageName()))
@@ -223,7 +227,10 @@ public final class ModuleRuntimeStatus {
                     report.putString(KEY_FRAMEWORK, framework);
                     report.putString(KEY_FRAMEWORK_VERSION, version);
                     try {
-                        context.getContentResolver().call(Uri.parse(URI), METHOD_REPORT, null, report);
+                        Bundle response = context.getContentResolver().call(Uri.parse(URI), METHOD_REPORT, null, report);
+                        VerifiedProbeListener listener = verifiedProbeListener;
+                        if (response != null && response.getBoolean("accepted", false) && listener != null)
+                            listener.onVerifiedProbe(nonce);
                     } catch (RuntimeException unavailable) {
                         // No report means inactive. Provider failure must not crash SystemUI.
                     }

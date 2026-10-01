@@ -44,7 +44,10 @@ public final class NotificationClearAppearance {
     public static final Map<String,Integer> COLORS;
     static {
         Map<String,Boolean> flags=new LinkedHashMap<>();flags.put(MASTER,false);flags.put(GRADIENT_ENABLED,false);
+        flags.put(NotificationClearMotion.MOTION_ENABLED,false);
         Map<String,Float> numbers=new LinkedHashMap<>();numbers.put(OPACITY,100f);numbers.put(GRADIENT_ANGLE,90f);
+        numbers.put(NotificationClearMotion.SAFE_DISTANCE,18f);numbers.put(NotificationClearMotion.ENTRY_TRAVEL,32f);
+        numbers.put(NotificationClearMotion.OFFSET_Y,0f);
         Map<String,Integer> colors=new LinkedHashMap<>();
         colors.put(COLOR_LIGHT,0xffffffff);colors.put(COLOR_DARK,0xffffffff);
         colors.put(GRADIENT_COLOR_LIGHT,0xffffffff);colors.put(GRADIENT_COLOR_DARK,0xffffffff);

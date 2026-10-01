@@ -1,0 +1,10 @@
+Control center tile corner adaptation
+
+Technical reference: MCGA (Make Color Great Again), TwoXOneTileHook.kt
+Copyright (C) 2026 Zhuangzhi Meng (Gustate XiaoMeng)
+The supplied reference is licensed under GPL-3.0-or-later.
+
+The C17 implementations QsTileCorners.java and QsPanelCorners.java are
+licensed under GPL-3.0-only. They use each tile or control's native geometry
+across tile sizes, brightness/volume sliders, media and device cards rather
+than modifying shared resource pools. Unrelated reference features are not included.

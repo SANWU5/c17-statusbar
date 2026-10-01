@@ -15,11 +15,13 @@ public final class FeatureOptions {
     /** Maps each switch to its owning UI group, in display order. */
     public static final Map<String, String> GROUP_BY_KEY;
     private final Map<String, Boolean> values;
+    private final boolean safeMode;
 
     static {
         Map<String, Boolean> defaults = new LinkedHashMap<>();
         Map<String, String> groups = new LinkedHashMap<>();
-        for (String group : GROUPS) add(defaults, groups, group, masterKey(group), !"shade_clock".equals(group));
+        // New installations leave native behavior intact; explicit saved switches still win.
+        for (String group : GROUPS) add(defaults, groups, group, masterKey(group), false);
         for (String group : GROUPS) {
             if ("font".equals(group) || "tiles".equals(group)) continue;
             add(defaults, groups, group, group + "_position_enabled", true);
@@ -31,7 +33,8 @@ public final class FeatureOptions {
         add(defaults, groups, "speed", "speed_lines_enabled", true);
         add(defaults, groups, "data", "data_icon_enabled", true);
         add(defaults, groups, "data", "data_badge_hidden", true);
-        add(defaults, groups, "data", "data_activity_hidden", true);
+        // Retained for old imports/runtime transport; no longer a user-editable switch.
+        defaults.put(StatusBarSettings.DATA_ACTIVITY_HIDDEN, true);
         add(defaults, groups, "data", "data_single_enabled", true);
         add(defaults, groups, "wifi", "wifi_icon_enabled", true);
         add(defaults, groups, "wifi", "wifi_badge_hidden", true);
@@ -46,7 +49,7 @@ public final class FeatureOptions {
             for (String suffix : new String[]{"enabled", "replace_enabled", "position_enabled",
                     "size_enabled", "color_enabled", "text_style_enabled"})
                 add(defaults, groups, "carrier", CarrierPanels.key(panel, suffix),
-                        !(CarrierPanels.LOCKSCREEN.equals(panel) && "enabled".equals(suffix)));
+                        !"enabled".equals(suffix));
         add(defaults, groups, "battery", "battery_style_enabled", true);
         add(defaults, groups, "battery", "battery_charge_inside", true);
         for (String part : new String[]{"text", "bolt", "charge", "alert"})
@@ -66,6 +69,7 @@ public final class FeatureOptions {
     }
 
     private FeatureOptions(Map<String, ?> supplied) {
+        safeMode = supplied != null && Boolean.TRUE.equals(supplied.get(StatusBarSettings.SAFE_MODE));
         Map<String, Boolean> result = new LinkedHashMap<>();
         for (Map.Entry<String, Boolean> entry : DEFAULTS.entrySet()) {
             result.put(entry.getKey(), StatusBarSettings.bool(supplied, entry.getKey()));
@@ -81,6 +85,7 @@ public final class FeatureOptions {
             Object value = settings.get(key);
             if (value instanceof Boolean) result.put(key, value);
         }
+        if (settings != null) result.put(StatusBarSettings.SAFE_MODE, settings.get(StatusBarSettings.SAFE_MODE));
         return new FeatureOptions(result);
     }
 
@@ -89,11 +94,16 @@ public final class FeatureOptions {
     }
 
     public boolean enabled(String group) {
-        return isEnabled(masterKey(group)) && (!CarrierPanels.isPanel(group) || isEnabled("carrier_enabled"));
+        // Each page is an independent opt-in. Its switch must not require a hidden global gate.
+        return !safeMode && isEnabled(masterKey(group));
     }
     /** Raw switch state; use effective() when a switch belongs to a group. */
     public boolean isEnabled(String key) { return Boolean.TRUE.equals(values.get(key)); }
-    public boolean effective(String group, String key) { return enabled(group) && isEnabled(key); }
+    public boolean effective(String group, String key) {
+        if (StatusBarSettings.DATA_ACTIVITY_HIDDEN.equals(key)) return !safeMode;
+        return enabled(group) && isEnabled(key);
+    }
+    public boolean safeMode() { return safeMode; }
     public boolean position(String group) { return effective(group, group + "_position_enabled"); }
     public boolean size(String group) { return effective(group, group + "_size_enabled"); }
     public boolean color(String group) { return effective(group, group + "_color_enabled"); }

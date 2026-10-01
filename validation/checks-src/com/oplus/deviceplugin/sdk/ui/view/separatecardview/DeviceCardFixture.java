@@ -6,13 +6,14 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.view.View;
 /** Native cards use a dedicated inner background; their content getter returns the outer card. */
-public class DeviceCardFixture extends View {
+public class DeviceCardFixture extends d {
     public final Body body;
     public final GradientDrawable outer=new GradientDrawable(),foreground=new GradientDrawable(),icon=new GradientDrawable();
     public final CardResources resources;
     public boolean bodyPresent=true;
+    public int bodyWidth=124,bodyHeight=80;
     public DeviceCardFixture(String nativeName){
-        super(new Context());resources=new CardResources(nativeName);body=new Body();body.parent=this;
+        super();resources=new CardResources(nativeName);body=new Body();body.parent=this;
         outer.setColor(-1);foreground.setColor(-1);icon.setColor(-1);
     }
     public final class CardResources extends Resources {
@@ -29,6 +30,8 @@ public class DeviceCardFixture extends View {
         public Drawable getBackground(){return background;}
         public void setBackground(Drawable value){background=value;if(value!=null)value.setCallback(this);}
         @Override public int getId(){return 37;}
+        @Override public int getWidth(){return bodyWidth;}
+        @Override public int getHeight(){return bodyHeight;}
         @Override public Resources getResources(){return resources;}
     }
     @Override public Resources getResources(){return resources;}

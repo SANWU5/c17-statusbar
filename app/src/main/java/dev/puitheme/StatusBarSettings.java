@@ -81,6 +81,8 @@ public final class StatusBarSettings {
     public static final String TILES_OFFSET_Y = "tiles_offset_y", TILES_REGION_HEIGHT = "tiles_region_height";
     public static final String TILES_VERTICAL_FEATHER = "tiles_vertical_feather";
     public static final String DIAGNOSTICS_ENABLED = "diagnostics_enabled";
+    public static final String SAFE_MODE = "module_safe_mode";
+    public static final String DATA_ACTIVITY_HIDDEN = "data_activity_hidden";
     public static final String FONT_URI = "content://" + AUTHORITY + "/font/current";
     public static final Map<String, Float> NUMERIC_DEFAULTS;
     public static final Map<String, Integer> COLOR_DEFAULTS;
@@ -90,10 +92,13 @@ public final class StatusBarSettings {
     static {
         Map<String, Boolean> booleans = new LinkedHashMap<>(FeatureOptions.DEFAULTS);
         booleans.put(DIAGNOSTICS_ENABLED, false);
+        booleans.put(SAFE_MODE, false);
         booleans.putAll(QsTileAppearance.BOOLEANS);
+        booleans.putAll(QsTileCorners.BOOLEANS);
         booleans.putAll(QsMediaAppearance.BOOLEANS);
         booleans.putAll(NotificationBigClockSettings.BOOLEANS);
         booleans.putAll(NotificationClearAppearance.BOOLEANS);
+        booleans.putAll(NotificationIconArea.BOOLEANS);
         BOOLEAN_DEFAULTS = Collections.unmodifiableMap(booleans);
         Map<String, Float> numbers = new LinkedHashMap<>();
         numbers.put(WIFI_OFFSET_X, 0f);
@@ -133,9 +138,11 @@ public final class StatusBarSettings {
             numbers.put(item + "_spacing", 0f);
         }
         numbers.putAll(QsTileAppearance.NUMBERS);
+        numbers.putAll(QsTileCorners.NUMBERS);
         numbers.putAll(QsMediaAppearance.NUMBERS);
         numbers.putAll(NotificationBigClockSettings.NUMBERS);
         numbers.putAll(NotificationClearAppearance.NUMBERS);
+        numbers.putAll(NotificationIconArea.NUMBERS);
         NUMERIC_DEFAULTS = Collections.unmodifiableMap(numbers);
         Map<String, Integer> colors = new LinkedHashMap<>();
         for (String item : new String[]{"wifi", "data", "label", "speed", "clock", "shade_clock", "carrier",
@@ -150,6 +157,7 @@ public final class StatusBarSettings {
         colors.putAll(QsMediaAppearance.COLORS);
         colors.putAll(NotificationBigClockSettings.COLORS);
         colors.putAll(NotificationClearAppearance.COLORS);
+        colors.putAll(NotificationIconArea.COLORS);
         COLOR_DEFAULTS = Collections.unmodifiableMap(colors);
         Map<String, String> strings = new LinkedHashMap<>();
         strings.put(CLOCK_PATTERN, TimeFormat.CLOCK_DEFAULT);
@@ -168,6 +176,7 @@ public final class StatusBarSettings {
         strings.put(SIGNAL_LAYOUT, "system");
         strings.put(BATTERY_STYLE, "pui");
         strings.putAll(NotificationBigClockSettings.STRINGS);
+        strings.putAll(NotificationIconArea.STRINGS);
         STRING_DEFAULTS = Collections.unmodifiableMap(strings);
     }
 
@@ -181,6 +190,9 @@ public final class StatusBarSettings {
     }
 
     public static boolean bool(Map<String, ?> values, String key) {
+        if (QsTileCorners.MASTER.equals(key)) return QsTileCorners.enabled(values);
+        // Cellular traffic arrows are now an invariant, including old/malformed saved values.
+        if (DATA_ACTIVITY_HIDDEN.equals(key)) return true;
         Object value = typedValue(values, key, Boolean.class);
         return value instanceof Boolean ? (Boolean) value : Boolean.TRUE.equals(BOOLEAN_DEFAULTS.get(key));
     }
@@ -228,6 +240,7 @@ public final class StatusBarSettings {
     }
 
     public static float settingNumber(Map<String, ?> values, String key, float fallback) {
+        if (QsTileCorners.RADIUS.equals(key)) return QsTileCorners.radius(values);
         if (NotificationBigClockSettings.VISIBLE_COUNT.equals(key))
             return NotificationBigClockSettings.visibleCount(values == null ? null : values.get(key));
         if (values == null || !values.containsKey(key)) {
@@ -271,12 +284,17 @@ public final class StatusBarSettings {
                 migration.edit().putBoolean(CREDENTIAL_MIGRATED, true).commit();
             }
         }
+        if (!Boolean.TRUE.equals(preferences.getAll().get(DATA_ACTIVITY_HIDDEN)))
+            preferences.edit().putBoolean(DATA_ACTIVITY_HIDDEN, true).apply();
+        QsTileCorners.migrate(preferences);
         return preferences;
     }
 
     @SuppressWarnings("unchecked")
     static void copyPreference(SharedPreferences.Editor editor, String key, Object value) {
-        if (value instanceof Integer) {
+        if (DATA_ACTIVITY_HIDDEN.equals(key)) {
+            editor.putBoolean(key, true);
+        } else if (value instanceof Integer) {
             editor.putInt(key, (Integer) value);
         } else if (value instanceof Long) {
             editor.putLong(key, (Long) value);

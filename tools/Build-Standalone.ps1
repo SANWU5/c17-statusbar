@@ -26,6 +26,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $c17Project = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $c17Main = Join-Path $c17Project 'app\src\main'
+if (Get-ChildItem -LiteralPath $c17Main -Filter '*.kt' -File -Recurse | Select-Object -First 1) {
+    throw '当前界面包含 Kotlin / Compose，请使用 tools/Build-Compose.ps1；历史 Java 独立构建不能生成完整新版 APK。'
+}
 $c17Utf8 = New-Object System.Text.UTF8Encoding($false)
 $c17Stage = $null
 $c17StageParent = $null

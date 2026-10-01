@@ -39,6 +39,9 @@ public final class BatteryAppearanceCheck {
         colors.put("battery_color_light",0xff2869e8);colors.put("battery_color_dark",0xffffaabb);
         style.configure(settings,colors,alpha);
         update(style,bar,0xff00bd13,0x4d000000,0xe6000000,true);
+        equal(0x4d000000,bar.backgroundColor);equal(0xe6000000,bar.outlineColor);
+        settings.putBoolean("battery_enabled",true);style.configure(settings,colors,alpha);
+        update(style,bar,0xff00bd13,0x4d000000,0xe6000000,true);
         equal(0xff00bd13,bar.progressColor);equal(0x4d2869e8,bar.backgroundColor);equal(0xe62869e8,bar.outlineColor);
         equal(0xcc2869e8,style.contentTint("battery",bar,0xccffffff));
         style.apply(bar,true);equal(0xe62869e8,bar.outlineColor);
@@ -80,7 +83,8 @@ public final class BatteryAppearanceCheck {
         style.detach(other);equal(true,parent.getClipChildren());equal(true,parent.getClipToPadding());
         style.beforeDraw(owner,new Canvas());style.configure(new Bundle(),StatusBarSettings.COLOR_DEFAULTS,new HashMap<>());
         equal(true,owner.getClipChildren());equal(true,parent.getClipToPadding());
-        settings=new Bundle();settings.putFloat(StatusBarSettings.BATTERY_OFFSET_X,Float.NaN);settings.putFloat(StatusBarSettings.BATTERY_SCALE,Float.POSITIVE_INFINITY);
+        settings=new Bundle();settings.putBoolean("battery_enabled",true);
+        settings.putFloat(StatusBarSettings.BATTERY_OFFSET_X,Float.NaN);settings.putFloat(StatusBarSettings.BATTERY_SCALE,Float.POSITIVE_INFINITY);
         settings.putFloat(StatusBarSettings.BATTERY_WIDTH_SCALE,300f);settings.putFloat(StatusBarSettings.BATTERY_HEIGHT_SCALE,0f);
         style.configure(settings,StatusBarSettings.COLOR_DEFAULTS,new HashMap<>());canvas=new Canvas();style.beforeDraw(owner,canvas);
         near(0,canvas.translateX);near(3f,canvas.scaleX);near(0f,canvas.scaleY);
@@ -116,6 +120,9 @@ public final class BatteryAppearanceCheck {
         settings.putFloat(StatusBarSettings.BATTERY_OFFSET_Y,-1.5f);
         settings.putFloat(StatusBarSettings.BATTERY_SCALE,125f);
         style.configure(settings,colors,alpha);update(style,bar,0xff00bd13,0x4d000000,0xe6000000,true);
+        equal(0xff00bd13,bar.progressColor);equal(0xe6000000,bar.outlineColor);
+        settings.putBoolean("battery_enabled",true);style.configure(settings,colors,alpha);
+        update(style,bar,0xff00bd13,0x4d000000,0xe6000000,true);
         equal(0x80112233,bar.progressColor);equal(0x80112233,bar.outlineColor);
         settings.putBoolean("battery_charge_color_enabled",false);style.configure(settings,colors,alpha);style.apply(bar,true);
         equal(0xff00bd13,bar.progressColor);equal(0x80112233,bar.outlineColor);

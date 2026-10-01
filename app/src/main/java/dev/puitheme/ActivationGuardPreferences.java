@@ -38,7 +38,9 @@ public final class ActivationGuardPreferences implements SharedPreferences {
     @Override public int getInt(String key, int fallback) { return raw.getInt(key, fallback); }
     @Override public long getLong(String key, long fallback) { return raw.getLong(key, fallback); }
     @Override public float getFloat(String key, float fallback) { return raw.getFloat(key, fallback); }
-    @Override public boolean getBoolean(String key, boolean fallback) { return raw.getBoolean(key, fallback); }
+    @Override public boolean getBoolean(String key, boolean fallback) {
+        return StatusBarSettings.DATA_ACTIVITY_HIDDEN.equals(key) || raw.getBoolean(key, fallback);
+    }
     @Override public boolean contains(String key) { return raw.contains(key); }
     @Override public void registerOnSharedPreferenceChangeListener(OnSharedPreferenceChangeListener listener) {
         raw.registerOnSharedPreferenceChangeListener(listener);
@@ -67,6 +69,7 @@ public final class ActivationGuardPreferences implements SharedPreferences {
                 headerEdits.put(key,value);
         }
         private void resolveHeaderConflicts() {
+            pending.putBoolean(StatusBarSettings.DATA_ACTIVITY_HIDDEN, true);
             // Bulk import explicitly chooses the big-clock mode; key iteration order cannot override it.
             if(headerEdits.get(NotificationBigClockSettings.MASTER) instanceof Boolean)return;
             for(Map.Entry<String,Object> edit:headerEdits.entrySet())if(NotificationBigClockSettings.conflictsWith(edit.getKey(),edit.getValue())) {

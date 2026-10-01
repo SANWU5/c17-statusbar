@@ -1,6 +1,9 @@
 package android.os;
 public class Bundle {
     private final java.util.Map<String,Object> values=new java.util.HashMap<>();
+    public Bundle() { }
+    public Bundle(Bundle source) { values.putAll(source.values); }
+    public java.util.Set<String> keySet() { return values.keySet(); }
     public Object get(String key){return values.get(key);}
     public void putFloat(String key,float value){values.put(key,value);}
     public void putInt(String key,int value){values.put(key,value);}

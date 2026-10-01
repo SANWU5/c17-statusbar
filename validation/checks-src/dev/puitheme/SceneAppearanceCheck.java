@@ -49,6 +49,10 @@ public final class SceneAppearanceCheck {
         palette.put("wifi_color_light", 0xff3366ff);
         palette.put("wifi_color_dark", 0xfff08020);
         set("styleColors", palette);
+        equal("Default-off color preserves status bar", 0xe6000000, color("wifi", 0xe6000000));
+        equal("Default-off color preserves shade", 0xccffffff, color("wifi", 0xccffffff));
+        Map<String,Object> enabled = new HashMap<>(); enabled.put("wifi_enabled", true);
+        set("FEATURES", FeatureOptions.from(enabled));
         equal("Custom RGB retains black-icon opacity", 0xe63366ff, color("wifi", 0xe6000000));
         equal("Custom RGB retains white-icon opacity", 0xccf08020, color("wifi", 0xccffffff));
         equal("Shade custom RGB has the shade's own opacity", 0xfff08020, color("wifi", 0xffffffff));

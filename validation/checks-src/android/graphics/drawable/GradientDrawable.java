@@ -7,6 +7,12 @@ public class GradientDrawable extends Drawable {
     public final Paint mFillPaint=new Paint(1),mStrokePaint=new Paint(1);
     public Shader seenShader,seenStroke;
     public int seenAlpha;
+    private float cornerRadius;
+    private float[] cornerRadii;
+    public float getCornerRadius(){return cornerRadius;}
+    public float[] getCornerRadii(){return cornerRadii==null?null:cornerRadii.clone();}
+    public void setCornerRadius(float radius){cornerRadius=radius;cornerRadii=null;}
+    public void setCornerRadii(float[] radii){cornerRadius=0f;cornerRadii=radii==null?null:radii.clone();}
     public void setColor(int value){mFillPaint.setColor(value);}
     private void ensureValidRect(){}
     public void draw(Canvas canvas){seenShader=mFillPaint.getShader();seenAlpha=mFillPaint.getAlpha();seenStroke=mStrokePaint.getShader();}

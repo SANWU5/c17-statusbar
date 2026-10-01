@@ -1,10 +1,29 @@
 plugins {
     id 'com.android.application'
+    id 'org.jetbrains.kotlin.plugin.compose'
 }
+
+// Signing stays local. Environment variables take precedence over the ignored private file.
+def c17SigningProperties = new Properties()
+def c17SigningFile = rootProject.file('.local-private/signing.properties')
+if (c17SigningFile.isFile()) c17SigningFile.withInputStream { c17SigningProperties.load(it) }
+def c17SigningValue = { String key ->
+    providers.environmentVariable(key).orElse(c17SigningProperties.getProperty(key, '')).get()
+}
+def c17SigningReady = ['C17_KEYSTORE', 'C17_STORE_PASSWORD', 'C17_KEY_PASSWORD', 'C17_KEY_ALIAS']
+        .every { !c17SigningValue(it).isEmpty() }
 
 android {
     namespace 'dev.puitheme.iosstatusbar'
-    compileSdk 35
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 0
+        }
+    }
+    buildToolsVersion '36.0.0'
+    buildFeatures {
+        compose true
+    }
     androidResources {
         noCompress += ['ttf', 'otf', 'ttc']
     }
@@ -13,16 +32,78 @@ android {
         applicationId 'dev.puitheme.iosstatusbar'
         minSdk 26
         targetSdk 35
-        versionCode 30
-        versionName '1.15.0'
+        versionCode 40
+        versionName '1.15.1-beta.1'
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        // AGP's built-in Kotlin validates the module target before compilation.
+        // Compose inline APIs need 11; JavaCompile below keeps the Java hooks at 8.
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    signingConfigs {
+        if (c17SigningReady) {
+            create('localDevice') {
+                storeFile rootProject.file(c17SigningValue('C17_KEYSTORE'))
+                storePassword c17SigningValue('C17_STORE_PASSWORD')
+                keyPassword c17SigningValue('C17_KEY_PASSWORD')
+                keyAlias c17SigningValue('C17_KEY_ALIAS')
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            if (c17SigningReady) signingConfig signingConfigs.getByName('localDevice')
+        }
+        release {
+            // Xposed and OEM bindings use reflection; preserve names and module entry resources.
+            minifyEnabled false
+            shrinkResources false
+            if (c17SigningReady) signingConfig signingConfigs.getByName('localDevice')
+        }
+    }
+    packaging {
+        resources {
+            excludes += ['META-INF/AL2.0', 'META-INF/LGPL2.1', 'META-INF/LICENSE*', 'META-INF/NOTICE*']
+        }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        // Compose 1.12 inline APIs require JVM 11; the existing Java hooks still target Java 8.
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
+    }
+}
+
+// Android packages both outputs as DEX instead of publishing a mixed-version JVM JAR.
+// Preserve the Java module/hook bytecode while the Compose UI targets JVM 11.
+// Apply after AGP's task configuration so its module default cannot overwrite this.
+gradle.projectsEvaluated {
+    tasks.withType(JavaCompile).configureEach {
+        sourceCompatibility = '1.8'
+        targetCompatibility = '1.8'
+        options.encoding = 'UTF-8'
     }
 }
 
 dependencies {
-    compileOnly 'io.github.libxposed:api:101.0.0'
+    def c17XposedJar = rootProject.file('tools/lib/api-101.0.0.jar')
+    if (c17XposedJar.isFile()) compileOnly files(c17XposedJar)
+    else compileOnly 'io.github.libxposed:api:101.0.0'
+
+    // Official manager service reports actual framework activation to the settings UI.
+    implementation 'io.github.libxposed:service:102.0.0'
+
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.4.20'
+    implementation 'androidx.activity:activity-compose:1.13.0'
+    implementation 'org.jetbrains.compose.runtime:runtime:1.12.0'
+    implementation 'org.jetbrains.compose.ui:ui:1.12.0'
+    implementation 'org.jetbrains.compose.foundation:foundation:1.12.0'
+    implementation 'androidx.compose.material:material-icons-extended:1.7.8'
+    implementation 'top.yukonga.miuix.kmp:miuix-ui-android:0.9.4'
+    implementation 'top.yukonga.miuix.kmp:miuix-preference-android:0.9.4'
+    implementation 'top.yukonga.miuix.kmp:miuix-icons-android:0.9.4'
 }

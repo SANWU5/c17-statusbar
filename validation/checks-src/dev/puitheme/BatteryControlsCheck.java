@@ -93,7 +93,7 @@ public final class BatteryControlsCheck {
         Meter meter=new Meter(new Context());Horizontal battery=new Horizontal();meter.drawable=battery;battery.setCallback(meter);
         View outside=new View(meter.getContext());controller.sync(meter,meter.charge,outside);
         Map<String,Integer> colors=new HashMap<>(StatusBarSettings.COLOR_DEFAULTS);
-        Map<String,Boolean> alpha=new HashMap<>();Bundle settings=new Bundle();
+        Map<String,Boolean> alpha=new HashMap<>();Bundle settings=new Bundle();settings.putBoolean("battery_enabled",true);
         colors.put("battery_color_dark",0xfff59e0b);
         colors.put("battery_text_color_dark",0x6633ccff);alpha.put("battery_text_color_dark",true);
         colors.put("battery_bolt_color_dark",0xffff4455);

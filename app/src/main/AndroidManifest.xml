@@ -1,10 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="dev.puitheme.iosstatusbar"
-    android:versionCode="30"
-    android:versionName="1.15.0">
-
-    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
+    android:versionCode="40"
+    android:versionName="1.15.1-beta.1">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <queries>
@@ -12,6 +10,9 @@
     </queries>
     <application
         android:allowBackup="false"
+        android:hasFragileUserData="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:description="@string/module_description"
         android:icon="@mipmap/ic_c17_launcher"
         android:roundIcon="@mipmap/ic_c17_launcher_round"
@@ -20,13 +21,17 @@
         android:theme="@style/AppTheme">
 
         <activity
+            android:name="dev.puitheme.ModernMainActivity"
+            android:exported="false" />
+        <activity-alias
             android:name="dev.puitheme.MainActivity"
+            android:targetActivity="dev.puitheme.ModernMainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
 
         <provider
             android:name="dev.puitheme.SettingsProvider"

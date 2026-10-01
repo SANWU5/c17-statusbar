@@ -1,0 +1,12 @@
+Miuix v0.9.4
+Copyright 2025-2026, compose-miuix-ui contributors
+Licensed under the Apache License, Version 2.0.
+
+Project: https://github.com/compose-miuix-ui/miuix
+Release: https://github.com/compose-miuix-ui/miuix/releases/tag/v0.9.4
+Pinned commit: 39c40f99844227b853f0049a0933b1f3ae6c00ba
+
+This application uses the official miuix-ui-android,
+miuix-preference-android, and miuix-icons-android 0.9.4 libraries.
+The libraries and their icons retain their original Apache-2.0 license.
+The complete license is included alongside this file as LICENSE-APACHE2.txt.

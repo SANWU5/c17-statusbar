@@ -30,19 +30,25 @@ public final class NetworkBadgeCheck {
         for(String name:new String[]{"wifi_inout","wifi_in","wifi_out","wifi_activity_container","mobile_inout","data_inout","mobile_type_5g","wifi_left_tv"}) {
             Badge view=new Badge(name);String key=NetworkBadgeControls.keyFor(name);
             require(key!=null,"candidate absent "+name);
-            settings.clear();controls.configure(FeatureOptions.from(settings));controls.apply(view);
+            settings.clear();settings.put(name.startsWith("wifi")?"wifi_enabled":"data_enabled",true);
+            controls.configure(FeatureOptions.from(settings));controls.apply(view);
             require(view.getVisibility()==View.GONE,"candidate remains visible "+name);
             require(controls.suppressDraw(view),"compiled vendor draw bypass "+name);
             settings.put(key,false);controls.configure(FeatureOptions.from(settings));
-            require(view.getVisibility()==View.VISIBLE,"disable does not restore native "+name);
-            require(!controls.suppressDraw(view),"draw guard ignores disable "+name);
+            boolean fixedArrow=StatusBarSettings.DATA_ACTIVITY_HIDDEN.equals(key);
+            require(view.getVisibility()==(fixedArrow?View.GONE:View.VISIBLE),"disable does not preserve policy "+name);
+            require(controls.suppressDraw(view)==fixedArrow,"draw guard ignores policy "+name);
             settings.put(key,true);controls.configure(FeatureOptions.from(settings));
             require(controls.requestedVisibility(view,View.INVISIBLE)==View.GONE,"external update leaks "+name);
             settings.put(name.startsWith("wifi")?"wifi_enabled":"data_enabled",false);controls.configure(FeatureOptions.from(settings));
-            require(view.getVisibility()==View.INVISIBLE,"master does not restore latest native request "+name);
-            require(!controls.suppressDraw(view),"master does not disable draw guard "+name);
+            require(view.getVisibility()==(fixedArrow?View.GONE:View.INVISIBLE),"master does not preserve policy "+name);
+            require(controls.suppressDraw(view)==fixedArrow,"master does not preserve draw policy "+name);
+            settings.put(StatusBarSettings.SAFE_MODE,true);controls.configure(FeatureOptions.from(settings));
+            require(view.getVisibility()==View.INVISIBLE,"safe mode does not restore latest native request "+name);
+            require(!controls.suppressDraw(view),"safe mode does not disable draw guard "+name);
             // Native invisibility while hidden must survive turning the hiding switch off.
-            settings.clear();controls.configure(FeatureOptions.from(settings));
+            settings.clear();settings.put(name.startsWith("wifi")?"wifi_enabled":"data_enabled",true);
+            controls.configure(FeatureOptions.from(settings));
             require(controls.requestedVisibility(view,View.GONE)==View.GONE,"native gone update "+name);
             settings.put(key,false);controls.configure(FeatureOptions.from(settings));
             require(view.getVisibility()==View.GONE,"native gone becomes visible "+name);
@@ -74,7 +80,7 @@ public final class NetworkBadgeCheck {
     }
     private static void wifiMeasureStability(Handler handler) {
         NetworkBadgeControls controls=new NetworkBadgeControls(handler);Map<String,Object> values=new HashMap<>();
-        controls.configure(FeatureOptions.from(values));
+        values.put("wifi_enabled",true);controls.configure(FeatureOptions.from(values));
         OplusModernStatusBarWifiView owner=new OplusModernStatusBarWifiView();Row row=new Row("wifi_group");owner.addView(row);
         Row activity=new Row("inout_container");row.addView(activity);
         Badge in=child(activity,"wifi_in",14),out=child(activity,"wifi_out",14);

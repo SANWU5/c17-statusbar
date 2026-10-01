@@ -16,20 +16,28 @@ public final class FeatureOptionsCheck {
         FeatureOptions defaults = FeatureOptions.from(new HashMap<String, Object>());
         Map<String,Boolean> expectedBooleans = new HashMap<>(FeatureOptions.DEFAULTS);
         expectedBooleans.put(StatusBarSettings.DIAGNOSTICS_ENABLED, false);
+        expectedBooleans.put(StatusBarSettings.SAFE_MODE, false);
         expectedBooleans.putAll(QsTileAppearance.BOOLEANS);
+        expectedBooleans.putAll(QsTileCorners.BOOLEANS);
+        expectedBooleans.putAll(QsMediaAppearance.BOOLEANS);
         expectedBooleans.putAll(NotificationBigClockSettings.BOOLEANS);
+        expectedBooleans.putAll(NotificationClearAppearance.BOOLEANS);
+        expectedBooleans.putAll(NotificationIconArea.BOOLEANS);
         equal(expectedBooleans, StatusBarSettings.BOOLEAN_DEFAULTS);
+        equal(false, StatusBarSettings.BOOLEAN_DEFAULTS.get(QsTileCorners.MASTER));
+        equal(false, StatusBarSettings.bool(new HashMap<String,Object>(), QsTileCorners.MASTER));
+        equal(false, FeatureOptions.DEFAULTS.containsKey(QsTileCorners.MASTER));
         equal(false, StatusBarSettings.bool(new HashMap<String,Object>(), QsTileAppearance.MASTER));
         equal(false, StatusBarSettings.bool(new HashMap<String,Object>(), StatusBarSettings.DIAGNOSTICS_ENABLED));
         equal("pui", StatusBarSettings.STRING_DEFAULTS.get(StatusBarSettings.BATTERY_STYLE));
         equal(false, defaults.isEnabled("clock_enabled"));
-        equal(true, defaults.enabled("clock"));
+        equal(false, defaults.enabled("clock"));
         equal(true, defaults.isEnabled("battery_charge_inside"));
-        equal(true, defaults.effective("wifi", "wifi_activity_hidden"));
+        equal(false, defaults.effective("wifi", "wifi_activity_hidden"));
         equal(false, defaults.enabled("unknown"));
         equal(false, defaults.isEnabled("unknown"));
         equal(10, FeatureOptions.GROUPS.length);
-        equal(79, FeatureOptions.DEFAULTS.size());
+        equal(80, FeatureOptions.DEFAULTS.size());
         equal("shade_clock_controls_enabled", FeatureOptions.masterKey("shade_clock"));
         equal(false, defaults.enabled("shade_clock"));
         equal(false, defaults.isEnabled("shade_clock_enabled"));
@@ -41,12 +49,23 @@ public final class FeatureOptionsCheck {
         equal(true, shade.effective("shade_clock", "shade_clock_enabled"));
         equal(true, shade.position("shade_clock")); equal(true, shade.size("shade_clock"));
         equal(true, shade.color("shade_clock")); equal(true, shade.textStyle("shade_clock"));
-        equal(true, defaults.enabled("tiles"));
-        equal(true, defaults.effective("tiles", "tiles_fade_enabled"));
+        equal(false, defaults.enabled("tiles"));
+        equal(false, defaults.effective("tiles", "tiles_fade_enabled"));
         equal(false, defaults.effective("tiles", "tiles_blur_enabled"));
-        equal(true, defaults.effective("tiles", "tiles_portrait_enabled"));
-        equal(true, defaults.effective("tiles", "tiles_landscape_enabled"));
+        equal(false, defaults.effective("tiles", "tiles_portrait_enabled"));
+        equal(false, defaults.effective("tiles", "tiles_landscape_enabled"));
         equal(false, defaults.enabled(CarrierPanels.LOCKSCREEN));
+        for (String group : FeatureOptions.GROUPS) equal(false, defaults.enabled(group));
+        for (String panel : CarrierPanels.GROUPS) {
+            equal(false, defaults.enabled(panel));
+            Map<String,Object> scene = new HashMap<>();scene.put(panel + "_enabled", true);
+            FeatureOptions enabledScene = FeatureOptions.from(scene);
+            equal(true, enabledScene.enabled(panel));equal(true, enabledScene.position(panel));
+            equal(false, enabledScene.enabled("carrier"));
+            for (String other : CarrierPanels.GROUPS) equal(panel.equals(other), enabledScene.enabled(other));
+            scene.put(StatusBarSettings.SAFE_MODE, true);
+            equal(false, FeatureOptions.from(scene).enabled(panel));
+        }
         for (String suffix : new String[]{"position", "size", "color", "text_style"})
             equal(false, FeatureOptions.DEFAULTS.containsKey("tiles_" + suffix + "_enabled"));
         equal(false, defaults.position("tiles"));
@@ -71,6 +90,7 @@ public final class FeatureOptionsCheck {
         }
 
         for (String key : FeatureOptions.DEFAULTS.keySet()) {
+            if (StatusBarSettings.DATA_ACTIVITY_HIDDEN.equals(key)) continue;
             String group = FeatureOptions.GROUP_BY_KEY.get(key);
             equal(true, group != null);
             Map<String, Object> values = new HashMap<>();
@@ -93,9 +113,27 @@ public final class FeatureOptionsCheck {
             equal(oneOff.values(), FeatureOptions.from(bundle).values());
         }
 
+        for (Object legacyValue : new Object[]{false, true, "false", 0, 1}) {
+            Map<String,Object> legacyArrow = new HashMap<>();
+            legacyArrow.put(StatusBarSettings.DATA_ACTIVITY_HIDDEN, legacyValue);
+            legacyArrow.put("data_enabled", false);
+            FeatureOptions forced = FeatureOptions.from(legacyArrow);
+            equal(true, forced.isEnabled(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+            equal(true, forced.effective("data", StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+            equal(true, StatusBarSettings.bool(legacyArrow, StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+            legacyArrow.put(StatusBarSettings.SAFE_MODE, true);
+            FeatureOptions safe = FeatureOptions.from(legacyArrow);
+            equal(true, safe.safeMode());
+            equal(false, safe.effective("data", StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+            for (String group : FeatureOptions.GROUPS) equal(false, safe.enabled(group));
+        }
+        equal(false, FeatureOptions.GROUP_BY_KEY.containsKey(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+
         Map<String, Object> legacy = new HashMap<>();
         legacy.put("clock_enabled", true);
+        legacy.put("clock_controls_enabled", true);
         legacy.put("battery_charge_inside", false);
+        legacy.put("battery_enabled", true);
         FeatureOptions upgraded = FeatureOptions.from(legacy);
         equal(true, upgraded.enabled("clock"));
         equal(true, upgraded.effective("clock", "clock_enabled"));

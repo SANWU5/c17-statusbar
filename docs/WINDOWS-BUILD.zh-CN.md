@@ -1,6 +1,8 @@
 # Windows 手动构建 C17
 
-`tools/Build-Standalone.ps1` 直接编译当前源码、Android 资源、字体与 Xposed 元数据，生成并验证签名 APK。项目目前没有 Gradle wrapper；这个工具不依赖已生成的 class 文件或旧电脑的构建目录，也不会安装到手机、提交 Git 或上传修改。
+当前 Miuix / Compose 界面使用正式 Gradle Wrapper 和 `tools/Build-Compose.ps1` 构建，工具链及本机签名接入见 [Compose 构建指南](COMPOSE-BUILD.zh-CN.md)。以下保留历史 Java 版本的独立构建流程。
+
+`tools/Build-Standalone.ps1` 直接编译 Java 源码、Android 资源、字体与 Xposed 元数据，生成并验证签名 APK。它不编译 Kotlin / Compose，不适用于当前新版界面；工具本身不会安装到手机、提交 Git 或上传修改。
 
 ## 新电脑需要准备
 

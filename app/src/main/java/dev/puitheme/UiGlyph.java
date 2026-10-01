@@ -29,8 +29,18 @@ public final class UiGlyph extends View {
         int saved=canvas.save();canvas.translate(getPaddingLeft()+(availableWidth-24*unit)/2f,getPaddingTop()+(availableHeight-24*unit)/2f);canvas.scale(unit,unit);
         paint.setStyle(Paint.Style.STROKE);
         switch(key) {
+            case "bell":
+                canvas.drawArc(new RectF(6,4,18,17),180,180,false,paint);
+                canvas.drawLine(6,10,5,18,paint);canvas.drawLine(18,10,19,18,paint);
+                canvas.drawLine(5,18,19,18,paint);canvas.drawArc(new RectF(10,18,14,22),0,180,false,paint);break;
+            case "notification_clear":
+                canvas.drawLine(5,6,19,6,paint);canvas.drawLine(9,3,15,3,paint);
+                canvas.drawRoundRect(new RectF(7,6,17,21),2,2,paint);canvas.drawLine(10,10,10,17,paint);canvas.drawLine(14,10,14,17,paint);break;
+            case "qs_media":
+                canvas.drawRoundRect(new RectF(3,4,21,20),4,4,paint);
+                paint.setStyle(Paint.Style.FILL);Path play=new Path();play.moveTo(10,8);play.lineTo(17,12);play.lineTo(10,16);play.close();canvas.drawPath(play,paint);break;
             case "speed": {
-                Path p=new Path();p.moveTo(3,17);p.lineTo(7,11);p.lineTo(11,14);p.lineTo(17,6);p.lineTo(21,9);canvas.drawPath(p,paint);break;
+                canvas.drawArc(new RectF(3,4,21,22),160,220,false,paint);canvas.drawLine(12,14,17,7,paint);break;
             }
             case "data":
                 paint.setStyle(Paint.Style.FILL);

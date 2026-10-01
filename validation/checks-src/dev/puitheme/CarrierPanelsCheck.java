@@ -108,6 +108,8 @@ public final class CarrierPanelsCheck {
         SpanText nativeText = new SpanText("相同文字", firstSpan);
         carrier.setText(nativeText); control.attachTree(header);
         Bundle options = new Bundle();
+        options.putBoolean("carrier_enabled", true);
+        options.putBoolean(CarrierPanels.key(CarrierPanels.NOTIFICATION, "enabled"), true);
         options.putBoolean("font_enabled", false); options.putBoolean("carrier_text_style_enabled", false);
         options.putString(StatusBarSettings.CARRIER_MODE, "text"); options.putString(StatusBarSettings.CARRIER_TEXT, "相同文字");
         int beforeReplacement = carrier.writes;
@@ -160,6 +162,10 @@ public final class CarrierPanelsCheck {
         clock.setText("系统时间"); clock.shown = false;
         control.attachTree(notificationHeader); control.attachTree(controlHeader); control.attach(unknown); control.attach(clock);
         Bundle settings = new Bundle();
+        settings.putBoolean("clock_controls_enabled", true);
+        settings.putBoolean("carrier_enabled", true);
+        settings.putBoolean(CarrierPanels.key(CarrierPanels.NOTIFICATION, "enabled"), true);
+        settings.putBoolean(CarrierPanels.key(CarrierPanels.CONTROL, "enabled"), true);
         settings.putString(StatusBarSettings.CARRIER_MODE, "text"); settings.putString(StatusBarSettings.CARRIER_TEXT, "旧兼容设置");
         settings.putBoolean(StatusBarSettings.CLOCK_ENABLED, true); settings.putString(StatusBarSettings.CLOCK_PATTERN, "'CLOCK' HH:mm");
         String notification = CarrierPanels.NOTIFICATION, panel = CarrierPanels.CONTROL;
@@ -205,8 +211,14 @@ public final class CarrierPanelsCheck {
             settings.putBoolean(CarrierPanels.key(notification, suffix), true);
         control.configure(settings, palette, alpha); equal("通知独立", first.getText()); equal(690, first.getTypeface().weight);
         settings.putBoolean("carrier_enabled", false); control.configure(settings, palette, alpha);
+        equal("通知独立", first.getText()); equal("控制独立", second.getText());
+        near(64, first.getTextSize()); near(42, second.getTextSize()); equal("旧兼容原始", unknown.getText());
+        settings.putBoolean(CarrierPanels.key(notification, "enabled"), false);
+        settings.putBoolean(CarrierPanels.key(panel, "enabled"), false); control.configure(settings, palette, alpha);
         equal("最新通知", first.getText()); equal("最新控制", second.getText()); near(16, first.getTextSize()); near(24, second.getTextSize());
         same(firstFace, first.getTypeface()); same(secondFace, second.getTypeface()); equal(0xccffffff, first.getCurrentTextColor()); equal(0xe6000000, second.getCurrentTextColor());
+        settings.putBoolean(CarrierPanels.key(notification, "enabled"), true);
+        settings.putBoolean(CarrierPanels.key(panel, "enabled"), true);
         settings.putBoolean("carrier_enabled", true); settings.putFloat(CarrierPanels.key(notification, "scale"), 0);
         control.configure(settings, palette, alpha); near(0, first.getTextSize()); near(0, control.styledSize(first)); near(42, second.getTextSize());
         settings.putFloat(CarrierPanels.key(notification, "scale"), Float.MAX_VALUE);
@@ -336,6 +348,8 @@ public final class CarrierPanelsCheck {
         OplusQuickStatusBarHeader quick = new OplusQuickStatusBarHeader(context);
         OplusQSSimpleHeader simple = new OplusQSSimpleHeader(context); simple.addView(quick);
         carrier.parent = quick; settings.putString(CarrierPanels.key(CarrierPanels.NOTIFICATION, "mode"), "text");
+        settings.putBoolean(CarrierPanels.key(CarrierPanels.NOTIFICATION, "enabled"), true);
+        settings.putBoolean(CarrierPanels.key(CarrierPanels.CONTROL, "enabled"), true);
         settings.putString(CarrierPanels.key(CarrierPanels.NOTIFICATION, "text"), "通知重新挂载");
         settings.putString(CarrierPanels.key(CarrierPanels.CONTROL, "mode"), "text");
         settings.putString(CarrierPanels.key(CarrierPanels.CONTROL, "text"), "控制重新挂载");
@@ -344,8 +358,11 @@ public final class CarrierPanelsCheck {
         carrier.parent = wrapper; control.refresh(); equal(CarrierPanels.LOCKSCREEN, control.group(carrier));
         same(updated, carrier.getText()); same(face, carrier.getTypeface()); near(17, carrier.getTextSize());
         settings.putBoolean(CarrierPanels.key(lock, "enabled"), true); settings.putBoolean("carrier_enabled", false);
-        control.configure(settings, palette, alpha); same(updated, carrier.getText()); equal(false, control.replaces(carrier)); equal(true, handler.delayed == null);
-        settings.putBoolean("carrier_enabled", true); control.configure(settings, palette, alpha); equal(true, control.replaces(carrier));
+        control.configure(settings, palette, alpha); equal(true, control.replaces(carrier));
+        equal(true, carrier.getText().toString().startsWith("LOCK "));
+        settings.putBoolean(CarrierPanels.key(lock, "enabled"), false); control.configure(settings, palette, alpha);
+        same(updated, carrier.getText()); equal(false, control.replaces(carrier)); equal(true, handler.delayed == null);
+        settings.putBoolean(CarrierPanels.key(lock, "enabled"), true); control.configure(settings, palette, alpha); equal(true, control.replaces(carrier));
         equal(true, carrier.getText().toString().startsWith("LOCK "));
     }
 
@@ -377,6 +394,10 @@ public final class CarrierPanelsCheck {
         control.attachTree(notifications); control.attachTree(settingsPanel);
         equal("通知栏运营商", first.getText()); equal("控制中心运营商", second.getText());
         Bundle options = new Bundle();
+        options.putBoolean("carrier_enabled", true);
+        options.putBoolean("clock_controls_enabled", true);
+        options.putBoolean(CarrierPanels.key(CarrierPanels.NOTIFICATION, "enabled"), true);
+        options.putBoolean(CarrierPanels.key(CarrierPanels.CONTROL, "enabled"), true);
         options.putString(StatusBarSettings.CARRIER_MODE, "text");
         options.putString(StatusBarSettings.CARRIER_TEXT, "自定义面板");
         options.putFloat(StatusBarSettings.CARRIER_OFFSET_X, 10.25f);
@@ -386,6 +407,8 @@ public final class CarrierPanelsCheck {
         options.putFloat(StatusBarSettings.CARRIER_SPACING, .5f);
         Map<String,Integer> palette = new HashMap<>(StatusBarSettings.COLOR_DEFAULTS);
         palette.put("carrier_color_dark", 0xff123456); palette.put("carrier_color_light", 0xff345678);
+        palette.put(CarrierPanels.key(CarrierPanels.CONTROL, "color_dark"), 0xff123456);
+        palette.put(CarrierPanels.key(CarrierPanels.CONTROL, "color_light"), 0xff345678);
         control.configure(options, palette, Collections.emptyMap());
         equal("自定义面板", first.getText()); equal("自定义面板", second.getText());
         equal("自定义面板", first.getContentDescription()); equal("自定义面板", second.getContentDescription());
@@ -424,6 +447,8 @@ public final class CarrierPanelsCheck {
         control.configure(options, palette, Collections.emptyMap());
         equal("自定义面板", first.getText()); equal("自定义面板", second.getText());
         options.putBoolean("carrier_enabled", false);
+        options.putBoolean(CarrierPanels.key(CarrierPanels.NOTIFICATION, "enabled"), false);
+        options.putBoolean(CarrierPanels.key(CarrierPanels.CONTROL, "enabled"), false);
         control.configure(options, palette, Collections.emptyMap());
         equal("最新通知运营商", first.getText()); equal("最新控制中心运营商", second.getText());
         equal("最新通知描述", first.getContentDescription()); equal("最新控制描述", second.getContentDescription());
@@ -437,6 +462,8 @@ public final class CarrierPanelsCheck {
         control.configure(options, palette, Collections.emptyMap()); same(nativeSpans, first.getText()); near(20, first.getTextSize());
         equal(0xbbaa9988, first.getCurrentTextColor()); near(.3f, first.getLetterSpacing());
         options.putBoolean("carrier_enabled", true); options.putString(StatusBarSettings.CARRIER_MODE, "time");
+        options.putBoolean(CarrierPanels.key(CarrierPanels.NOTIFICATION, "enabled"), true);
+        options.putBoolean(CarrierPanels.key(CarrierPanels.CONTROL, "enabled"), true);
         options.putString(StatusBarSettings.CARRIER_PATTERN, "'PANEL' HH:mm:ss");
         StatClock clock = new StatClock(context); clock.setText("原生时间"); control.attach(clock);
         options.putBoolean(StatusBarSettings.CLOCK_ENABLED, true); options.putString(StatusBarSettings.CLOCK_PATTERN, "'CLOCK' HH:mm");

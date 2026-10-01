@@ -59,7 +59,11 @@ public final class PuiBatteryStyleCheck {
         Drawable outside=battery.outsideDrawable,frame=battery.frameDrawable,inside=battery.insideDrawable;
         Drawable outer=battery.bgDrawable,outerFill=battery.progressDrawable;
         PuiBatteryStyle style=new PuiBatteryStyle(NativeHorizontal.class);Bundle settings=new Bundle();style.configure(settings);
-        check(style.prepare(battery),"default PUI style did not apply");
+        check(!style.prepare(battery),"default-off feature applied PUI style");
+        check(battery.outsideDrawable==outside&&battery.insideDrawable==inside,"default-off feature replaced native assets");
+        check(battery.percentInPaint.getTextSize()==38,"default-off feature changed native font");
+        settings.putBoolean("battery_enabled",true);style.configure(settings);
+        check(style.prepare(battery),"enabled PUI style did not apply");
         check(battery.outsideDrawable!=outside&&battery.insideDrawable!=inside,"native assets were not replaced");
         equal(0x4d000000,((Graphic)battery.outsideDrawable).tint);
         equal(0xff22c55e,((Graphic)((android.graphics.drawable.ClipDrawable)battery.insideDrawable.getDrawable(0)).getWrapped()).tint);
@@ -90,7 +94,9 @@ public final class PuiBatteryStyleCheck {
     }
     private static void nativeScaleFactor() throws Exception {
         NativeHorizontal battery=new NativeHorizontal();PuiBatteryStyle style=new PuiBatteryStyle(NativeHorizontal.class);
-        style.configure(new Bundle());style.prepare(battery);
+        Bundle settings=new Bundle();style.configure(settings);
+        check(!style.prepare(battery),"default-off scale fixture applied PUI");
+        settings.putBoolean("battery_enabled",true);style.configure(settings);style.prepare(battery);
         ViewGroup owner=new ViewGroup(new NativeContext());ImageView image=new ImageView(owner.getContext());owner.addView(image);
         image.setImageDrawable(battery);image.setLayoutParams(new ViewGroup.LayoutParams(87,48));
         style.updateView(owner,battery);equal(87,image.getLayoutParams().width);equal(51,image.getLayoutParams().height);

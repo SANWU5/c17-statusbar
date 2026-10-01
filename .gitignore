@@ -1,8 +1,11 @@
 # GitHub and Android Studio
 .gradle/
+/.kotlin/
 .idea/
 **/build/
 validation/build-checks/
+validation/build-safe-checks/
+validation/build-safe-config/
 local.properties
 *.apk
 *.aab

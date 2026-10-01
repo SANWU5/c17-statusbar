@@ -18,7 +18,8 @@ public final class TextControlsCheck {
         StatClock clock=new StatClock(context);OplusSecondCarrierText carrier=new OplusSecondCarrierText(context);
         clock.setText("系统时钟");carrier.setText("中国移动");clock.setContentDescription("原始时间");carrier.setContentDescription("原始运营商");
         control.attach(clock);control.attach(carrier);equal("系统时钟",clock.getText());equal("中国移动",carrier.getText());equal(true,handler.delayed==null);
-        Bundle settings=new Bundle();settings.putBoolean(StatusBarSettings.CLOCK_ENABLED,true);settings.putString(StatusBarSettings.CLOCK_PATTERN,"'C17' HH:mm:ss");
+        Bundle settings=new Bundle();settings.putBoolean("clock_controls_enabled",true);settings.putBoolean("carrier_enabled",true);
+        settings.putBoolean(StatusBarSettings.CLOCK_ENABLED,true);settings.putString(StatusBarSettings.CLOCK_PATTERN,"'C17' HH:mm:ss");
         settings.putString(StatusBarSettings.CARRIER_MODE,"text");settings.putString(StatusBarSettings.CARRIER_TEXT,"aiingjie");
         settings.putFloat(StatusBarSettings.CLOCK_SCALE,123.45f);settings.putFloat(StatusBarSettings.CLOCK_WEIGHT,712f);settings.putFloat(StatusBarSettings.CLOCK_SPACING,.25f);
         control.configure(settings,StatusBarSettings.COLOR_DEFAULTS,Collections.emptyMap());
@@ -85,7 +86,9 @@ public final class TextControlsCheck {
         TextView[] clocks={status,notification,fake,qs,recreated,subclass};
         for(TextView clock:clocks) { clock.setText("系统时钟");clock.setContentDescription("系统描述");equal(TextControls.CLOCK,control.kind(clock));equal("clock",control.group(clock));control.attach(clock); }
         OplusSecondCarrierText carrier=new OplusSecondCarrierText(context);wrapper.addView(carrier);carrier.setText("中国移动");control.attach(carrier);
-        Bundle settings=new Bundle();settings.putBoolean(StatusBarSettings.CLOCK_ENABLED,true);settings.putString(StatusBarSettings.CLOCK_PATTERN,"'C17' HH:mm:ss");
+        Bundle settings=new Bundle();settings.putBoolean("clock_controls_enabled",true);
+        settings.putBoolean(CarrierPanels.key(CarrierPanels.NOTIFICATION,"enabled"),true);
+        settings.putBoolean(StatusBarSettings.CLOCK_ENABLED,true);settings.putString(StatusBarSettings.CLOCK_PATTERN,"'C17' HH:mm:ss");
         settings.putFloat(StatusBarSettings.CLOCK_SCALE,150f);settings.putFloat(StatusBarSettings.CLOCK_WEIGHT,712f);settings.putFloat(StatusBarSettings.CLOCK_SPACING,.25f);
         settings.putFloat(StatusBarSettings.CLOCK_OFFSET_X,3f);settings.putFloat(StatusBarSettings.CLOCK_OFFSET_Y,-2f);
         settings.putString(CarrierPanels.key(CarrierPanels.NOTIFICATION,"mode"),"text");settings.putString(CarrierPanels.key(CarrierPanels.NOTIFICATION,"text"),"独立通知文字");
@@ -137,7 +140,9 @@ public final class TextControlsCheck {
         status.setText("原生状态栏");control.attach(status);
         for(TextView shade:shades) { shade.setText("原生下拉时钟");shade.setContentDescription("原生下拉描述");control.attach(shade); }
         OplusSecondCarrierText carrier=new OplusSecondCarrierText(context);header.addView(carrier);carrier.setText("原生运营商");control.attach(carrier);
-        Bundle settings=new Bundle();settings.putBoolean(StatusBarSettings.CLOCK_ENABLED,true);settings.putString(StatusBarSettings.CLOCK_PATTERN,"'STATUS' HH:mm");
+        Bundle settings=new Bundle();settings.putBoolean("clock_controls_enabled",true);
+        settings.putBoolean(CarrierPanels.key(CarrierPanels.NOTIFICATION,"enabled"),true);
+        settings.putBoolean(StatusBarSettings.CLOCK_ENABLED,true);settings.putString(StatusBarSettings.CLOCK_PATTERN,"'STATUS' HH:mm");
         settings.putFloat(StatusBarSettings.CLOCK_SCALE,150f);settings.putFloat(StatusBarSettings.CLOCK_WEIGHT,712f);
         settings.putBoolean(StatusBarSettings.SHADE_CLOCK_ENABLED,true);settings.putString(StatusBarSettings.SHADE_CLOCK_PATTERN,"'SHADE' HH:mm:ss");
         settings.putFloat(StatusBarSettings.SHADE_CLOCK_SCALE,200f);settings.putFloat(StatusBarSettings.SHADE_CLOCK_WEIGHT,800f);

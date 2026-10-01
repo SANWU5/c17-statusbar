@@ -5,6 +5,7 @@ public class Paint {
     public enum Style { FILL, STROKE, FILL_AND_STROKE }
     public enum Join { MITER, ROUND, BEVEL }
     public enum Cap { BUTT, ROUND, SQUARE }
+    public static class FontMetrics { public float top,ascent,descent,bottom,leading; }
     private int alpha=255,color;
     private float textSize=14;
     public Xfermode mode;
@@ -32,4 +33,5 @@ public class Paint {
     public Typeface setTypeface(Typeface face) { return face; }
     public void setFakeBoldText(boolean bold) { }
     public void setTextAlign(Align align) { }
+    public float getFontMetrics(FontMetrics metrics) {metrics.ascent=-textSize*.8f;metrics.descent=textSize*.2f;return textSize;}
 }

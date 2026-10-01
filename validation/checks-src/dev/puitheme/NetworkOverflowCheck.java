@@ -24,6 +24,9 @@ public final class NetworkOverflowCheck {
         require(!(Boolean)slot.invoke(null,"alarm_clock"),"unrelated slot included");
         require(!(Boolean)slot.invoke(null,new Object[]{null}),"null slot included");
         Method allow=module.getDeclaredMethod("allowDrawableOverflow",View.class);allow.setAccessible(true);
+        Field features=module.getDeclaredField("FEATURES");features.setAccessible(true);
+        Map<String,Object> values=new HashMap<>();values.put("data_enabled",true);values.put("label_enabled",true);
+        features.set(null,FeatureOptions.from(values));
         ViewGroup parent=new ViewGroup(null),host=new ViewGroup(null),compose=new ViewGroup(null),androidOwner=new ViewGroup(null);
         parent.addView(host);host.addView(compose);compose.addView(androidOwner);
         host.setMinimumWidth(72);host.setClipBounds(new Rect(0,0,72,80));
@@ -36,8 +39,7 @@ public final class NetworkOverflowCheck {
         require(host.getClipBounds()==null,"native clip bounds still crop moved Wi-Fi");
         require(androidOwner.getClipBounds()==null,"Compose native clip bounds still crop moved Wi-Fi");
         require(host.getMinimumWidth()==72,"clipping fix changes neighboring icon anchors");
-        Field features=module.getDeclaredField("FEATURES");features.setAccessible(true);
-        Map<String,Object> values=new HashMap<>();values.put("data_enabled",false);values.put("label_enabled",false);
+        values.put("data_enabled",false);values.put("label_enabled",false);
         features.set(null,FeatureOptions.from(values));module.getMethod("invalidateLiveDrawables").invoke(null);
         require(parent.getClipChildren(),"all network groups off leaves ancestor unclipped");
         require(host.getClipChildren(),"all network groups off leaves host unclipped");
@@ -45,7 +47,8 @@ public final class NetworkOverflowCheck {
         require(androidOwner.getClipChildren(),"all network groups off leaves AndroidComposeView unclipped");
         require(host.getClipBounds()!=null&&host.getClipBounds().right==72,"original host clip bounds not restored");
         require(androidOwner.getClipBounds()!=null&&androidOwner.getClipBounds().right==72,"original nested clip bounds not restored");
-        values.clear();features.set(null,FeatureOptions.from(values));module.getMethod("invalidateLiveDrawables").invoke(null);
+        values.clear();values.put("data_enabled",true);values.put("label_enabled",true);
+        features.set(null,FeatureOptions.from(values));module.getMethod("invalidateLiveDrawables").invoke(null);
         require(!androidOwner.getClipChildren()&&androidOwner.getClipBounds()==null,"re-enable does not restore overflow allowance");
         for(String group:new String[]{"data","label"}){values.put(group+"_position_enabled",false);values.put(group+"_size_enabled",false);}
         features.set(null,FeatureOptions.from(values));module.getMethod("invalidateLiveDrawables").invoke(null);

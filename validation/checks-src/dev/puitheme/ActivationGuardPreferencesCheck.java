@@ -40,7 +40,12 @@ public final class ActivationGuardPreferencesCheck {
         active.set(true);
         equal(true, guarded.edit().remove("offset").commit());
         equal(3, raw.writes); equal(false, guarded.contains("offset"));
-        equal(true, guarded.edit().clear().commit()); equal(4, raw.writes); equal(0, guarded.getAll().size());
+        equal(true, guarded.edit().clear().commit()); equal(4, raw.writes); equal(1, guarded.getAll().size());
+        equal(true,guarded.getBoolean(StatusBarSettings.DATA_ACTIVITY_HIDDEN,false));
+        guarded.edit().putBoolean(StatusBarSettings.DATA_ACTIVITY_HIDDEN,false).apply();
+        equal(true,raw.values.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+        guarded.edit().putString(StatusBarSettings.DATA_ACTIVITY_HIDDEN,"bad legacy type").apply();
+        equal(true,raw.values.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
         bigClockConflicts();
         System.out.println("Activation preference guard checks passed: " + checks);
     }

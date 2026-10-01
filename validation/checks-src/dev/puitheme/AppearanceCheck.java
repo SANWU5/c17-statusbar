@@ -40,6 +40,9 @@ public final class AppearanceCheck {
         Map<String,Integer> palette = new HashMap<>(StatusBarSettings.COLOR_DEFAULTS);
         palette.put("wifi_color_dark", 0xff3366ff);
         set("styleColors", palette);
+        equal(nativeTint, style("wifi")); // Stored color alone must not activate a default-off feature.
+        Map<String,Object> enabled = new HashMap<>(); enabled.put("wifi_enabled", true);
+        set("FEATURES", FeatureOptions.from(enabled));
         equal(0xcc3366ff, style("wifi"));
         Map<String,Boolean> alpha = new HashMap<>();
         alpha.put("wifi_color_dark", true);
@@ -54,6 +57,9 @@ public final class AppearanceCheck {
         nativeTint = 0x993366ff;
         // Defaults retain regional native RGB and alpha without global dispatcher state.
         for (String item : new String[]{"wifi","data","label","speed"}) equal(nativeTint, style(item));
+        set("composeStatusBar", false); set("wifiConnected", false); set("airplaneMode", false); set("networkLabel", "5G");
+        equal(false, cellular());
+        enabled.put("label_enabled", true); set("FEATURES", FeatureOptions.from(enabled));
         for (boolean compose : new boolean[]{false,true}) {
             for (boolean wifi : new boolean[]{false,true}) {
                 for (boolean airplane : new boolean[]{false,true}) {

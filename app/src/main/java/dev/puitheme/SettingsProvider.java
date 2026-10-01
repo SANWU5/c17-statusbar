@@ -15,6 +15,7 @@ import android.os.ParcelFileDescriptor;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.Map;
+import java.util.Collections;
 
 /* JADX INFO: loaded from: classes.dex */
 public final class SettingsProvider extends ContentProvider {
@@ -39,9 +40,12 @@ public final class SettingsProvider extends ContentProvider {
             return super.call(str, str2, bundle);
         }
         enforceAllowedReader();
+        Boolean requestedSafety = null;
         try {
             SharedPreferences preferences=StatusBarSettings.preferences(getContext());
             Map<String,?> values=preferences.getAll();
+            Object safety=values.get(StatusBarSettings.SAFE_MODE);
+            if(safety instanceof Boolean)requestedSafety=(Boolean)safety;
             if(values.isEmpty())synchronized(this) {
                 if(lastGood!=null)return new Bundle(lastGood);
             }
@@ -57,16 +61,24 @@ public final class SettingsProvider extends ContentProvider {
         }
         synchronized(this) {
             if(lastGood==null)lastGood=SettingsSnapshot.durableSnapshot(getContext());
+            // A damaged styling preference must never prevent the emergency runtime switch.
+            // This modifies only the delivered fallback, preserving the saved user configuration.
+            if(lastGood==null&&Boolean.TRUE.equals(requestedSafety))
+                lastGood=SettingsSnapshot.fromPreferences(Collections.emptyMap());
+            if(lastGood!=null&&requestedSafety!=null)
+                lastGood.putBoolean(StatusBarSettings.SAFE_MODE,requestedSafety);
             return lastGood==null?null:new Bundle(lastGood);
         }
     }
 
     @Override public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
         enforceAllowedReader();
-        if (!"r".equals(mode) || !"/font/current".equals(uri.getPath()))
-            throw new FileNotFoundException("Read-only font endpoint");
-        File file = new File(getContext().createDeviceProtectedStorageContext().getFilesDir(), "fonts/custom.font");
-        if (!file.isFile()) throw new FileNotFoundException("No imported font");
+        if (!"r".equals(mode)) throw new FileNotFoundException("Read-only endpoint");
+        File file;
+        if ("/font/current".equals(uri.getPath())) file = new File(getContext().createDeviceProtectedStorageContext().getFilesDir(), "fonts/custom.font");
+        else if ("/notification-icon/current".equals(uri.getPath())) file = NotificationIconRepository.file(getContext());
+        else throw new FileNotFoundException("Unknown private asset");
+        if (!file.isFile()) throw new FileNotFoundException("No imported asset");
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
     }
 

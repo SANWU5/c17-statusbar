@@ -33,7 +33,7 @@ public final class DrawableSwitchCheck {
         for(String group:new String[]{"wifi","data"}) {
             Glyph styled=new Glyph(72),nativeGlyph=new Glyph(54);
             Drawable wrapper=(Drawable)constructor.newInstance(styled,Resources.getSystem(),group.equals("wifi"),nativeGlyph);
-            Map<String,Object> values=new HashMap<>();values.put(group+"_color_enabled",false);
+            Map<String,Object> values=new HashMap<>();values.put(group+"_enabled",true);values.put(group+"_color_enabled",false);
             features.set(null,FeatureOptions.from(values));wrapper.setBounds(0,0,72,56);wrapper.draw(new Canvas());
             require(styled.draws==1&&nativeGlyph.draws==0,"module glyph absent "+group);
             require(wrapper.getIntrinsicWidth()==72,"module dimensions "+group);

@@ -1,15 +1,22 @@
 pluginManagement {
     repositories {
-        google()
         mavenCentral()
+        google()
         gradlePluginPortal()
     }
 }
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        google()
         mavenCentral()
+        google()
+    }
+}
+// The root buildscript pins Kotlin for AGP's built-in Kotlin support.
+gradle.beforeProject { project ->
+    project.buildscript.repositories {
+        mavenCentral()
+        google()
     }
 }
 rootProject.name = 'ios-statusbar-module'

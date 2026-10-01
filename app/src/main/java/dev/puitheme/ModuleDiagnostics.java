@@ -52,7 +52,8 @@ public final class ModuleDiagnostics {
     private static final RateGate RATE = new RateGate();
     private static final RateGate WRITE_RATE = new RateGate();
     private static Context boundContext;
-    private static boolean configured, enabled, draining;
+    private static boolean configured, draining;
+    private static volatile boolean enabled;
     private static long clearedBefore;
     private static final Pattern PRIVATE_WORDS = Pattern.compile(
             "(?i)\\b(?:pin|password|passwd|imei|imsi|ssid|bssid|serial|phone|carrier_text|clock_pattern|font_uri)\\b"
@@ -68,7 +69,7 @@ public final class ModuleDiagnostics {
     private static final Pattern TIMESTAMP = Pattern.compile("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z");
 
     public static void bind(Context context) {
-        if (context == null) return;
+        if (context == null || ModuleLifecycle.removed()) return;
         try {
             Context application = context.getApplicationContext();
             synchronized (STATE_LOCK) { boundContext = application == null ? context : application; }
@@ -80,7 +81,7 @@ public final class ModuleDiagnostics {
 
     /** The first disabled configuration discards startup messages without opening a file. */
     public static void configure(Bundle settings) {
-        boolean active = settings != null && Boolean.TRUE.equals(settings.get(KEY_ENABLED));
+        boolean active = !ModuleLifecycle.removed() && settings != null && Boolean.TRUE.equals(settings.get(KEY_ENABLED));
         synchronized (STATE_LOCK) {
             configured = true;
             enabled = active;
@@ -91,6 +92,12 @@ public final class ModuleDiagnostics {
 
     public static void info(String source, String message) { emit(source, message, null, false); }
     public static void error(String source, String message, Throwable error) { emit(source, message, error, true); }
+    /** Fast opt-in gate for structural probes, before any strings or reflection are allocated. */
+    public static boolean enabled() { return enabled && !ModuleLifecycle.removed(); }
+
+    static void release() {
+        synchronized (STATE_LOCK) { configured = true; enabled = false; boundContext = null; PENDING.clear(); RATE.clear(); }
+    }
 
     /** App-only convenience entry: reads the current opt-in before emitting a fixed stage message. */
     public static void app(Context context, String source, String message) {

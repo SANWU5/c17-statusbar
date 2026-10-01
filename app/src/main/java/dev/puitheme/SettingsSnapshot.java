@@ -46,6 +46,7 @@ public final class SettingsSnapshot {
      */
     public static Bundle read(Context context) {
         if(context==null)return null;
+        if(ModuleLifecycle.removed())return ModuleLifecycle.nativeSettings();
         ContentResolver resolver=context.getContentResolver();
         try {
             Bundle candidate=resolver.call(Uri.parse(StatusBarSettings.CONTENT_URI),READ_METHOD,null,null);
@@ -54,12 +55,13 @@ public final class SettingsSnapshot {
         } catch(RuntimeException unavailable) {
             ModuleDiagnostics.error("settings","Settings snapshot unavailable; retaining last applied configuration",unavailable);
         }
+        if(ModuleLifecycle.verifyAfterFailure(context))return ModuleLifecycle.nativeSettings();
         synchronized(LOCK) { Bundle previous=APPLIED.get(resolver);return previous==null?null:new Bundle(previous); }
     }
 
     /** Call only after all runtime consumers accepted the complete snapshot. */
     public static void rememberApplied(Context context,Bundle snapshot) {
-        if(context==null||!complete(snapshot))return;
+        if(context==null||ModuleLifecycle.removed()||!complete(snapshot))return;
         synchronized(LOCK) { APPLIED.put(context.getContentResolver(),new Bundle(snapshot)); }
     }
 
@@ -67,6 +69,8 @@ public final class SettingsSnapshot {
         if(context==null)return null;
         synchronized(LOCK) { Bundle saved=APPLIED.get(context.getContentResolver());return saved==null?null:new Bundle(saved); }
     }
+
+    static void forgetApplied() { synchronized(LOCK) { APPLIED.clear(); } }
 
     /** Only notification-driven reads may skip; rebinding a new native consumer still applies. */
     public static boolean matchesApplied(Context context,Bundle candidate) {
@@ -127,7 +131,8 @@ public final class SettingsSnapshot {
         for(String key:StatusBarSettings.STRING_DEFAULTS.keySet())
             if(values.containsKey(key)&&!(values.get(key) instanceof String))return false;
         for(String key:StatusBarSettings.BOOLEAN_DEFAULTS.keySet())
-            if(values.containsKey(key)&&!(values.get(key) instanceof Boolean))return false;
+            if(!StatusBarSettings.DATA_ACTIVITY_HIDDEN.equals(key)
+                    &&values.containsKey(key)&&!(values.get(key) instanceof Boolean))return false;
         return true;
     }
 

@@ -221,7 +221,8 @@ public final class ConfigTransferCheck {
         equal(true, ConfigTransfer.commit(preferences, prepared));
         equal(1, preferences.editCount);
         equal(1, preferences.commitCount);
-        equal(4, preferences.lastWriteCount);
+        equal(5, preferences.lastWriteCount);
+        equal(true, preferences.values.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
         equal(false, preferences.clearCalled);
         equal(3.25f, preferences.values.get("wifi_offset_x"));
         equal(false, preferences.values.get("data_enabled"));
