@@ -64,7 +64,7 @@ final class NotificationBigClockModel {
                 // The native parent already follows the panel gesture. A second reserve-sized
                 // translation ejects a compact clock long before the backdrop finishes closing.
                 range, 0f, clamp(fraction / .3f, 0f, 1f),
-                Math.round(bounded(weight, 600f, 100f, 900f)));
+                Math.round(bounded(weight, 600f, 1f, 1000f)));
     }
 
     static Frame calculate(float screenHeight, float density, float scale, float compactScale,
@@ -89,7 +89,7 @@ final class NotificationBigClockModel {
         return new Frame(progress, top, height, top - 28f * d, reserved,
                 lerp(1f, .78f, progress), range, 0f,
                 clamp(fraction / .3f, 0f, 1f),
-                Math.round(bounded(weight, 600f, 100f, 900f)));
+                Math.round(bounded(weight, 600f, 1f, 1000f)));
     }
 
     static float bounded(float value, float fallback, float min, float max) {

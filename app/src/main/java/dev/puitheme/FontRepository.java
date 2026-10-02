@@ -5,6 +5,8 @@ package dev.puitheme;
 
 import android.content.Context;
 import android.graphics.Typeface;
+import android.graphics.Paint;
+import android.widget.TextView;
 import android.net.Uri;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -34,18 +36,25 @@ public final class FontRepository {
     };
     private FontRepository() { }
 
+    /** Release mapped fonts/context when the loaded module is removed; persisted files belong to the app. */
+    public static synchronized void releaseRuntime() {
+        CACHE.clear();MODE_CACHE.clear();FontWeight.release();moduleContext=null;
+        mode="system";revision="";contextFailureLogged=false;fontFailureLogged=false;
+    }
+
     public static synchronized void configure(Context context, String newMode, String newRevision) {
         if (context == null) return;
         if (!ensureModuleContext(context)) return;
         newMode = "pingfang".equals(newMode) || "custom".equals(newMode) ? newMode : "system";
         if (newRevision == null) newRevision = "";
         if (!newMode.equals(mode) || !newRevision.equals(revision)) {
-            mode = newMode; revision = newRevision; CACHE.clear();MODE_CACHE.clear();fontFailureLogged=false;
+            mode = newMode; revision = newRevision; CACHE.clear();MODE_CACHE.clear();FontWeight.release();fontFailureLogged=false;
             ModuleDiagnostics.info("font","Font source changed: "+mode);
         }
     }
 
     private static boolean ensureModuleContext(Context context) {
+        if (ModuleLifecycle.removed()) return false;
         if (moduleContext == null) {
             if (context == null) return false;
             try { moduleContext = MODULE.equals(context.getPackageName()) ? context
@@ -59,22 +68,25 @@ public final class FontRepository {
     }
 
     public static synchronized Typeface typeface(Typeface nativeFace, int weight) {
-        int bounded = Math.max(100, Math.min(900, weight));
-        if (!"system".equals(mode) && moduleContext != null) {
-            Typeface loaded = CACHE.get(bounded);
+        int bounded = Math.max(1, Math.min(1000, weight));
+        if (!ModuleLifecycle.removed() && !"system".equals(mode) && moduleContext != null) {
+            int sourceWeight = sourceWeight(mode, bounded);
+            boolean italic=nativeFace!=null&&nativeFace.isItalic();
+            int cacheKey=sourceWeight*2+(italic?1:0);
+            Typeface loaded = CACHE.get(cacheKey);
             if (loaded != null) return loaded;
             try {
                 if ("pingfang".equals(mode)) {
                     loaded = new Typeface.Builder(moduleContext.getAssets(), "fonts/PingFangSC-VF.ttf")
-                            .setFontVariationSettings("'wght' " + bounded).setWeight(bounded).setFallback("sans-serif").build();
+                            .setFontVariationSettings("'wght' " + sourceWeight).setWeight(sourceWeight).setItalic(italic).setFallback("sans-serif").build();
                 } else if ("custom".equals(mode)) {
                     try (ParcelFileDescriptor font = moduleContext.getContentResolver()
                             .openFileDescriptor(Uri.parse(StatusBarSettings.FONT_URI), "r")) {
                         if (font != null) loaded = new Typeface.Builder(font.getFileDescriptor())
-                                .setFontVariationSettings("'wght' " + bounded).setWeight(bounded).setFallback("sans-serif").build();
+                                .setFontVariationSettings("'wght' " + sourceWeight).setWeight(sourceWeight).setItalic(italic).setFallback("sans-serif").build();
                     }
                 }
-                if (loaded != null) { CACHE.put(bounded, loaded); return loaded; }
+                if (loaded != null) { CACHE.put(cacheKey, loaded); return loaded; }
             } catch (Exception invalidFont) {
                 if (!fontFailureLogged) { fontFailureLogged=true;ModuleDiagnostics.error("font","Font loading failed; using native family",invalidFont); }
             }
@@ -84,23 +96,26 @@ public final class FontRepository {
 
     /** Independent clock font selection; reading a source never changes the global font setting. */
     public static synchronized Typeface typefaceForMode(Context context, String selectedMode, Typeface nativeFace, int weight) {
-        int bounded = Math.max(100, Math.min(900, weight));
+        int bounded = Math.max(1, Math.min(1000, weight));
         if ("global".equals(selectedMode)) return typeface(nativeFace, bounded);
-        if ("system".equals(selectedMode)) return weighted(Typeface.DEFAULT, bounded);
+        if ("system".equals(selectedMode)) return weighted(nativeFace!=null&&nativeFace.isItalic()
+                ?Typeface.create(Typeface.DEFAULT,Typeface.ITALIC):Typeface.DEFAULT, bounded);
         if (!"pingfang".equals(selectedMode) && !"custom".equals(selectedMode)) return weighted(nativeFace, bounded);
         if (ensureModuleContext(context)) {
-            String key = selectedMode + ':' + revision + ':' + bounded;
+            int sourceWeight = sourceWeight(selectedMode, bounded);
+            boolean italic=nativeFace!=null&&nativeFace.isItalic();
+            String key = selectedMode + ':' + revision + ':' + sourceWeight + ':' + italic;
             Typeface loaded = MODE_CACHE.get(key);
             if (loaded != null) return loaded;
             try {
                 if ("pingfang".equals(selectedMode)) {
                     loaded = new Typeface.Builder(moduleContext.getAssets(), "fonts/PingFangSC-VF.ttf")
-                            .setFontVariationSettings("'wght' " + bounded).setWeight(bounded).setFallback("sans-serif").build();
+                            .setFontVariationSettings("'wght' " + sourceWeight).setWeight(sourceWeight).setItalic(italic).setFallback("sans-serif").build();
                 } else {
                     try (ParcelFileDescriptor font = moduleContext.getContentResolver()
                             .openFileDescriptor(Uri.parse(StatusBarSettings.FONT_URI), "r")) {
                         if (font != null) loaded = new Typeface.Builder(font.getFileDescriptor())
-                                .setFontVariationSettings("'wght' " + bounded).setWeight(bounded).setFallback("sans-serif").build();
+                                .setFontVariationSettings("'wght' " + sourceWeight).setWeight(sourceWeight).setItalic(italic).setFallback("sans-serif").build();
                     }
                 }
                 if (loaded != null) { MODE_CACHE.put(key, loaded); return loaded; }
@@ -111,10 +126,30 @@ public final class FontRepository {
         return weighted(nativeFace, bounded);
     }
 
+    private static int sourceWeight(String selectedMode, int requested) {
+        // The existing bundled asset's fvar range is 100..900, independent of the UI's manual range.
+        if ("pingfang".equals(selectedMode)) return Math.max(100, Math.min(900, requested));
+        FontCatalog.Entry catalog = "custom".equals(selectedMode) ? FontCatalog.forRevision(revision) : null;
+        return catalog == null ? requested : catalog.clampWeight(requested);
+    }
+
     private static Typeface weighted(Typeface nativeFace, int bounded) {
-        Typeface fallback = nativeFace == null ? Typeface.DEFAULT : nativeFace;
-        return Build.VERSION.SDK_INT >= 28 ? Typeface.create(fallback, bounded, false)
-                : Typeface.create(fallback, bounded >= 600 ? Typeface.BOLD : Typeface.NORMAL);
+        return FontWeight.typeface(nativeFace,bounded);
+    }
+
+    /** Explicit axis application is needed on Android versions storing variations on Paint. */
+    public static synchronized void apply(TextView view,Typeface nativeFace,int weight,String nativeAxes){
+        FontWeight.apply(view,typeface(nativeFace,weight),sourceWeight(mode,Math.max(1,Math.min(1000,weight))),
+                "system".equals(mode)?nativeAxes:null);
+    }
+    public static synchronized void apply(Paint paint,Typeface nativeFace,int weight,String nativeAxes){
+        FontWeight.apply(paint,typeface(nativeFace,weight),sourceWeight(mode,Math.max(1,Math.min(1000,weight))),
+                "system".equals(mode)?nativeAxes:null);
+    }
+    public static synchronized boolean systemMode(){return "system".equals(mode);}
+    /** Applies the same physical source limits to a separately selected large-clock mode. */
+    public static synchronized int weightForMode(String selectedMode,int requested){
+        return sourceWeight("global".equals(selectedMode)?mode:selectedMode,Math.max(1,Math.min(1000,requested)));
     }
 
     public static String importFont(Context context, Uri uri) throws Exception {

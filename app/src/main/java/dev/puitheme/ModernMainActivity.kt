@@ -48,9 +48,20 @@ class ModernMainActivity : ComponentActivity() {
         private set
     var busy by mutableStateOf(false)
         private set
+    var checkingUpdates by mutableStateOf(false)
+        private set
+    var updateMessage by mutableStateOf("手动查看 GitHub 最新正式发布")
+        private set
+    private var latestUpdate: GitHubUpdates.Result? = null
     var confirmation by mutableStateOf<UiConfirmation?>(null)
     var editing by mutableStateOf<SettingsCatalog.Item?>(null)
     var colorEditing by mutableStateOf<SettingsCatalog.Item?>(null)
+    var fontCatalogOpen by mutableStateOf(false)
+    var downloadingFont by mutableStateOf<FontCatalog.Entry?>(null)
+        private set
+    var fontDownloadPercent by mutableIntStateOf(0)
+        private set
+    private var fontCancellation: FontDownloadRepository.Cancellation? = null
     val canEdit get() = runtimeActive || rootGranted || lspEnabled
     @Volatile private var resumed = false
     @Volatile private var destroyed = false
@@ -130,8 +141,7 @@ class ModernMainActivity : ComponentActivity() {
             setContent { C17Theme { C17Navigation(page) { selectPage(it) } } }
         }
         root.addView(navHost, FrameLayout.LayoutParams(-1, (72 * density).toInt(), Gravity.BOTTOM).apply {
-            leftMargin = (16 * density).toInt(); rightMargin = leftMargin
-            bottomMargin = (16 * density).toInt()
+            leftMargin = 0; rightMargin = 0; bottomMargin = 0
         })
         modalLayer = ComposeView(this).apply {
             consumeWindowInsets = false
@@ -162,9 +172,9 @@ class ModernMainActivity : ComponentActivity() {
                 content.layoutParams = contentParams
             }
             val params = navHost.layoutParams as FrameLayout.LayoutParams
-            params.leftMargin = safeLeft + (16 * density).toInt()
-            params.rightMargin = safeRight + (16 * density).toInt()
-            params.bottomMargin = bottom + (16 * density).toInt()
+            params.leftMargin = safeLeft
+            params.rightMargin = safeRight
+            params.bottomMargin = bottom
             navHost.layoutParams = params
             updateNavigation()
             insets
@@ -175,6 +185,8 @@ class ModernMainActivity : ComponentActivity() {
             override fun handleOnBackPressed() {
                 when {
                     colorEditing != null -> colorEditing = null
+                    downloadingFont != null -> cancelFontDownload()
+                    fontCatalogOpen -> fontCatalogOpen = false
                     editing != null -> editing = null
                     confirmation != null -> dismissConfirmation()
                     selectedGroup != null -> { selectedGroup = null; updateNavigation() }
@@ -194,6 +206,11 @@ class ModernMainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        if (downloadingFont != null) cancelFontDownload()
+        if (NumericTrial.active()) {
+            NumericTrial.rollback()
+            confirmation = null
+        }
         handler.removeCallbacks(notifySettings); notifySettings.run()
         SettingsSnapshot.flushPending(this)
         resumed = false; runtimeActive = false
@@ -203,6 +220,7 @@ class ModernMainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        fontCancellation?.cancel()
         destroyed = true; raw.unregisterOnSharedPreferenceChangeListener(listener)
         probe?.cancel(); frameworkSubscription?.close(); rootRequest?.cancel(); restartRequest?.cancel()
         handler.removeCallbacksAndMessages(null); work.shutdown()
@@ -240,6 +258,20 @@ class ModernMainActivity : ComponentActivity() {
         editor.apply()
         return true
     }
+    fun tryNumber(item: SettingsCatalog.Item, value: Float) {
+        if (!resumed || !canEdit || busy) { toast("激活模块或授予 Root 后即可修改"); return }
+        val trialContext = raw.all
+        val confirmed = SettingEditor.storedValue(item, trialContext)
+        if (!NumericTrial.begin(this, raw, preferences, item.key, value)) {
+            toast("无法开始试用，已保留原来的数值"); return
+        }
+        editing = null
+        confirmation = UiConfirmation("试用${item.title}",
+            SettingEditor.trialSummary(item, confirmed, value, trialContext),
+            "保存此数值", expiresAt = NumericTrial.deadline(), cancelAction = { NumericTrial.rollback() }) {
+                toast(if (NumericTrial.keep()) "数值已保存" else if (NumericTrial.active()) "保存失败，正在恢复原数值" else "试用已结束，原数值已恢复")
+            }
+    }
     fun checkActivation() {
         probe?.cancel(); checkingRuntime = true; runtimeActive = false; runtimeMessage = "正在验证当前版本…"
         probe = ModuleRuntimeStatus.probe(this) { result ->
@@ -275,10 +307,90 @@ class ModernMainActivity : ComponentActivity() {
     fun chooseImport() { if (canEdit) importConfig.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) else toast("请先激活模块或授予 Root") }
     fun chooseExport() { if (canEdit) exportConfig.launch("C17-settings.json") else toast("请先激活模块或授予 Root") }
     fun chooseFont() { if (canEdit) importFont.launch(arrayOf("*/*")) else toast("请先激活模块或授予 Root") }
+    fun chooseOpenFont() { if (canEdit && !busy) fontCatalogOpen = true else toast("请先激活模块或授予 Root") }
+    fun downloadFont(entry: FontCatalog.Entry) {
+        if (!resumed || !canEdit || busy) return
+        val token = FontDownloadRepository.Cancellation()
+        fontCatalogOpen = false; downloadingFont = entry; fontDownloadPercent = 0; fontCancellation = token; busy = true
+        work.execute {
+            try {
+                val prepared = FontDownloadRepository.prepare(applicationContext, entry, { received, total ->
+                    runOnUiThread { if (fontCancellation === token) fontDownloadPercent = if (total > 0) (received * 100 / total).toInt().coerceIn(0, 100) else 0 }
+                }, token)
+                runOnUiThread {
+                    prepared.use {
+                        if (fontCancellation !== token) return@runOnUiThread
+                        if (token.asBoolean || destroyed || !resumed || !canEdit) {
+                            fontCancellation = null; downloadingFont = null; busy = false
+                            if (!destroyed) toast("编辑权限已变化，原字体已保留")
+                            return@runOnUiThread
+                        }
+                        val keys = listOf(StatusBarSettings.FONT_MODE, StatusBarSettings.FONT_REVISION, StatusBarSettings.FONT_NAME)
+                        val previous = raw.all
+                        val result = runCatching {
+                            prepared.commit({ resumed && canEdit && !destroyed && !token.asBoolean }, {
+                                preferences.edit().putString(StatusBarSettings.FONT_MODE, "custom")
+                                    .putString(StatusBarSettings.FONT_REVISION, prepared.revision)
+                                    .putString(StatusBarSettings.FONT_NAME, entry.displayName).commit()
+                            }, {
+                                val restore = raw.edit()
+                                keys.forEach { key -> if (previous.containsKey(key)) restore.putString(key, previous[key] as String?) else restore.remove(key) }
+                                check(restore.commit()) { "原字体选项未能恢复" }
+                            })
+                        }
+                        fontCancellation = null; downloadingFont = null; busy = false
+                        toast(if (result.isSuccess) "字体已下载，可在各功能中调节粗细；启用文字字体后生效" else "字体应用失败，原字体已保留：${result.exceptionOrNull()?.message}")
+                    }
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    if (fontCancellation === token) {
+                        fontCancellation = null; downloadingFont = null; busy = false
+                        toast("下载失败，原字体已保留：${error.message}")
+                    }
+                }
+            }
+        }
+    }
+    fun cancelFontDownload() {
+        fontCancellation?.cancel(); fontCancellation = null; downloadingFont = null; busy = false
+    }
     fun chooseNotificationIcon() { if (canEdit) importNotificationIcon.launch(arrayOf("image/png", "image/jpeg", "image/webp")) else toast("请先激活模块或授予 Root") }
     fun chooseLog() { exportLog.launch("C17-diagnostics.txt") }
     fun dismissConfirmation() { confirmation?.cancelAction?.invoke(); confirmation = null }
     fun openUrl(url: String) { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.onFailure { toast("没有可用的浏览器") } }
+    fun checkUpdates() {
+        if (!resumed || destroyed || checkingUpdates || busy) return
+        checkingUpdates = true
+        updateMessage = "正在检查 GitHub 正式发布…"
+        val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName ?: "" }.getOrDefault("")
+        // The existing checker performs bounded HTTP work off the main thread and posts its result to it.
+        GitHubUpdates.fetch(version) { result ->
+            if (destroyed) return@fetch
+            checkingUpdates = false
+            latestUpdate = result
+            updateMessage = result.message
+            // A delayed result must not replace a parameter trial, file confirmation or font dialog.
+            if (resumed && page == 2 && confirmation == null && editing == null && colorEditing == null &&
+                !fontCatalogOpen && downloadingFont == null && !busy) {
+                val details = buildString {
+                    append(result.message)
+                    if (result.version.isNotEmpty()) append("\n发布版本：${result.version}")
+                    if (result.body.isNotEmpty()) append("\n\n${result.body}")
+                }
+                val download = result.newer && GitHubUpdates.isApkUrl(result.apkUrl)
+                confirmation = UiConfirmation(if (result.newer) "发现新版本" else "更新检查", details,
+                    if (download) "下载 APK" else "查看正式发布") {
+                    if (download) openUrl(result.apkUrl) else openLatestRelease()
+                }
+            }
+        }
+    }
+    fun openLatestRelease() {
+        val url = latestUpdate?.releaseUrl?.takeIf(GitHubUpdates::isReleaseUrl)
+            ?: "${GitHubUpdates.REPO_URL}/releases/latest"
+        openUrl(url)
+    }
     private fun queueFile(kind: String, uri: Uri) {
         val permission = if (kind == "export") Intent.FLAG_GRANT_WRITE_URI_PERMISSION else Intent.FLAG_GRANT_READ_URI_PERMISSION
         if (kind != "notification_icon") runCatching { contentResolver.takePersistableUriPermission(uri, permission) }
@@ -392,4 +504,5 @@ class ModernMainActivity : ComponentActivity() {
 }
 
 data class UiConfirmation(val title: String, val summary: String, val button: String, val delaySeconds: Int = 0,
+    val expiresAt: Long = 0,
     val cancelAction: (() -> Unit)? = null, val action: () -> Unit)

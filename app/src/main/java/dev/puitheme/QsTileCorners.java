@@ -28,7 +28,7 @@ public final class QsTileCorners {
     public static final String LEGACY_RADIUS = "qs_tile_2x1_corner_radius";
     static final String MIGRATED = "qs_tile_corners_all_tiles_migrated";
     public static final float DEFAULT_RADIUS = 24f;
-    public static final float MAX_RADIUS = 80f;
+    public static final float MAX_RADIUS = 30f;
     public static final String TILE_CLASS = "com.oplus.systemui.plugins.qs.customize.view.tile.OplusQSResizeableTileView";
     public static final String[] TILE_SUBCLASSES = {
             "com.oplus.systemui.plugins.qs.customize.view.tile.OplusQSResizeableTileViewOneXOne",
@@ -206,9 +206,8 @@ public final class QsTileCorners {
                     state.factory = factory.getDeclaredMethod("getSmoothRoundRectOutlineProvider", Context.class, float.class);
                     state.factory.setAccessible(true);
                 }
-                Object provider = state.factory.invoke(null, view.getContext(), pixels);
+                Object provider = continuousProvider(state.factory, view.getContext(), pixels, drawable);
                 if (!QsTileAppearance.type(provider, OUTLINE_CLASS)) throw new IllegalStateException("Unknown native outline provider");
-                normalizeProvider(provider, drawable, pixels);
                 state.cachedProvider = provider; state.cachedPixels = pixels;
             }
             if (current == state.cachedProvider && !state.restorePending) {
@@ -286,7 +285,17 @@ public final class QsTileCorners {
         Object body = QsTileAppearance.call(view, "getBg");
         if (body instanceof View) ((View) body).invalidateOutline();
     }
-    /** QSConstant maps design radii to larger smooth radii. Keep its weight, but use exact physical pixels. */
+    /** All owned QS surfaces use the same native continuous-corner template.
+     * The OEM factory input is a design radius; the final provider radius is physical px. */
+    static Object continuousProvider(Method factory, Context context, float pixels, Drawable drawable)
+            throws ReflectiveOperationException {
+        float reference = DEFAULT_RADIUS * context.getResources().getDisplayMetrics().density;
+        Object provider = factory.invoke(null, context, reference);
+        normalizeProvider(provider, drawable, pixels);
+        return provider;
+    }
+
+    /** QSConstant maps design radii to larger smooth radii. Normalize only physical radius. */
     static void normalizeProvider(Object provider, Drawable drawable, float pixels) throws ReflectiveOperationException {
         Object radius = QsTileAppearance.invoke(provider, "getCornerRadius", drawable);
         Object weight = QsTileAppearance.invoke(provider, "getCornerWeight", drawable);

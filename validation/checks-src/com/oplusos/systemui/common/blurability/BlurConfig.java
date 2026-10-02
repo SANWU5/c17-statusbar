@@ -5,12 +5,16 @@ public class BlurConfig {
             rightBottomCornerRadius=65f,leftBottomCornerRadius=67f;
     public final Object material=new Object(),mixColors=new Object(),lightTemplate=new Object();
     public float blurAmount=35f;
+    public Float radiusWeight=.4f;
+    public int failWeightCalls,weightUpdates;
     public int failSetCalls;
     public float getCornerRadius(){return cornerRadius;}
     public float getLeftTopCornerRadius(){return leftTopCornerRadius;}
     public float getRightTopCornerRadius(){return rightTopCornerRadius;}
     public float getRightBottomCornerRadius(){return rightBottomCornerRadius;}
     public float getLeftBottomCornerRadius(){return leftBottomCornerRadius;}
+    public Float getRadiusWeight(){return radiusWeight;}
+    public void setRadiusWeight(Float weight){radiusWeight=weight;weightUpdates++;if(failWeightCalls>0){failWeightCalls--;throw new IllegalStateException("partial native weight");}}
     public void setCornerRadius(float radius){
         cornerRadius=radius;leftTopCornerRadius=radius;
         if(failSetCalls>0){failSetCalls--;throw new IllegalStateException("partial native blur config");}

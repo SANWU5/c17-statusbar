@@ -13,7 +13,7 @@ public final class TextControlsCheck {
     private static int checks;
     private static void equal(Object expected,Object actual) {checks++;if(!expected.equals(actual))throw new AssertionError("Expected "+expected+", got "+actual);}
     private static void near(float expected,float actual){checks++;if(Math.abs(expected-actual)>.0001)throw new AssertionError(expected+" != "+actual);}
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         Handler handler=new Handler(Looper.getMainLooper());TextControls control=new TextControls(handler);Context context=new Context();
         StatClock clock=new StatClock(context);OplusSecondCarrierText carrier=new OplusSecondCarrierText(context);
         clock.setText("系统时钟");carrier.setText("中国移动");clock.setContentDescription("原始时间");carrier.setContentDescription("原始运营商");
@@ -51,6 +51,7 @@ public final class TextControlsCheck {
         equal(TextControls.NONE,control.kind(new TextView(context)));
         shadeClocks(context);
         independentShadeClocks(context);
+        classificationCaching(context);
         System.out.println(checks+" text state, precision, tint and scheduler checks passed");
     }
 
@@ -59,6 +60,102 @@ public final class TextControlsCheck {
         ClockResources(String name, boolean system) { this.name=name; owner=system?"com.android.systemui":"other.app"; }
         @Override public String getResourceEntryName(int id) { return name; }
         @Override public String getResourcePackageName(int id) { return owner; }
+    }
+
+    private static final class ClassificationResources extends android.content.res.Resources {
+        int names,packages;
+        @Override public String getResourcePackageName(int id) {packages++;return "com.android.systemui";}
+        @Override public String getResourceEntryName(int id) {
+            names++;
+            switch(id) {
+                case 101:return "ordinary_text";
+                case 102:return "qs_carrier_text";
+                case 103:return "carrier_text";
+                case 104:return "qs_footer_clock";
+                case 201:return "simple_qs_container";
+                case 202:return "qs_status_bar_container_layout";
+                case 203:return "keyguard_header";
+                default:return "unrelated_layout";
+            }
+        }
+    }
+    private static final class CacheText extends TextView {
+        int id=101;
+        final ClassificationResources resources;
+        CacheText(Context context,ClassificationResources resources){super(context);this.resources=resources;}
+        @Override public int getId(){return id;}
+        @Override public android.content.res.Resources getResources(){return resources;}
+    }
+    private static final class CacheHeader extends android.view.ViewGroup {
+        int id,parentReads;
+        final ClassificationResources resources;
+        CacheHeader(Context context,ClassificationResources resources,int id){super(context);this.resources=resources;this.id=id;}
+        @Override public int getId(){return id;}
+        @Override public android.content.res.Resources getResources(){return resources;}
+        @Override public android.view.ViewParent getParent(){parentReads++;return super.getParent();}
+    }
+    private static Object privateField(Object owner,String name) throws Exception {
+        java.lang.reflect.Field field=owner.getClass().getDeclaredField(name);field.setAccessible(true);return field.get(owner);
+    }
+    private static void classificationCaching(Context context) throws Exception {
+        Handler handler=new Handler(Looper.getMainLooper());TextControls control=new TextControls(handler);
+        ClassificationResources resources=new ClassificationResources();
+        CacheHeader controlHeader=new CacheHeader(context,resources,202),notificationHeader=new CacheHeader(context,resources,201);
+        CacheHeader lockHeader=new CacheHeader(context,resources,203),unrelated=new CacheHeader(context,resources,204);
+        CacheHeader wrapper=new CacheHeader(context,resources,-1);controlHeader.addView(wrapper);
+        CacheText text=new CacheText(context,resources);wrapper.addView(text);text.setText("原生内容");
+        equal(TextControls.NONE,control.kind(text));equal("",control.group(text));
+        int names=resources.names,packages=resources.packages,parentReads=wrapper.parentReads+controlHeader.parentReads;
+        android.graphics.Canvas canvas=new android.graphics.Canvas();
+        for(int i=0;i<10000;i++){control.kind(text);control.group(text);control.beforeDraw(text,canvas);}
+        equal(names,resources.names);equal(packages,resources.packages);
+        equal(parentReads,wrapper.parentReads+controlHeader.parentReads);
+        // An own-ID change is detected even before the setId observer is delivered.
+        text.id=102;equal(TextControls.CARRIER,control.kind(text));equal(CarrierPanels.CONTROL,control.group(text));
+        equal(true,resources.names>names);
+        Bundle settings=new Bundle();
+        for(String group:CarrierPanels.GROUPS){settings.putBoolean(CarrierPanels.key(group,"enabled"),true);settings.putString(CarrierPanels.key(group,"mode"),"text");}
+        settings.putString(CarrierPanels.key(CarrierPanels.NOTIFICATION,"text"),"通知内容");
+        settings.putString(CarrierPanels.key(CarrierPanels.CONTROL,"text"),"控制内容");
+        settings.putString(CarrierPanels.key(CarrierPanels.LOCKSCREEN,"text"),"锁屏内容");
+        control.configure(settings,StatusBarSettings.COLOR_DEFAULTS,Collections.emptyMap());control.attach(text);
+        equal("控制内容",text.getText());text.setText(control.nativeText(text,"新的原生内容"));
+        names=resources.names;packages=resources.packages;parentReads=wrapper.parentReads+controlHeader.parentReads;
+        int layouts=text.layoutRequests,redraws=text.invalidations;
+        for(int i=0;i<10000;i++){control.kind(text);control.group(text);control.replaces(text);control.beforeDraw(text,canvas);control.beforeMeasure(text);}
+        equal(names,resources.names);equal(packages,resources.packages);
+        equal(parentReads,wrapper.parentReads+controlHeader.parentReads);equal(layouts,text.layoutRequests);equal(redraws,text.invalidations);
+        // Direct parent is unchanged: the exact native assignParent observer invalidates indexed descendants.
+        wrapper.parent=notificationHeader;control.classificationChanged(wrapper);
+        equal(CarrierPanels.NOTIFICATION,control.group(text));equal("通知内容",text.getText());equal(wrapper,text.getParent());
+        notificationHeader.id=202;control.classificationChanged(notificationHeader);
+        equal(CarrierPanels.CONTROL,control.group(text));equal("控制内容",text.getText());
+        wrapper.parent=lockHeader;text.id=103;control.classificationChanged(wrapper);
+        equal(TextControls.CARRIER,control.kind(text));equal(CarrierPanels.LOCKSCREEN,control.group(text));equal("锁屏内容",text.getText());
+        wrapper.parent=unrelated;control.classificationChanged(wrapper);
+        equal(TextControls.NONE,control.kind(text));equal("",control.group(text));equal("新的原生内容",text.getText());near(13f,text.getTextSize());
+        text.setText(control.nativeText(text,"未接管时的原生更新"));
+        text.parent=controlHeader;text.id=102;
+        equal(TextControls.CARRIER,control.kind(text));equal(CarrierPanels.CONTROL,control.group(text));
+        control.attach(text);equal("控制内容",text.getText());
+        settings.putBoolean(CarrierPanels.key(CarrierPanels.CONTROL,"enabled"),false);
+        control.configure(settings,StatusBarSettings.COLOR_DEFAULTS,Collections.emptyMap());equal("未接管时的原生更新",text.getText());
+        control.detach(text);text.parent=notificationHeader;notificationHeader.id=201;control.attach(text);
+        equal(CarrierPanels.NOTIFICATION,control.group(text));equal("通知内容",text.getText());
+        // A currently negative candidate is still indexed: adding a real header activates it without an ID change.
+        CacheText dormant=new CacheText(context,resources);dormant.id=102;CacheHeader dormantWrapper=new CacheHeader(context,resources,-1);
+        unrelated.addView(dormantWrapper);dormantWrapper.addView(dormant);
+        equal(TextControls.NONE,control.kind(dormant));dormantWrapper.parent=controlHeader;control.classificationChanged(dormantWrapper);
+        equal(TextControls.CARRIER,control.kind(dormant));equal(CarrierPanels.CONTROL,control.group(dormant));
+        @SuppressWarnings("unchecked") Map<TextView,Object> cache=(Map<TextView,Object>)privateField(control,"classifications");
+        equal(true,cache instanceof java.util.WeakHashMap);
+        Object classification=cache.get(text);
+        equal(true,privateField(classification,"parent") instanceof java.lang.ref.WeakReference);
+        for(Object reference:(java.util.List<?>)privateField(classification,"ancestors"))equal(true,reference instanceof java.lang.ref.WeakReference);
+        @SuppressWarnings("unchecked") Map<android.view.View,Map<TextView,Boolean>> index=(Map<android.view.View,Map<TextView,Boolean>>)privateField(control,"classificationDependents");
+        equal(true,index instanceof java.util.WeakHashMap);
+        for(Map<TextView,Boolean> dependents:index.values())equal(true,dependents instanceof java.util.WeakHashMap);
+        for(java.lang.reflect.Field field:classification.getClass().getDeclaredFields())equal(false,android.view.View.class.isAssignableFrom(field.getType()));
     }
     private static final class NamedClock extends TextView {
         final android.content.res.Resources resources;

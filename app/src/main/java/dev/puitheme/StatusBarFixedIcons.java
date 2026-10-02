@@ -18,13 +18,17 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.WeakHashMap;
 
-/** One native shade icon group, revealed by the existing panel spring in both directions. */
+/** One live native icon group with a fixed Phone destination and native horizontal fade travel. */
 public final class StatusBarFixedIcons {
     public interface HorizontalProgressReader {
         float fraction();
         default float fraction(View shadeRoot) { return fraction(); }
     }
     public interface CopyTraceListener { void trace(String message); }
+    public interface LeftCopyPolicy {
+        boolean nativeQsCopy(View copy, View source, int kind);
+        default boolean suppressNotificationCopy(View copy, View source, int kind) { return false; }
+    }
     public interface NativeCopyInspector {
         int kind(View copy);
         View copiedSource(View copy) throws ReflectiveOperationException;
@@ -44,8 +48,11 @@ public final class StatusBarFixedIcons {
     private final ThreadLocal<Boolean> drawingOwnedRow = new ThreadLocal<>();
     private HorizontalProgressReader horizontalProgress;
     private HorizontalProgressReader tileProgress;
+    private final StatusIconTransition.HorizontalTravel pageTravel = new StatusIconTransition.HorizontalTravel(false);
+    private final StatusIconTransition.HorizontalTravel tileTravel = new StatusIconTransition.HorizontalTravel(true);
     private CopyTraceListener copyTrace;
     private NativeCopyInspector copyInspector;
+    private LeftCopyPolicy leftCopyPolicy;
     private int discoveredNodes;
     private boolean horizontalMoving;
     private int traceCount, nextTraceId = 1;
@@ -58,6 +65,7 @@ public final class StatusBarFixedIcons {
     private boolean phoneCaptureAllowed;
     private ViewTreeObserver phoneObserver;
     private final int[] screenPosition = new int[2];
+    private final float[] destination = new float[2];
     private final Rect target = new Rect();
     private final RectF layerBounds = new RectF(), nodeBounds = new RectF();
     private final Matrix[] descendantMatrices = new Matrix[20];
@@ -102,6 +110,16 @@ public final class StatusBarFixedIcons {
     }
     public void setNativeCopyInspector(NativeCopyInspector inspector) {
         if (!runtimeReleased && !ModuleLifecycle.removed()) copyInspector = inspector;
+    }
+    public void setLeftCopyPolicy(LeftCopyPolicy policy) {
+        if (!runtimeReleased && !ModuleLifecycle.removed()) leftCopyPolicy = policy;
+    }
+    /** Transfer only an exact registered left copy out of the old fixed-slot alpha owner. */
+    public void restoreNativeLeftCopy(View copy) {
+        NativeCopy binding = nativeCopies.get(copy);
+        if (binding == null || binding.kind == StatusIconTransition.RIGHT) return;
+        AlphaState previous = suppressed.remove(copy);
+        if (previous != null) previous.restore(copy);
     }
 
     /** Called on the UI thread only after a fresh provider-authenticated runtime probe. */
@@ -286,6 +304,9 @@ public final class StatusBarFixedIcons {
         boolean skip = permitted && StatusIconTransition.suppressCopy(added, ownedDraw,
                 kind, sameShade, copiedSource != null,
                 matching, phoneLeft, fraction);
+        if (skip && kind != StatusIconTransition.RIGHT && leftCopyPolicy != null)
+            skip = leftCopyPolicy.suppressNotificationCopy(copy, copiedSource, kind)
+                    && !leftCopyPolicy.nativeQsCopy(copy, copiedSource, kind);
         traceCopy(copy, copiedSource, kind, gate, sameShade, matching, ownedDraw, skip);
         return skip;
     }
@@ -434,7 +455,7 @@ public final class StatusBarFixedIcons {
         } catch (Throwable error) { unavailable(error); return false; }
     }
 
-    public void hide() { release(); }
+    public void hide() { release(); pageTravel.reset(); tileTravel.reset(); }
 
     /** Permanent cleanup only after actual package removal; hide/safe mode retain reactivation bindings. */
     public void releaseRuntime() {
@@ -452,6 +473,8 @@ public final class StatusBarFixedIcons {
         failedRoot.clear(); failedSource.clear(); failedAnchor.clear();
         nativeCopies.clear(); copyTraceStates.clear(); traceIds.clear();
         horizontalProgress = tileProgress = null; copyInspector = null; copyTrace = null; failureListener = null;
+        pageTravel.reset(); tileTravel.reset();
+        leftCopyPolicy = null;
         lastAcquisitionTrace = null; traceCount = 0; nextTraceId = 1;
         resetDiagnostics(); diagnosticsEnabled = false;
         discoveredNodes = measuredNodes = 0; positionChanged = false;
@@ -494,23 +517,16 @@ public final class StatusBarFixedIcons {
         int width = icons.getWidth(), height = icons.getHeight();
         if (width <= 0 || height <= 0 || icons.getVisibility() == View.GONE)
             return positionFailure("acquire status row not measured");
-        if (phone.getWidth() <= 0 || phone.getHeight() <= 0) return positionFailure("acquire native anchor not measured");
         if (host.getWidth() <= 0 || host.getHeight() <= 0 || width > host.getWidth() || height > host.getHeight())
             return positionFailure("acquire shade bounds unavailable");
-        // Only an actual closed-state Phone geometry is a valid final destination. A QS
-        // header's position is owned by its page animation and must never become this base.
-        PhonePosition baseline = phonePosition;
-        if (observedPhone.get() != phone) return positionFailure("acquire baseline source changed");
-        if (baseline == null) return positionFailure("acquire baseline missing");
-        if (!baseline.current(phone)) return positionFailure("acquire baseline window or display changed");
-        host.getLocationOnScreen(screenPosition);
-        float x = StatusIconTransition.anchorX(baseline.x, baseline.width, screenPosition[0], width);
-        float y = StatusIconTransition.anchorY(baseline.y, baseline.height, screenPosition[1], height);
+        if (!destination(host, icons, phone, width, height)) return false;
+        float x = destination[0], y = destination[1];
         float horizontalFraction = horizontalProgress == null ? 0f : horizontalProgress.fraction();
         float tileFraction = tileProgress == null ? 0f : tileProgress.fraction(host);
         diagnoseProgress(fraction, horizontalFraction, tileFraction);
         float nextReveal = StatusIconTransition.reveal(fraction, horizontalFraction, tileFraction);
-        float nextTop = y + StatusIconTransition.offsetY(fraction, horizontalFraction, tileFraction,
+        float nextTop = y + StatusIconTransition.travelPixels(pageTravel.fraction(horizontalFraction)
+                + tileTravel.fraction(tileFraction),
                 host.getResources().getDisplayMetrics().density);
         positionChanged = left != x || top != nextTop || reveal != nextReveal;
         reveal = nextReveal;
@@ -532,6 +548,19 @@ public final class StatusBarFixedIcons {
             return positionFailure("acquire destination outside shade bounds");
         layerBounds.roundOut(target);
         if (!slot.getBounds().equals(target)) { positionChanged = true; slot.setBounds(target); }
+        return true;
+    }
+
+    /** Both shade pages retain the real Phone row's pre-expand right edge and center. */
+    private boolean destination(View host, View icons, View phone, int width, int height) {
+        if (phone.getWidth() <= 0 || phone.getHeight() <= 0) return positionFailure("acquire native anchor not measured");
+        PhonePosition baseline = phonePosition;
+        if (observedPhone.get() != phone) return positionFailure("acquire baseline source changed");
+        if (baseline == null) return positionFailure("acquire baseline missing");
+        if (!baseline.current(phone)) return positionFailure("acquire baseline window or display changed");
+        host.getLocationOnScreen(screenPosition);
+        destination[0] = StatusIconTransition.anchorX(baseline.x, baseline.width, screenPosition[0], width);
+        destination[1] = StatusIconTransition.anchorY(baseline.y, baseline.height, screenPosition[1], height);
         return true;
     }
 
@@ -573,6 +602,9 @@ public final class StatusBarFixedIcons {
             boolean phoneLeft = known && original.getRootView() != host;
             boolean owned = StatusIconTransition.suppressCopy(added, false, binding.kind, true,
                     known, right, phoneLeft, fraction);
+            if (owned && binding.kind != StatusIconTransition.RIGHT && leftCopyPolicy != null)
+                owned = leftCopyPolicy.suppressNotificationCopy(copy, original, binding.kind)
+                        && !leftCopyPolicy.nativeQsCopy(copy, original, binding.kind);
             if (owned) suppress(copy);
             else {
                 AlphaState old = suppressed.remove(copy);

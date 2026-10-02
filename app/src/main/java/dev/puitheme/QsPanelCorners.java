@@ -51,7 +51,14 @@ public final class QsPanelCorners {
     private final Map<Drawable, WeakReference<View>> mediaOwners = new WeakHashMap<>();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ThreadLocal<SliderDrawing> drawing = new ThreadLocal<>();
+    private final ThreadLocal<View> blurOwner = new ThreadLocal<>();
+    private final ThreadLocal<SpotlightScope> spotlight = new ThreadLocal<>();
     private final ThreadLocal<Boolean> rewritingShape = new ThreadLocal<>();
+    private final DrawScope noDraw = new DrawScope(null, null, null);
+    private static final String[] BACKGROUND_PATHS = {"mBackgroundPath", "mBackgroundPathAdapter"};
+    private static final String[] PROGRESS_PATHS = {"mClipProgressPath", "mProgressPathAdapter", "mProgressInnerSmoothPath",
+            "mProgressInnerPathAdapter", "oplusPathAdapter", "clipPath", "inactivePath"};
+    private static final String[] THUMB_PATHS = {"mThumbSmoothPath", "mThumbPathAdapter"};
     private volatile boolean enabled;
     private volatile float dp = QsTileCorners.DEFAULT_RADIUS;
     private boolean warning, logged;
@@ -62,33 +69,46 @@ public final class QsPanelCorners {
         Object nativeProvider, customProvider, cachedProvider, weight;
         Method factory;
         float radius, cachedPixels = -1f, nativeBlur = Float.NaN;
-        boolean blurOwned, writingBlur, restorePending, deviceOwned, mediaLightOwned;
+        boolean blurOwned, writingBlur, restoringBlur, restorePending, deviceOwned, mediaLightOwned;
         WeakReference<View> body = new WeakReference<>(null);
         View.OnLayoutChangeListener layout;
         final Map<String, Field> sliderFields = new HashMap<>();
+        SliderDrawing sliderDrawing;
+        Field nativeRadius;
+        Method blurSetter;
+        Object smoothUtils;
+        Method smoothPath;
+        final float[] spotlightRadii = new float[8];
+        boolean blurCacheValid, blurStroke, blurDetail;
+        float blurTarget, blurNative, blurWeight, blurMirror;
+        int blurLeft, blurTop, blurRight, blurBottom;
+        WeakReference<Object> blurBase = new WeakReference<>(null), blurActive = new WeakReference<>(null);
     }
 
     private static final class SliderDrawing {
-        final View view;
-        final Canvas canvas;
+        final WeakReference<View> owner;
         final IdentityHashMap<Object, Integer> paths = new IdentityHashMap<>();
         final IdentityHashMap<Object, Integer> paints = new IdentityHashMap<>();
         final IdentityHashMap<Object, Boolean> canvases = new IdentityHashMap<>();
-        SliderDrawing(View view, Canvas canvas) { this.view = view; this.canvas = canvas; }
+        SliderDrawing(View view) { owner = new WeakReference<>(view); }
+        View view() { return owner.get(); }
+        void clear() { paths.clear(); paints.clear(); canvases.clear(); }
     }
 
     /** Call once around COUIVerticalSeekBar.draw(Canvas), with close in finally. */
     public final class DrawScope implements AutoCloseable {
         private final View view;
         private final SliderDrawing previous;
+        private final SliderDrawing current;
         private boolean closed;
-        private DrawScope(View view, SliderDrawing previous) {
-            this.view = view; this.previous = previous;
+        private DrawScope(View view, SliderDrawing previous, SliderDrawing current) {
+            this.view = view; this.previous = previous; this.current = current;
         }
         @Override public void close() {
             if (closed) return;
             closed = true;
             if (view != null) {
+                current.clear();
                 if (previous == null) drawing.remove(); else drawing.set(previous);
             }
         }
@@ -166,15 +186,21 @@ public final class QsPanelCorners {
     public DrawScope beginDraw(View view, Canvas canvas) {
         SliderDrawing previous = drawing.get();
         if (!enabled || !isSlider(view) || !view.isAttachedToWindow()
-                || previous != null && previous.view == view) return new DrawScope(null, null);
+                || previous != null && previous.view() == view) return noDraw;
+        SliderDrawing current = null;
         try {
             float target = pixels(view, null);
-            if (target < 0f) return new DrawScope(null, null);
-            SliderDrawing current = new SliderDrawing(view, canvas);
-            addShapes(current, 1, "mBackgroundPath", "mBackgroundPathAdapter");
-            addShapes(current, 2, "mClipProgressPath", "mProgressPathAdapter", "mProgressInnerSmoothPath",
-                    "mProgressInnerPathAdapter", "oplusPathAdapter", "clipPath", "inactivePath");
-            addShapes(current, 3, "mThumbSmoothPath", "mThumbPathAdapter");
+            if (target < 0f) return noDraw;
+            synchronized (lock) {
+                Owned state = controls.get(view);
+                if (state == null) { state = new Owned(); controls.put(view, state); }
+                if (state.sliderDrawing == null) state.sliderDrawing = new SliderDrawing(view);
+                current = state.sliderDrawing;
+            }
+            current.clear();
+            addShapes(current, 1, BACKGROUND_PATHS);
+            addShapes(current, 2, PROGRESS_PATHS);
+            addShapes(current, 3, THUMB_PATHS);
             addPaint(current, 1, "mBackgroundPaint");
             addPaint(current, 2, "mProgressPaint");
             addPaint(current, 3, "mThumbPaint");
@@ -183,19 +209,20 @@ public final class QsPanelCorners {
             synchronized (lock) {
                 Owned state = controls.get(view);
                 if (state == null) { state = new Owned(); controls.put(view, state); }
-                state.nativeBlur = field(view.getClass(), "mCurProgressRadius").getFloat(view);
+                state.nativeBlur = nativeRadius(view, state);
                 updateBlur(view, state, sliderBlurCurve(view, state.nativeBlur));
             }
             applied("slider", target);
-            return new DrawScope(view, previous);
+            return new DrawScope(view, previous, current);
         } catch (ReflectiveOperationException | RuntimeException error) {
+            if (current != null) current.clear();
             if (previous == null) drawing.remove(); else drawing.set(previous);
             synchronized (lock) {
                 Owned state = controls.get(view);
                 if (state != null) restore(view, state);
             }
             unavailable(error);
-            return new DrawScope(null, null);
+            return noDraw;
         }
     }
 
@@ -208,9 +235,12 @@ public final class QsPanelCorners {
             // Native fields always remain native: they also determine track endpoints,
             // thumb position and hit geometry. Only the blur setter's curvature changes.
             if (state.writingBlur) return nativeRadius;
+            state.blurCacheValid = false;
             if (Float.isFinite(nativeRadius)) state.nativeBlur = nativeRadius;
             float target = enabled && view.isAttachedToWindow() ? pixels(view, null) : -1f;
             state.blurOwned = target >= 0f;
+            if (state.blurOwned) try { prepareContinuous(view, state, target, null); }
+            catch (ReflectiveOperationException | RuntimeException error) { state.blurOwned = false; unavailable(error); }
             return state.blurOwned ? sliderBlurCurve(view, nativeRadius) : nativeRadius;
         }
     }
@@ -219,12 +249,14 @@ public final class QsPanelCorners {
         public final float radius;
         private final Owned state;
         private final boolean previous;
+        private final View previousOwner;
         private boolean closed;
-        BlurScope(float radius, Owned state, boolean previous) {
-            this.radius = radius; this.state = state; this.previous = previous;
+        BlurScope(float radius, Owned state, boolean previous, View previousOwner) {
+            this.radius = radius; this.state = state; this.previous = previous; this.previousOwner = previousOwner;
         }
         @Override public void close() {
             if (!closed && state != null) synchronized (lock) { state.writingBlur = previous; }
+            if (!closed) { if (previousOwner == null) blurOwner.remove(); else blurOwner.set(previousOwner); }
             closed = true;
         }
     }
@@ -233,9 +265,11 @@ public final class QsPanelCorners {
         float target = blurRadius(view, nativeRadius);
         synchronized (lock) {
             Owned state = controls.get(view);
-            if (state == null) return new BlurScope(target, null, false);
+            View previousOwner = blurOwner.get();
+            if (state == null) return new BlurScope(target, null, false, previousOwner);
             boolean previous = state.writingBlur; state.writingBlur = true;
-            return new BlurScope(target, state, previous);
+            if (enabled && state.blurOwned && !state.restoringBlur && view.isAttachedToWindow()) blurOwner.set(view);
+            return new BlurScope(target, state, previous, previousOwner);
         }
     }
 
@@ -316,17 +350,61 @@ public final class QsPanelCorners {
     }
     private void addShapes(SliderDrawing scope, int kind, String... fields) {
         for (String name : fields) {
-            Object shape = value(scope.view, name);
+            Object shape = value(scope.view(), name);
             if (shape != null) scope.paths.put(shape, kind);
         }
     }
     private void addPaint(SliderDrawing scope, int kind, String name) {
-        Object paint = value(scope.view, name);
+        Object paint = value(scope.view(), name);
         if (paint instanceof Paint) scope.paints.put(paint, kind);
     }
 
     /** Bind only wrappers created from this control's actual paths/canvas in this draw. */
-    public boolean isDrawingShapes() { return enabled && drawing.get() != null; }
+    public boolean isDrawingShapes() { return enabled && (drawing.get() != null || spotlight.get() != null); }
+
+    /** Scoped to the exact native wrapper callback; its original Rect/content remain native. */
+    public final class SpotlightScope implements AutoCloseable {
+        private final SpotlightScope previous;
+        private final Path path;
+        private final Object adapter;
+        private final Owned state;
+        private boolean closed;
+        private SpotlightScope(SpotlightScope previous, Path path, Object adapter, Owned state) {
+            this.previous = previous; this.path = path; this.adapter = adapter; this.state = state;
+        }
+        @Override public void close() {
+            if (closed) return;
+            if (previous == null) spotlight.remove(); else spotlight.set(previous);
+            closed = true;
+        }
+    }
+    public SpotlightScope beginSpotlight(View wrapper, Path path, Object adapter) {
+        SpotlightScope previous = spotlight.get();
+        Owned state = null;
+        if (enabled && path != null && adapter != null && wrapper.isAttachedToWindow()
+                && QsTileAppearance.type(wrapper, EDITABLE_CONTAINER_CLASS)) synchronized (lock) {
+            View owner = panelChild(wrapper, 0);
+            Owned candidate = owner == null ? null : controls.get(owner);
+            if (owner != null && owner.isAttachedToWindow() && candidate != null
+                    && (candidate.deviceOwned || isMedia(owner) && candidate.customProvider != null
+                    && QsTileCorners.blockProvider(candidate.drawable.get()) == null)) {
+                try {
+                    if (candidate.smoothPath == null) {
+                        Class<?> type = Class.forName("com.oplus.posteffect.util.OplusPathAdapterCompatUtils", false,
+                                wrapper.getClass().getClassLoader());
+                        candidate.smoothUtils = type.getField("INSTANCE").get(null);
+                        candidate.smoothPath = type.getDeclaredMethod("addSmoothRoundRect", Object.class,
+                                RectF.class, float[].class, Path.Direction.class, float.class);
+                        candidate.smoothPath.setAccessible(true);
+                    }
+                    if (candidate.weight instanceof Number) state = candidate;
+                } catch (ReflectiveOperationException | RuntimeException unavailable) { unavailable(unavailable); }
+            }
+        }
+        SpotlightScope current = new SpotlightScope(previous, path, adapter, state);
+        if (state != null) spotlight.set(current);
+        return current;
+    }
 
     public void onShapeWrapper(Object wrapper, Object source) {
         SliderDrawing scope = drawing.get();
@@ -339,9 +417,11 @@ public final class QsPanelCorners {
     /** Nested OEM wrappers must not apply the animated radius ratio twice. */
     public final class ShapeScope implements AutoCloseable {
         public final Object[] args;
+        public final boolean handled;
         private final boolean changed;
         private boolean closed;
-        ShapeScope(Object[] args, boolean changed) { this.args = args; this.changed = changed; }
+        ShapeScope(Object[] args, boolean changed) { this(args, changed, false); }
+        ShapeScope(Object[] args, boolean changed, boolean handled) { this.args = args; this.changed = changed; this.handled = handled; }
         @Override public void close() {
             if (!closed && changed) rewritingShape.remove();
             closed = true;
@@ -350,6 +430,24 @@ public final class QsPanelCorners {
 
     /** Only native track shape calls owned by the exact Oplus draw scope are rewritten. */
     public ShapeScope shape(Object receiver, String name, Object[] original) {
+        SpotlightScope light = spotlight.get();
+        if (enabled && light != null && !Boolean.TRUE.equals(rewritingShape.get())
+                && receiver == light.path && name.equals("addRoundRect") && original != null
+                && original.length == 4 && original[0] instanceof RectF && original[3] instanceof Path.Direction) {
+            RectF rect = (RectF) original[0];
+            float radius = Math.min(light.state.radius, Math.min(rect.width(), rect.height()) / 2f);
+            if (Float.isFinite(radius) && radius >= 0f && rect.width() > 0f && rect.height() > 0f) {
+                float[] radii = light.state.spotlightRadii;
+                java.util.Arrays.fill(radii, radius);
+                rewritingShape.set(true);
+                try {
+                    Object result = light.state.smoothPath.invoke(light.state.smoothUtils, light.adapter,
+                            rect, radii, original[3], number(light.state.weight));
+                    if (Boolean.TRUE.equals(result)) return new ShapeScope(original, false, true);
+                } catch (ReflectiveOperationException | RuntimeException unavailable) { unavailable(unavailable); }
+                finally { rewritingShape.remove(); }
+            }
+        }
         SliderDrawing scope = drawing.get();
         if (!enabled || scope == null || Boolean.TRUE.equals(rewritingShape.get()) || original == null)
             return new ShapeScope(original, false);
@@ -357,7 +455,8 @@ public final class QsPanelCorners {
         if (kind == null && scope.canvases.containsKey(receiver)) {
             for (Object arg : original) if (scope.paints.containsKey(arg)) { kind = scope.paints.get(arg); break; }
         }
-        if (kind == null || !name.matches("addSmoothRoundRect|addRoundRect|drawSmoothRoundRect|drawRoundRect"))
+        if (kind == null || !(name.equals("addSmoothRoundRect") || name.equals("addRoundRect")
+                || name.equals("drawSmoothRoundRect") || name.equals("drawRoundRect")))
             return new ShapeScope(original, false);
         int radiusStart;
         float width, height;
@@ -376,40 +475,58 @@ public final class QsPanelCorners {
             for (int i = 0; i < radii.length; i++) {
                 if (!Float.isFinite(radii[i])) return new ShapeScope(original, false);
                 // Native active tracks deliberately have square junction corners.
-                if (radii[i] > 0f) radii[i] = sliderCurve(scope.view, radii[i], kind, width, height);
+                if (radii[i] > 0f) radii[i] = sliderCurve(scope.view(), radii[i], kind, width, height);
             }
             next[radiusStart] = radii;
         } else if (next[radiusStart] instanceof Number) {
-            next[radiusStart] = sliderCurve(scope.view, number(next[radiusStart]), kind, width, height);
+            next[radiusStart] = sliderCurve(scope.view(), number(next[radiusStart]), kind, width, height);
             // Adapter old API has radius+weight; new API has radiusX+radiusY+weight.
             // Path/Canvas standard APIs always have radiusX+radiusY.
             boolean two = name.equals("addRoundRect") || name.equals("drawRoundRect")
                     || radiusStart == 4 || original.length >= radiusStart + 4;
             if (two && next[radiusStart + 1] instanceof Number)
-                next[radiusStart + 1] = sliderCurve(scope.view, number(next[radiusStart + 1]), kind, width, height);
+                next[radiusStart + 1] = sliderCurve(scope.view(), number(next[radiusStart + 1]), kind, width, height);
         } else return new ShapeScope(original, false);
+        // The audited OEM APIs forward this dimensionless coefficient into the same
+        // Oplus continuous-corner renderer used by tile/media/device outlines.
+        if (name.equals("addSmoothRoundRect") || name.equals("drawSmoothRoundRect")) {
+            int weightIndex = -1;
+            if (name.equals("drawSmoothRoundRect")) weightIndex = next.length - 1;
+            else if (next[radiusStart] instanceof float[]) weightIndex = next[next.length - 1] instanceof Number ? next.length - 1 : next.length - 2;
+            else weightIndex = next.length - 2; // Direction is last in both old/new path APIs.
+            if (weightIndex > radiusStart && next[weightIndex] instanceof Number)
+                next[weightIndex] = sliderWeight(scope.view(), number(next[weightIndex]), kind);
+        }
         rewritingShape.set(true);
         return new ShapeScope(next, true);
     }
 
-    /** Blur factories preserve Rect, mirror scale, weights, stroke and native material. */
+    public boolean isRewritingBlur() { return enabled && (drawing.get() != null || blurOwner.get() != null); }
+
+    /** Blur factories keep native Rect/material and use the same final continuous curve. */
     public Object[] blurShape(String name, Object[] original) {
         SliderDrawing scope = drawing.get();
-        if (!enabled || scope == null || original == null || original.length < 4
-                || !name.matches("applySeekBarBgBlurConfig|applySeekBarActiveBlurConfig|createSeekBarBlurDrawable")) return original;
+        if (!enabled || scope == null && blurOwner.get() == null || original == null || original.length < 4
+                || !(name.equals("applySeekBarBgBlurConfig") || name.equals("applySeekBarActiveBlurConfig")
+                || name.equals("createSeekBarBlurDrawable"))) return original;
         // Both audited native methods pass the original rectangle as parameter 1.
         if (!(original[1] instanceof Rect) || !(original[2] instanceof Number)) return original;
         Object source = original[0];
-        if (!(source == scope.view || source == scope.view.getContext())) return original;
+        View view = blurOwner.get();
+        if (view == null && scope != null) view = scope.view();
+        if (view == null || !(source == view || source == view.getContext())) return original;
         Rect rect = (Rect) original[1];
         float target;
         synchronized (lock) {
-            Owned state = controls.get(scope.view);
+            Owned state = controls.get(view);
+            if (state != null && state.restoringBlur) return original;
             target = state != null && state.writingBlur
                     ? Math.max(0f, Math.min(number(original[2]), Math.min(rect.width(), rect.height()) / 2f))
-                    : sliderCurve(scope.view, number(original[2]), 2, rect.width(), rect.height());
+                    : sliderCurve(view, number(original[2]), 2, rect.width(), rect.height());
         }
-        Object[] next = original.clone(); next[2] = target; return next;
+        Object[] next = original.clone(); next[2] = target;
+        if (next[3] instanceof Number) next[3] = sliderWeight(view, number(next[3]), 1);
+        return next;
     }
 
     private static float number(Object value) { return ((Number) value).floatValue(); }
@@ -430,16 +547,46 @@ public final class QsPanelCorners {
         if (!Float.isFinite(target) || target < 0f) return nativeRadius;
         return scaledRadius(nativeRadius, number(raw), target, Math.min(width, height) / 2f);
     }
+    private float sliderWeight(View view, float nativeWeight, int kind) {
+        if (view == null || !Float.isFinite(nativeWeight)) return nativeWeight;
+        synchronized (lock) {
+            Owned state = controls.get(view);
+            if (state == null || !(state.weight instanceof Number)) return nativeWeight;
+            float target = number(state.weight);
+            Object raw = value(view, kind == 1 ? "mBackgroundRoundCornerWeight" : "mProgressRoundCornerWeight");
+            if (!(raw instanceof Number) || !Float.isFinite(number(raw))) return nativeWeight;
+            float base = number(raw);
+            // Native fields remain untouched. Any transient final-shape coefficient
+            // relative to that native base still follows the native press animation.
+            float result = base > 0f ? target * (nativeWeight / base) : target + nativeWeight - base;
+            return Float.isFinite(result) && result >= 0f ? result : nativeWeight;
+        }
+    }
+
+    private void prepareContinuous(View view, Owned state, float target, Drawable drawable)
+            throws ReflectiveOperationException {
+        if (state.cachedProvider == null || state.cachedPixels != target) {
+            if (state.factory == null) {
+                Class<?> factory = Class.forName(FACTORY_CLASS, false, view.getClass().getClassLoader());
+                state.factory = factory.getDeclaredMethod("getSmoothRoundRectOutlineProvider", Context.class, float.class);
+                state.factory.setAccessible(true);
+            }
+            state.cachedProvider = QsTileCorners.continuousProvider(state.factory, view.getContext(), target, drawable);
+            state.weight = QsTileAppearance.invoke(state.cachedProvider, "getCornerWeight", drawable);
+            state.cachedPixels = target;
+        }
+    }
 
     private void refresh(View view) {
         Owned state = controls.get(view);
         if (state == null) { state = new Owned(); controls.put(view, state); }
         observe(view, state);
         if (isSlider(view)) {
+            state.blurCacheValid = false;
             if (enabled && view.isAttachedToWindow()) {
                 float target = pixels(view, null);
                 if (target >= 0f) try {
-                    float nativeRadius = field(view.getClass(), "mCurProgressRadius").getFloat(view);
+                    float nativeRadius = nativeRadius(view, state);
                     state.nativeBlur = nativeRadius;
                     updateBlur(view, state, sliderBlurCurve(view, nativeRadius));
                 }
@@ -456,7 +603,13 @@ public final class QsPanelCorners {
         if (!enabled || !view.isAttachedToWindow()) { restore(view, state); invalidate(view); return; }
         try {
             if (state.device == null) state.device = new QsDeviceCorners();
-            if (!state.device.refresh(view, dp)) { restore(view, state); return; }
+            View body = deviceBody(view);
+            if (body == null) { restore(view, state); return; }
+            float target = QsTileCorners.radiusPixels(dp, body.getResources().getDisplayMetrics().density,
+                    body.getWidth(), body.getHeight());
+            if (target < 0f) return;
+            prepareContinuous(view, state, target, null);
+            if (!state.device.refresh(view, dp, state.weight instanceof Float ? (Float) state.weight : null)) { restore(view, state); return; }
             state.radius = state.device.radius; state.deviceOwned = true;
             applied("device", state.radius);
         } catch (ReflectiveOperationException | RuntimeException error) { restore(view, state); unavailable(error); }
@@ -487,16 +640,7 @@ public final class QsPanelCorners {
         float target = pixels(view, drawable);
         if (target < 0f || state.nativeProvider == null) return;
         try {
-            if (state.cachedProvider == null || state.cachedPixels != target) {
-                if (state.factory == null) {
-                    Class<?> factory = Class.forName(FACTORY_CLASS, false, view.getClass().getClassLoader());
-                    state.factory = factory.getDeclaredMethod("getSmoothRoundRectOutlineProvider", Context.class, float.class);
-                    state.factory.setAccessible(true);
-                }
-                state.cachedProvider = state.factory.invoke(null, view.getContext(), target);
-                QsTileCorners.normalizeProvider(state.cachedProvider, drawable, target);
-                state.cachedPixels = target;
-            }
+            prepareContinuous(view, state, target, drawable);
             if (!QsTileAppearance.type(state.cachedProvider, OUTLINE_CLASS))
                 throw new IllegalStateException("Unknown native media outline provider");
             Object radius = QsTileAppearance.invoke(state.cachedProvider, "getCornerRadius", drawable);
@@ -521,15 +665,57 @@ public final class QsPanelCorners {
     }
 
     private void updateBlur(View view, Owned state, float radius) throws ReflectiveOperationException {
-        if (!Float.isFinite(state.nativeBlur)) state.nativeBlur = field(view.getClass(), "mCurProgressRadius").getFloat(view);
+        prepareContinuous(view, state, pixels(view, null), null);
+        if (!Float.isFinite(state.nativeBlur)) state.nativeBlur = nativeRadius(view, state);
+        Object base = value(view, "baseMixColorDrawable"), active = value(view, "activeMixColorDrawable");
+        Object rectangle = value(view, "mClipProgressRect");
+        Rect rect = rectangle instanceof Rect ? (Rect) rectangle : null;
+        int left = rect == null ? 0 : rect.left, top = rect == null ? 0 : rect.top;
+        int right = rect == null ? 0 : rect.right, bottom = rect == null ? 0 : rect.bottom;
+        float weight = nativeNumber(value(view, "mBackgroundRoundCornerWeight"));
+        float mirror = nativeNumber(value(view, "mirrorScaleValue"));
+        boolean stroke = Boolean.TRUE.equals(value(view, "isSupportStroke"));
+        boolean detail = Boolean.TRUE.equals(value(view, "isDetailToggle"));
+        // Read live native inputs every frame. Only an identical setter submission is cached;
+        // new/late material drawables, press curvature, Rect bounds and native flags still win.
+        if (state.blurCacheValid && sameFloat(state.blurTarget, radius) && sameFloat(state.blurNative, state.nativeBlur)
+                && state.blurBase.get() == base && state.blurActive.get() == active
+                && state.blurLeft == left && state.blurTop == top && state.blurRight == right && state.blurBottom == bottom
+                && sameFloat(state.blurWeight, weight) && sameFloat(state.blurMirror, mirror)
+                && state.blurStroke == stroke && state.blurDetail == detail) return;
+        state.blurCacheValid = false;
         state.writingBlur = true;
         // Claim restoration before a setter that can mutate then throw.
         state.blurOwned = true;
-        try { QsTileAppearance.invoke(view, "updateBaseMixColorDrawableRadius", radius); }
-        finally { state.writingBlur = false; }
+        View previousOwner = blurOwner.get(); blurOwner.set(view);
+        try {
+            blurSetter(view, state).invoke(view, radius);
+            state.blurTarget = radius; state.blurNative = state.nativeBlur;
+            state.blurLeft = left; state.blurTop = top; state.blurRight = right; state.blurBottom = bottom;
+            state.blurWeight = weight; state.blurMirror = mirror; state.blurStroke = stroke; state.blurDetail = detail;
+            if (state.blurBase.get() != base) state.blurBase = new WeakReference<>(base);
+            if (state.blurActive.get() != active) state.blurActive = new WeakReference<>(active);
+            state.blurCacheValid = true;
+        }
+        finally { state.writingBlur = false; if (previousOwner == null) blurOwner.remove(); else blurOwner.set(previousOwner); }
+    }
+    private static float nativeNumber(Object value) { return value instanceof Number ? ((Number) value).floatValue() : Float.NaN; }
+    private static boolean sameFloat(float left, float right) { return Float.floatToIntBits(left) == Float.floatToIntBits(right); }
+    private static float nativeRadius(View view, Owned state) throws ReflectiveOperationException {
+        if (state.nativeRadius == null) state.nativeRadius = field(view.getClass(), "mCurProgressRadius");
+        return state.nativeRadius.getFloat(view);
+    }
+    private static Method blurSetter(View view, Owned state) throws NoSuchMethodException {
+        if (state.blurSetter != null) return state.blurSetter;
+        for (Class<?> owner = view.getClass(); owner != null; owner = owner.getSuperclass()) try {
+            Method result = owner.getDeclaredMethod("updateBaseMixColorDrawableRadius", float.class);
+            result.setAccessible(true); state.blurSetter = result; return result;
+        } catch (NoSuchMethodException ignored) { }
+        throw new NoSuchMethodException(view.getClass().getName() + ".updateBaseMixColorDrawableRadius");
     }
 
     private boolean restore(View view, Owned state) {
+        state.blurCacheValid = false;
         boolean success = true;
         Drawable drawable = state.drawable.get();
         if (drawable != null && (state.customProvider != null || state.mediaLightOwned)) try {
@@ -553,11 +739,11 @@ public final class QsPanelCorners {
             state.customProvider = null; state.restorePending = false;
         } catch (ReflectiveOperationException | RuntimeException error) { success = false; unavailable(error); }
         if (state.blurOwned && Float.isFinite(state.nativeBlur)) try {
-            state.writingBlur = true;
-            QsTileAppearance.invoke(view, "updateBaseMixColorDrawableRadius", state.nativeBlur);
+            state.writingBlur = true; state.restoringBlur = true;
+            blurSetter(view, state).invoke(view, state.nativeBlur);
             state.blurOwned = false;
         } catch (ReflectiveOperationException | RuntimeException error) { success = false; unavailable(error); }
-        finally { state.writingBlur = false; }
+        finally { state.writingBlur = false; state.restoringBlur = false; }
         if (state.device != null) try {
             state.device.restore();
             View body = deviceBody(view);

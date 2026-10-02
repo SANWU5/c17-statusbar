@@ -630,7 +630,7 @@ public final class MainActivity extends Activity {
     }
     private String appVersion() {
         try { return getPackageManager().getPackageInfo(getPackageName(),0).versionName; }
-        catch(android.content.pm.PackageManager.NameNotFoundException unavailable) { return "1.15.0"; }
+        catch(android.content.pm.PackageManager.NameNotFoundException unavailable) { return "1.6.0"; }
     }
     private void addQsAppearance(LinearLayout card) {
         addHint(card,"统一应用于 Wi-Fi、数据和其他活动磁贴，以及亮度、音量滑条的已填充部分。");

@@ -39,8 +39,12 @@ public final class NotificationBigClockSettingsCheck {
         Map<String,Object> imported=ConfigTransfer.prepare(ConfigTransfer.exportJson(stored),true).values();for(Map.Entry<String,Object> value:stored.entrySet())equal(value.getValue(),imported.get(value.getKey()));
         for(String setting:new String[]{"\"notification_big_clock_pattern\":\"{未知}\"","\"notification_big_clock_date_pattern\":\"'未配对\"",
                 "\"notification_big_clock_date_pattern\":\"HH:mm\\n\"","\"notification_big_clock_date_pattern\":\"\"","\"notification_big_clock_pattern\":true",
-                "\"notification_big_clock_weight\":99","\"notification_big_clock_compact_weight\":901","\"notification_big_clock_compact_scale\":-1",
                 "\"notification_big_clock_enabled\":\"true\""})invalid(setting);
+        equal(99f,ConfigTransfer.prepare(document("\"notification_big_clock_weight\":99"),true).values().get(NotificationBigClockSettings.WEIGHT));
+        equal(901f,ConfigTransfer.prepare(document("\"notification_big_clock_compact_weight\":901"),true).values().get(NotificationBigClockSettings.COMPACT_WEIGHT));
+        equal(-1f,ConfigTransfer.prepare(document("\"notification_big_clock_compact_scale\":-1"),true).values().get(NotificationBigClockSettings.COMPACT_SCALE));
+        equal(false,StatusBarSettings.bool(java.util.Collections.singletonMap(NotificationBigClockSettings.STACK_ENABLED,true),NotificationBigClockSettings.STACK_ENABLED));
+        equal(false,ConfigTransfer.prepare(document("\"notification_big_clock_stack_enabled\":true"),true).values().get(NotificationBigClockSettings.STACK_ENABLED));
         ActivationGuardPreferencesCheck.MemoryPreferences raw=new ActivationGuardPreferencesCheck.MemoryPreferences();raw.values.putAll(stored);AtomicBoolean active=new AtomicBoolean(true);
         SharedPreferences guarded=new ActivationGuardPreferences(raw,active::get,()->{});
         for(String settings:new String[]{"\"notification_big_clock_enabled\":true,\"shade_clock_scale\":200,\"carrier_notification_text\":\"横屏保留\"",

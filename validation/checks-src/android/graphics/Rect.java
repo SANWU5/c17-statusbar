@@ -8,4 +8,6 @@ public class Rect {
     public int height() { return bottom-top; }
     public float exactCenterX() { return (left + right) / 2f; }
     public float exactCenterY() { return (top + bottom) / 2f; }
+    @Override public boolean equals(Object value){if(!(value instanceof Rect))return false;Rect other=(Rect)value;return left==other.left&&top==other.top&&right==other.right&&bottom==other.bottom;}
+    @Override public int hashCode(){return ((left*31+top)*31+right)*31+bottom;}
 }

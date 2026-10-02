@@ -369,18 +369,66 @@ public final class QsTileAppearance {
     static Object invoke(Object target,String name,Object... args) throws ReflectiveOperationException {
         if(target==null)throw new NoSuchMethodException(name);
         Class<?> start=target instanceof Class?(Class<?>)target:target.getClass();
-        for(Class<?> cls=start;cls!=null;cls=cls.getSuperclass())for(Method method:cls.getDeclaredMethods()) {
-            if(!method.getName().equals(name)||method.getParameterTypes().length!=args.length)continue;
-            Class<?>[] parameters=method.getParameterTypes();boolean match=true;
-            for(int i=0;i<parameters.length;i++)if(args[i]!=null&&!boxed(parameters[i]).isInstance(args[i])){match=false;break;}
-            if(match){method.setAccessible(true);return method.invoke(target instanceof Class?null:target,args);}
+        for(NativeMethod method:nativeMembers(start).methods(name)) {
+            if(method.parameters.length!=args.length)continue;
+            boolean match=true;
+            for(int i=0;i<method.parameters.length;i++)if(args[i]!=null&&!method.parameters[i].isInstance(args[i])){match=false;break;}
+            if(match)return method.invoke(target instanceof Class?null:target,args);
         }throw new NoSuchMethodException(start.getName()+"."+name);
     }
     private static Class<?> boxed(Class<?> type){if(type==int.class)return Integer.class;if(type==float.class)return Float.class;if(type==boolean.class)return Boolean.class;if(type==long.class)return Long.class;return type;}
     static Object field(Object target,String name) {try{Field field=findField(target,name);return field==null?null:field.get(target);}catch(ReflectiveOperationException|RuntimeException unavailable){return null;}}
     static boolean setField(Object target,String name,Object value) {try{Field field=findField(target,name);if(field==null)return false;field.set(target,value);return true;}catch(ReflectiveOperationException|RuntimeException unavailable){return false;}}
     private static Field findField(Object target,String name) throws ReflectiveOperationException {
-        if(target==null)return null;for(Class<?> cls=target.getClass();cls!=null;cls=cls.getSuperclass())try{Field result=cls.getDeclaredField(name);result.setAccessible(true);return result;}catch(NoSuchFieldException absent){ }return null;
+        return target==null?null:nativeMembers(target.getClass()).field(name);
+    }
+    /** Bounded metadata only; actual native values remain live. ClassValue is API 34+, so
+     * use a small access-ordered cache compatible with every supported Android version. */
+    private static final Map<Class<?>,NativeMembers> NATIVE_MEMBERS=new LinkedHashMap<Class<?>,NativeMembers>(64,.75f,true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<Class<?>,NativeMembers> entry){return size()>64;}
+    };
+    private static NativeMembers nativeMembers(Class<?> type) {
+        synchronized(NATIVE_MEMBERS) {
+            NativeMembers result=NATIVE_MEMBERS.get(type);
+            if(result==null){result=new NativeMembers(type);NATIVE_MEMBERS.put(type,result);}
+            return result;
+        }
+    }
+    static void releaseNativeMembers(){synchronized(NATIVE_MEMBERS){NATIVE_MEMBERS.clear();}}
+    private static final class NativeMembers {
+        final Class<?> type;
+        final Map<String,List<NativeMethod>> methods=new LinkedHashMap<>();
+        final Map<String,Field> fields=new LinkedHashMap<>();
+        NativeMembers(Class<?> type){this.type=type;}
+        synchronized List<NativeMethod> methods(String name) {
+            List<NativeMethod> found=methods.get(name);
+            if(found!=null)return found;
+            found=new ArrayList<>();
+            for(Class<?> cls=type;cls!=null;cls=cls.getSuperclass())for(Method method:cls.getDeclaredMethods())
+                if(method.getName().equals(name))found.add(new NativeMethod(method));
+            methods.put(name,found);return found;
+        }
+        synchronized Field field(String name) {
+            if(fields.containsKey(name))return fields.get(name);
+            Field found=null;
+            for(Class<?> cls=type;cls!=null;cls=cls.getSuperclass())try {
+                found=cls.getDeclaredField(name);found.setAccessible(true);break;
+            }catch(NoSuchFieldException absent){ }
+            fields.put(name,found);return found;
+        }
+    }
+    private static final class NativeMethod {
+        final Method method;
+        final Class<?>[] parameters;
+        volatile boolean accessible;
+        NativeMethod(Method method) {
+            this.method=method;parameters=method.getParameterTypes();
+            for(int i=0;i<parameters.length;i++)parameters[i]=boxed(parameters[i]);
+        }
+        Object invoke(Object target,Object[] args) throws ReflectiveOperationException {
+            if(!accessible)synchronized(this){if(!accessible){method.setAccessible(true);accessible=true;}}
+            return method.invoke(target,args);
+        }
     }
     private void error(Throwable failure){if(!loggedError){loggedError=true;ModuleDiagnostics.error("qs_style","QS fill style unavailable; native material retained",failure);}}
     private void trace(String stage,String detail){if(traceStages.size()<64&&traceStages.add(stage))ModuleDiagnostics.info("qs_style","QS fill "+detail.replace('=',' '));}

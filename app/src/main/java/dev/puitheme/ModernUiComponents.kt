@@ -30,9 +30,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -247,35 +247,64 @@ fun UiInputDialog(
     initial: String,
     description: String = "",
     numeric: Boolean = false,
+    label: String = "",
+    context: String = "",
+    valueSummary: String = "",
+    integer: Boolean = false,
+    allowNegative: Boolean = true,
+    pattern: Boolean = false,
     onDismiss: () -> Unit,
     onConfirm: (String) -> String?,
 ) {
     var value by remember(title, initial) { mutableStateOf(initial) }
     var error by remember(title, initial) { mutableStateOf<String?>(null) }
+    var scientific by remember(title, initial) { mutableStateOf(numeric && initial.contains('e', ignoreCase = true)) }
+    val keyboard = LocalSoftwareKeyboardController.current
     val confirm = {
         error = onConfirm(value)
-        if (error == null) onDismiss()
+        if (error == null) { keyboard?.hide(); onDismiss() }
     }
     OverlayDialog(
         show = true,
         title = title,
-        summary = description.takeIf { it.isNotEmpty() },
         onDismissRequest = onDismiss,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextField(
-                value = value,
-                onValueChange = { value = it; error = null },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = if (numeric) KeyboardType.Decimal else KeyboardType.Text,
-                    imeAction = ImeAction.Done,
-                ),
-                keyboardActions = KeyboardActions(onDone = { confirm() }),
-            )
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (context.isNotEmpty()) Text(context, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                TextField(
+                    value = value,
+                    onValueChange = { value = it; error = null },
+                    label = label,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = when {
+                            pattern || scientific -> KeyboardType.Ascii
+                            integer -> KeyboardType.Number
+                            numeric -> KeyboardType.Decimal
+                            else -> KeyboardType.Text
+                        },
+                        autoCorrectEnabled = !(numeric || pattern),
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { confirm() }),
+                )
+                if (numeric) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (allowNegative) TextButton(text = "正 / 负", modifier = Modifier.weight(1f), onClick = {
+                        value = when { value.startsWith("-") -> value.removePrefix("-"); value.startsWith("+") -> "-" + value.removePrefix("+"); else -> "-$value" }
+                        error = null
+                    })
+                    TextButton(text = if (scientific) "小数键盘" else "科学计数", modifier = Modifier.weight(1f), onClick = { scientific = !scientific })
+                }
+                if (valueSummary.isNotEmpty()) Text(valueSummary, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                if (description.isNotEmpty()) Text(description, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                if (numeric && scientific) Text("科学计数示例：1.2e3 = 1200；可直接粘贴完整数值。", fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            }
             UiDialogError(error)
-            UiDialogActions(onDismiss = onDismiss, onConfirm = confirm)
+            UiDialogActions(onDismiss = { keyboard?.hide(); onDismiss() }, confirmLabel = if (numeric) "试用 20 秒" else "保存", onConfirm = confirm)
         }
     }
 }
@@ -286,6 +315,7 @@ fun UiConfirmDialog(
     summary: String,
     confirmLabel: String = "确认",
     delaySeconds: Int = 0,
+    expiresAt: Long = 0,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
@@ -299,20 +329,35 @@ fun UiConfirmDialog(
             if (remaining > 0) delay(200)
         }
     }
+    var trialRemaining by remember(expiresAt) { mutableIntStateOf(20) }
+    LaunchedEffect(expiresAt) {
+        if (expiresAt > 0) {
+            while (true) {
+                trialRemaining = ceil((expiresAt - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0L) / 1000.0).toInt()
+                if (trialRemaining == 0) { onDismiss(); break }
+                delay(200)
+            }
+        }
+    }
     OverlayDialog(
         show = true,
         title = title,
-        summary = summary,
         onDismissRequest = onDismiss,
     ) {
-        UiDialogActions(
-            onDismiss = onDismiss,
-            confirmLabel = if (remaining > 0) "$confirmLabel（${remaining}秒）" else confirmLabel,
-            confirmEnabled = remaining == 0,
-            onConfirm = {
-                if (remaining == 0) onConfirm()
-            },
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                Text(summary + if (expiresAt > 0) "\n${trialRemaining} 秒后自动恢复" else "",
+                    fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            }
+            UiDialogActions(
+                onDismiss = onDismiss,
+                confirmLabel = if (remaining > 0) "$confirmLabel（${remaining}秒）" else confirmLabel,
+                confirmEnabled = remaining == 0,
+                onConfirm = {
+                    if (remaining == 0) onConfirm()
+                },
+            )
+        }
     }
 }
 
@@ -322,6 +367,7 @@ fun UiChoiceDialog(
     values: List<String>,
     labels: List<String>,
     selected: String,
+    description: String = "",
     onDismiss: () -> Unit,
     onChoice: (String) -> Unit,
 ) {
@@ -333,6 +379,8 @@ fun UiChoiceDialog(
                     .verticalScroll(rememberScrollState())
                     .selectableGroup(),
             ) {
+                if (description.isNotEmpty()) Text(description, Modifier.padding(bottom = 10.dp),
+                    fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 values.forEachIndexed { index, value ->
                     RadioButtonPreference(
                         title = labels.getOrNull(index) ?: value,
@@ -475,20 +523,18 @@ private fun parseArgb(text: String): Int? {
     }
 }
 
-/** Solid Miuix navigation; the native host positions it above the system navigation inset. */
+/** Standard edge-to-edge navigation, adjoining the system navigation inset. */
 @Composable
 fun C17Navigation(page: Int, onPage: (Int) -> Unit) {
     val labels = arrayOf("主页", "配置", "关于")
     val icons = arrayOf(MiuixIcons.Home, MiuixIcons.Settings, MiuixIcons.Info)
     Column(
-        modifier = Modifier.fillMaxSize().padding(4.dp)
-            .shadow(2.dp, RoundedCornerShape(22.dp), clip = false)
-            .clip(RoundedCornerShape(22.dp)).background(MiuixTheme.colorScheme.surfaceContainer),
+        modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surfaceContainer),
         verticalArrangement = Arrangement.Center,
     ) {
         NavigationBar(
             color = MiuixTheme.colorScheme.surfaceContainer,
-            showDivider = false,
+            showDivider = true,
             defaultWindowInsetsPadding = false,
         ) {
             labels.forEachIndexed { index, label ->

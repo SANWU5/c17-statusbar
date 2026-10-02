@@ -3,12 +3,14 @@ package com.oplusos.systemui.common.blurability;
 public class ViewBlurProxy {
     public BlurConfig blurConfig=new BlurConfig();
     public float visibleScalar;
+    public Float visibleWeight;
     public final float[] visibleCorners=new float[4];
     public int applied,failApplyCalls;
     public ViewBlurProxy(){applyBlurConfig();applied=0;}
     public BlurConfig getBlurConfig(){return blurConfig;}
+    public android.graphics.drawable.Drawable getBlurDrawable(android.graphics.drawable.Drawable fallback){return fallback;}
     public void applyBlurConfig(){
-        applied++;visibleScalar=blurConfig.getCornerRadius();
+        applied++;visibleScalar=blurConfig.getCornerRadius();visibleWeight=blurConfig.getRadiusWeight();
         visibleCorners[0]=blurConfig.getLeftTopCornerRadius();visibleCorners[1]=blurConfig.getRightTopCornerRadius();
         visibleCorners[2]=blurConfig.getRightBottomCornerRadius();visibleCorners[3]=blurConfig.getLeftBottomCornerRadius();
         if(failApplyCalls>0){failApplyCalls--;throw new IllegalStateException("native blur apply after mutation");}

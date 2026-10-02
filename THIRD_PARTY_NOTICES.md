@@ -1,10 +1,14 @@
 # 第三方声明
 
+本文记录正式版 `1.6.0` / versionCode 51 的当前依赖与历史技术来源。软件、字体和第三方资源分别保留其自身许可，不统一改为本项目的软件许可。
+
 ## 控制中心磁贴圆角技术参考
 
 圆角适配参考用户提供的 MCGA `TwoXOneTileHook.kt`，Copyright (C) 2026 Zhuangzhi Meng (Gustate XiaoMeng)，原文件采用 `GPL-3.0-or-later`。本项目 `QsTileCorners.java` 按 `GPL-3.0-only` 分发并保留该来源说明。
 
 针对本机 ColorOS 17 的系统实现，本项目改为各个磁贴实例独立持有原生路径提供者，未移植共享资源池的圆角改写、图标、文本或填充功能。各类磁贴按统一半径应用；本项目另编写 `QsPanelCorners.java` 接入亮度、音量、音乐与设备卡片的原生几何接口。关闭与安全模式恢复各自的原生路径。APK 中的 `assets/qs-corners/NOTICE.txt` 同样保留来源与作者声明。
+
+beta2 的控制中心适配也参考了 [Maga-King/coloros16-control-center](https://github.com/Maga-King/coloros16-control-center) 的思路。核对时该仓库未提供 LICENSE 文件；本项目没有复制其源代码或资源，具体实现依据当前设备的原生接口独立编写。该参考与上面的 MCGA GPL 技术来源分别记录，不推定其代码采用 GPL 或其他开源许可。
 
 ## 软件源代码
 
@@ -20,6 +24,14 @@
 - 本地来源说明：`FONT.md` 与 `app/src/main/assets/fonts/SOURCE.txt`
 
 上游允许转载和修改，并要求注明来源。字体的原始设计归 Apple；此字体重建及其分发条款与本仓库的软件许可证分别处理。仓库不声称与 Apple 有官方关联。
+
+## 按需下载的开源可变字体
+
+字体目录包含 Noto Sans SC、Noto Serif SC、Inter、Roboto、Montserrat、Manrope、Open Sans、JetBrains Mono、Nunito、Oswald 共 10 种不同设计，不作为热门排名。前两种自身覆盖简体中文，其余拉丁字体使用系统中文回退。Noto 与 Adobe 思源为同源设计，未重复计为两套字体。
+
+字体与许可文件固定取自官方 [google/fonts 提交 9710da1eacb3be272583c3224dcb70f9da6eadbb](https://github.com/google/fonts/tree/9710da1eacb3be272583c3224dcb70f9da6eadbb)。各字体采用 SIL Open Font License 1.1，保留各自原始版权声明与保留字体名称条款。完整许可随 APK 放在 `assets/fonts/catalog/licenses/`；每款的上游项目、下载 URL、SHA256、字重轴和许可路径记录在 `assets/fonts/catalog/manifest.json`，项目入口汇总见 [字体库说明](docs/FONT-CATALOG.zh-CN.md)。
+
+APK 不内置这 10 个字体文件；首次选择时按需下载，缓存及导入文件存于应用私有目录，不进入配置 JSON、云备份或设备迁移。完整 OFL 许可随目录元数据分发，字体不按本项目的 GPL 软件许可重新授权。
 
 ## PUI 电池外观
 

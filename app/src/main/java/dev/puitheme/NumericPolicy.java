@@ -27,7 +27,7 @@ public final class NumericPolicy {
         if (NotificationBigClockSettings.positiveSize(key) && value <= 0f)
             return Math.max(Float.MIN_NORMAL, finite(fallback, 1f));
         if (key != null && (key.equals("font_weight") || key.endsWith("_weight")))
-            return Math.max(100f, Math.min(900f, value));
+            return Math.max(1f, Math.min(1000f, value));
         return signed(key) ? value : Math.max(0f, value);
     }
 

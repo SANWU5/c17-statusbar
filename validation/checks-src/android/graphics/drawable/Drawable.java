@@ -22,6 +22,7 @@ public abstract class Drawable {
     public Callback getCallback() { return callback; }
     public Rect getBounds() { return bounds; }
     public void setBounds(int l, int t, int r, int b) { bounds.left=l; bounds.top=t; bounds.right=r; bounds.bottom=b;onBoundsChange(bounds); }
+    public void setBounds(Rect value){setBounds(value.left,value.top,value.right,value.bottom);}
     protected void onBoundsChange(Rect value) { }
     public int[] getState() {return state;}
     public boolean setState(int[] value) {state=value;return false;}
@@ -36,4 +37,7 @@ public abstract class Drawable {
     public boolean getPadding(Rect result) {return false;}
     public boolean isStateful() {return false;}
     public void invalidateSelf() { if (callback != null) callback.invalidateDrawable(this); }
+    public Drawable getCurrent(){return this;}
+    public ConstantState getConstantState(){return null;}
+    public abstract static class ConstantState {public abstract Drawable newDrawable();}
 }

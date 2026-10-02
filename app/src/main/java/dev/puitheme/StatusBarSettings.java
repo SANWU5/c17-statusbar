@@ -99,6 +99,9 @@ public final class StatusBarSettings {
         booleans.putAll(NotificationBigClockSettings.BOOLEANS);
         booleans.putAll(NotificationClearAppearance.BOOLEANS);
         booleans.putAll(NotificationIconArea.BOOLEANS);
+        booleans.putAll(BatteryTextStyle.BOOLEANS);
+        booleans.putAll(QsTileIconSize.BOOLEANS);
+        booleans.putAll(StatusBarShadeIconSettings.BOOLEANS);
         BOOLEAN_DEFAULTS = Collections.unmodifiableMap(booleans);
         Map<String, Float> numbers = new LinkedHashMap<>();
         numbers.put(WIFI_OFFSET_X, 0f);
@@ -107,6 +110,7 @@ public final class StatusBarSettings {
         numbers.put(DATA_OFFSET_X, 0f);
         numbers.put(DATA_OFFSET_Y, 0f);
         numbers.put(DATA_ICON_SCALE, 100f);
+        numbers.put(DataBatterySpacing.SPACING, 0f);
         numbers.put(LABEL_OFFSET_X, 0f);
         numbers.put(LABEL_OFFSET_Y, 0f);
         numbers.put(LABEL_SCALE, 100f);
@@ -143,6 +147,8 @@ public final class StatusBarSettings {
         numbers.putAll(NotificationBigClockSettings.NUMBERS);
         numbers.putAll(NotificationClearAppearance.NUMBERS);
         numbers.putAll(NotificationIconArea.NUMBERS);
+        numbers.putAll(BatteryTextStyle.NUMBERS);
+        numbers.putAll(QsTileIconSize.NUMBERS);
         NUMERIC_DEFAULTS = Collections.unmodifiableMap(numbers);
         Map<String, Integer> colors = new LinkedHashMap<>();
         for (String item : new String[]{"wifi", "data", "label", "speed", "clock", "shade_clock", "carrier",
@@ -191,6 +197,7 @@ public final class StatusBarSettings {
 
     public static boolean bool(Map<String, ?> values, String key) {
         if (QsTileCorners.MASTER.equals(key)) return QsTileCorners.enabled(values);
+        if (NotificationBigClockSettings.STACK_ENABLED.equals(key)) return false;
         // Cellular traffic arrows are now an invariant, including old/malformed saved values.
         if (DATA_ACTIVITY_HIDDEN.equals(key)) return true;
         Object value = typedValue(values, key, Boolean.class);
@@ -287,6 +294,7 @@ public final class StatusBarSettings {
         if (!Boolean.TRUE.equals(preferences.getAll().get(DATA_ACTIVITY_HIDDEN)))
             preferences.edit().putBoolean(DATA_ACTIVITY_HIDDEN, true).apply();
         QsTileCorners.migrate(preferences);
+        NumericTrial.recover(deviceContext, preferences);
         return preferences;
     }
 

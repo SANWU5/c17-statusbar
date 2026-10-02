@@ -137,9 +137,69 @@ public final class NotificationIconAreaCheck {
         equal(false,field(state,"dirty"));area.configure(null,new Bundle());equal(true,field(state,"dirty"));
         equal(1,owner.invalidations);
     }
+    private static Bundle countOptions(boolean master,int max){
+        Bundle b=new Bundle();b.putBoolean(NotificationIconArea.MASTER,master);
+        b.putBoolean(NotificationIconArea.COUNT_ENABLED,true);b.putFloat(NotificationIconArea.MAX_COUNT,max);
+        b.putBoolean(NotificationIconArea.SIZE_ENABLED,false);b.putBoolean(NotificationIconArea.POSITION,false);return b;
+    }
+    private static PhoneContainer phone(int children){
+        PhoneContainer owner=new PhoneContainer();new NativeHost(202).addView(owner);
+        for(int i=0;i<children;i++){StatusBarIconView icon=new StatusBarIconView(null);icon.mBundleEntry=new Object();owner.addView(icon);}
+        return owner;
+    }
+    private static void nativeCounts()throws Throwable{
+        NotificationIconArea area=new NotificationIconArea();area.resolve(NotificationIconAreaCheck.class.getClassLoader());
+        PhoneContainer owner=phone(5);area.changed(owner);area.configure(null,countOptions(false,2));
+        equal(Integer.MAX_VALUE,owner.mMaxIcons);equal(0,owner.stateUpdates);
+        area.configure(null,countOptions(true,2));equal(2,owner.mMaxIcons);equal(1,owner.stateUpdates);
+        equal(0,((StatusBarIconView)owner.getChildAt(0)).visibleState);equal(0,((StatusBarIconView)owner.getChildAt(1)).visibleState);
+        equal(1,((StatusBarIconView)owner.getChildAt(2)).visibleState);equal(2,((StatusBarIconView)owner.getChildAt(3)).visibleState);
+        int updates=owner.stateUpdates,layouts=owner.layoutRequests;
+        for(int i=0;i<1000;i++)area.beforeLayout(owner);
+        equal(updates,owner.stateUpdates);equal(layouts,owner.layoutRequests);
+        owner.setMaxIconsAmount(area.nativeMaxIcons(owner,7));equal(2,owner.mMaxIcons);
+        area.configure(null,new Bundle());equal(7,owner.mMaxIcons);equal(0,((StatusBarIconView)owner.getChildAt(3)).visibleState);
+        area.configure(null,countOptions(true,2));Bundle heart=countOptions(true,0);heart.putString(NotificationIconArea.MODE,"heart");
+        area.configure(null,heart);equal(7,owner.mMaxIcons);Canvas canvas=new Canvas();int[] draws={0};
+        area.draw(owner,canvas,()->{draws[0]++;return null;});equal("♥",canvas.text);equal(0,draws[0]);
+        area.configure(null,countOptions(true,0));equal(0,owner.mMaxIcons);equal(1,((StatusBarIconView)owner.getChildAt(0)).visibleState);
+        canvas=new Canvas();area.draw(owner,canvas,()->{draws[0]++;return null;});equal(0,draws[0]);equal(true,canvas.text==null);equal(5,owner.getChildCount());
+        Bundle safe=countOptions(true,0);safe.putBoolean(StatusBarSettings.SAFE_MODE,true);area.configure(null,safe);equal(7,owner.mMaxIcons);
+        area.draw(owner,new Canvas(),()->{draws[0]++;return null;});equal(1,draws[0]);
+        area.configure(null,countOptions(true,1000000));equal(5,owner.mMaxIcons);
+        owner.removeView(owner.getChildAt(4));area.beforeLayout(owner);equal(4,owner.mMaxIcons);
+        area.configure(null,new Bundle());equal(7,owner.mMaxIcons);
+        area.configure(null,countOptions(true,2));owner.mMaxIcons=9;area.beforeLayout(owner);equal(2,owner.mMaxIcons);
+        area.configure(null,new Bundle());equal(9,owner.mMaxIcons);
+        area.configure(null,countOptions(true,2));owner.failNextStateUpdate=true;
+        area.configure(null,countOptions(true,3));equal(9,owner.mMaxIcons);equal(0,((StatusBarIconView)owner.getChildAt(3)).visibleState);
+        area.beforeLayout(owner);equal(3,owner.mMaxIcons);area.configure(null,new Bundle());equal(9,owner.mMaxIcons);
+        area.configure(null,countOptions(true,2));new NativeHost(404).addView(owner);area.changed(owner);
+        equal(9,owner.mMaxIcons);equal(0,((Map<?,?>)field(area,"states")).size());
+        equal(8,area.nativeMaxIcons(owner,8));area.beforeLayout(owner);equal(9,owner.mMaxIcons);
+        new NativeHost(202).addView(owner);area.changed(owner);equal(2,owner.mMaxIcons);
+        area.detach(owner);equal(9,owner.mMaxIcons);equal(0,((Map<?,?>)field(area,"states")).size());
+        area.changed(owner);equal(2,owner.mMaxIcons);
+        Bundle large=heart;large.putBoolean(NotificationIconArea.SIZE_ENABLED,true);large.putFloat(NotificationIconArea.SIZE,Float.MAX_VALUE);
+        area.configure(null,large);canvas=new Canvas();area.draw(owner,canvas,()->{draws[0]++;return null;});
+        equal(NumericPolicy.MAX_TEXT_PIXELS,canvas.textSize);equal(canvas.saves,canvas.restores);
+        large.putFloat(NotificationIconArea.SIZE,0f);area.configure(null,large);canvas=new Canvas();area.draw(owner,canvas,()->{draws[0]++;return null;});equal(0f,canvas.textSize);
+        large=countOptions(true,2);large.putBoolean(NotificationIconArea.SIZE_ENABLED,true);large.putFloat(NotificationIconArea.SIZE,Float.MAX_VALUE);
+        area.configure(null,large);canvas=new Canvas();int beforeNative=draws[0];area.draw(owner,canvas,()->{draws[0]++;return null;});
+        equal(beforeNative+1,draws[0]);equal(true,Float.isFinite(canvas.scaleX));equal(true,canvas.scaleX>0f);equal(canvas.saves,canvas.restores);
+        area.configure(null,countOptions(true,2));
+        Field removed=ModuleLifecycle.class.getDeclaredField("removed");removed.setAccessible(true);
+        beforeNative=draws[0];
+        try{removed.setBoolean(null,true);area.draw(owner,new Canvas(),()->{draws[0]++;return null;});equal(9,owner.mMaxIcons);equal(beforeNative+1,draws[0]);}
+        finally{removed.setBoolean(null,false);}
+        equal(false,NotificationIconArea.BOOLEANS.get(NotificationIconArea.COUNT_ENABLED));equal(3f,NotificationIconArea.NUMBERS.get(NotificationIconArea.MAX_COUNT));
+        equal(0,NotificationIconArea.safeCount(-1,5));equal(5,NotificationIconArea.safeCount(Float.MAX_VALUE,5));
+        equal(3,NotificationIconArea.safeCount(Float.NaN,5));equal(0,NotificationIconArea.safeCount(100,0));
+    }
     public static void main(String[] args)throws Throwable{
         nativeContracts();
         firstEnableDrawing();
+        nativeCounts();
         equal(false,NotificationIconArea.BOOLEANS.get(NotificationIconArea.MASTER));
         Bundle settings=SettingsSnapshot.fromPreferences(Collections.emptyMap());
         equal(true,SettingsSnapshot.complete(settings));equal(false,NotificationIconArea.active(settings));
@@ -154,7 +214,8 @@ public final class NotificationIconAreaCheck {
         equal("native",NotificationIconArea.mode("unknown"));equal("native",NotificationIconArea.mode(null));
         equal("♥",NotificationIconArea.customText(""));equal("♥",NotificationIconArea.customText(null));
         String unicode="💙💙💙💙💙💙💙💙💙💙💙💙";equal(unicode,NotificationIconArea.customText(unicode+"x"));equal(unicode,NotificationIconArea.customText(unicode));
-        equal(320f,NotificationIconArea.safeSize(1000f,4f));equal(4f,NotificationIconArea.safeSize(-100f,4f));equal(80f,NotificationIconArea.safeSize(Float.NaN,4f));
+        equal(4000f,NotificationIconArea.safeSize(1000f,4f));equal(0f,NotificationIconArea.safeSize(-100f,4f));equal(80f,NotificationIconArea.safeSize(Float.NaN,4f));
+        equal(0f,NotificationIconArea.safeSize(0f,4f));equal(NumericPolicy.MAX_DRAW_PIXELS,NotificationIconArea.safeSize(Float.MAX_VALUE,4f));
         Map<String,Object> metadata=new HashMap<>();metadata.put(NotificationIconArea.IMAGE_NAME,"private.png");metadata.put(NotificationIconArea.IMAGE_REVISION,"local");
         equal(false,ConfigTransfer.exportJson(metadata).contains("private.png"));equal(false,ConfigTransfer.exportJson(metadata).contains("local"));
         for(String bad:new String[]{"1234567890123","a\nb","a\u0000b"}){

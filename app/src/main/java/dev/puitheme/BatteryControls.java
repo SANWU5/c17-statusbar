@@ -28,6 +28,7 @@ public final class BatteryControls {
     private final Handler handler;
     private final BatteryAppearance appearance;
     private final PuiBatteryStyle puiStyle;
+    private final BatteryTextStyle textStyle=new BatteryTextStyle();
     private final Class<?> horizontal;
     private final Method getStyle, getCharge, getLevel, getChargeId, bodyRect, paintMode;
     private final Method highContrast;
@@ -100,6 +101,7 @@ public final class BatteryControls {
     }
 
     public void configure(Bundle settings,Map<String,Integer> colors,Map<String,Boolean> alpha) {
+        textStyle.configure(settings);
         appearance.configure(settings,colors,alpha);
         puiStyle.configure(settings);
         configure(FeatureOptions.from(settings).effective("battery",StatusBarSettings.BATTERY_CHARGE_INSIDE),
@@ -249,7 +251,8 @@ public final class BatteryControls {
         if (entry == null || !percentIn.getBoolean(drawable)) return false;
         boolean animate=enabled&&entry.cycle.isCharging();
         boolean customText=appearance.hasCustom("battery_text");
-        if(!animate&&!customText)return false;
+        boolean customStyle=textStyle.enabled();
+        if(!animate&&!customText&&!customStyle)return false;
         int level = (Integer) getLevel.invoke(drawable);
         if (level < 0 || level > 100) return false;
         RectF body = (RectF) bodyRect.invoke(drawable, content);
@@ -279,17 +282,20 @@ public final class BatteryControls {
                     entry.levelText = NumberFormat.getIntegerInstance(locale).format(level);
                 }
                 String text = entry.levelText;
+                View owner=entry.owner.get();
+                float density=owner==null?1f:owner.getResources().getDisplayMetrics().density;
+                if(customStyle&&owner!=null)textStyle.apply(paint,owner.getResources().getDisplayMetrics());
                 paint.setTextAlign(Paint.Align.LEFT);
                 paint.getTextBounds(text, 0, text.length(), entry.ink);
                 float fit = Math.min(1f, Math.min(body.width() * .84f / Math.max(1, entry.ink.width()),
                         body.height() * .68f / Math.max(1, entry.ink.height())));
-                if (fit < 1f) {
+                if (!customStyle && fit < 1f) {
                     paint.setTextSize(paint.getTextSize() * fit);
                     paint.getTextBounds(text, 0, text.length(), entry.ink);
                 }
                 paint.setAlpha(Math.round(nativeAlpha * (1f - bolt)));
-                canvas.drawText(text, body.centerX() - entry.ink.exactCenterX(),
-                        body.centerY() - entry.ink.exactCenterY(), paint);
+                canvas.drawText(text, body.centerX() - entry.ink.exactCenterX()+textStyle.offsetX(density),
+                        body.centerY() - entry.ink.exactCenterY()+textStyle.offsetY(density), paint);
                 canvas.restoreToCount(textSaved);
             }
             if (bolt > 0f) {

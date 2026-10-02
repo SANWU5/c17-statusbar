@@ -10,6 +10,11 @@ final class NetworkLabel {
     private NetworkLabel() {
     }
 
+    /** Unknown switch states are never interpreted as OFF. A connected route is not a switch. */
+    static boolean radiosDisabled(Boolean wifiEnabled,Boolean mobileDataEnabled) {
+        return Boolean.FALSE.equals(wifiEnabled)&&Boolean.FALSE.equals(mobileDataEnabled);
+    }
+
     static String normalize(String str) {
         if (str == null) {
             return "";

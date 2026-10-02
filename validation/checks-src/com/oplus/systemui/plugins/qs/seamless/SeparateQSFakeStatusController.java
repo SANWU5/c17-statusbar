@@ -4,4 +4,6 @@ import android.view.ViewGroup;
 public final class SeparateQSFakeStatusController {
     public ViewGroup statusIconsView;
     public ViewGroup fakeStatusIconContainer;
+    public ViewGroup fakeClockContainer, fakeNotificationIconContainer;
+    public com.android.systemui.plugins.qs.QSFakeStatusElement qsFakeClock, qsFakeNotificationIcon;
 }

@@ -46,8 +46,8 @@ public final class NumericPolicyCheck {
         }
         for(String key:new String[]{"font_weight","speed_weight","clock_weight","shade_clock_weight",
                 "carrier_weight","carrier_notification_weight","carrier_control_weight"}) {
-            near(100f,NumericPolicy.setting(key,0f,600f));
-            near(900f,NumericPolicy.setting(key,99999f,600f));
+            near(1f,NumericPolicy.setting(key,0f,600f));
+            near(1000f,NumericPolicy.setting(key,99999f,600f));
             near(734.25f,NumericPolicy.setting(key,734.25f,600f));
         }
         near(3200.5f,NumericPolicy.pixels(800.125f,4f));

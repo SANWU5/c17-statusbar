@@ -1,0 +1,276 @@
+{
+  "schema": 1,
+  "distribution": "https://github.com/google/fonts",
+  "distributionCommit": "9710da1eacb3be272583c3224dcb70f9da6eadbb",
+  "selectionNote": "10种成熟可变字体设计，不代表全网热门排名。",
+  "fonts": [
+    {
+      "id": "notosanssc",
+      "filename": "NotoSansSC[wght].ttf",
+      "downloadUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf",
+      "bytes": 17772300,
+      "sha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da",
+      "axes": [
+        {
+          "tag": "wght",
+          "min": 100.0,
+          "default": 100.0,
+          "max": 900.0
+        }
+      ],
+      "sourceUrl": "https://github.com/notofonts/noto-cjk",
+      "licenseUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/notosanssc/OFL.txt",
+      "licenseBytes": 4388,
+      "displayName": "Noto Sans SC · 思源黑体",
+      "coverage": "支持简体中文、拉丁字母与数字",
+      "style": "简体中文黑体",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "licenseName": "SIL Open Font License 1.1",
+      "licenseAsset": "fonts/catalog/licenses/notosanssc-OFL.txt"
+    },
+    {
+      "id": "notoserifsc",
+      "filename": "NotoSerifSC[wght].ttf",
+      "downloadUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/notoserifsc/NotoSerifSC%5Bwght%5D.ttf",
+      "bytes": 25125512,
+      "sha256": "050080d9255a86808f2945bffac582b31ef32bc36411ce29563b4961670c66f9",
+      "axes": [
+        {
+          "tag": "wght",
+          "min": 200.0,
+          "default": 200.0,
+          "max": 900.0
+        }
+      ],
+      "sourceUrl": "https://github.com/notofonts/noto-cjk",
+      "licenseUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/notoserifsc/OFL.txt",
+      "licenseBytes": 4350,
+      "displayName": "Noto Serif SC · 思源宋体",
+      "coverage": "支持简体中文、拉丁字母与数字",
+      "style": "简体中文宋体",
+      "minWeight": 200,
+      "maxWeight": 900,
+      "licenseName": "SIL Open Font License 1.1",
+      "licenseAsset": "fonts/catalog/licenses/notoserifsc-OFL.txt"
+    },
+    {
+      "id": "inter",
+      "filename": "Inter[opsz,wght].ttf",
+      "downloadUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf",
+      "bytes": 876576,
+      "sha256": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
+      "axes": [
+        {
+          "tag": "opsz",
+          "min": 14.0,
+          "default": 14.0,
+          "max": 32.0
+        },
+        {
+          "tag": "wght",
+          "min": 100.0,
+          "default": 400.0,
+          "max": 900.0
+        }
+      ],
+      "sourceUrl": "https://github.com/rsms/inter",
+      "licenseUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/inter/OFL.txt",
+      "licenseBytes": 4377,
+      "displayName": "Inter",
+      "coverage": "拉丁字母与数字；中文使用系统字体",
+      "style": "清晰的界面字体",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "licenseName": "SIL Open Font License 1.1",
+      "licenseAsset": "fonts/catalog/licenses/inter-OFL.txt"
+    },
+    {
+      "id": "roboto",
+      "filename": "Roboto[wdth,wght].ttf",
+      "downloadUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/roboto/Roboto%5Bwdth%2Cwght%5D.ttf",
+      "bytes": 488584,
+      "sha256": "d7598e12c5dbef095ff8272cfc55da0250bd07fbdecbac8a530b9b277872a134",
+      "axes": [
+        {
+          "tag": "wght",
+          "min": 100.0,
+          "default": 400.0,
+          "max": 900.0
+        },
+        {
+          "tag": "wdth",
+          "min": 75.0,
+          "default": 100.0,
+          "max": 100.0
+        }
+      ],
+      "sourceUrl": "https://github.com/googlefonts/roboto-classic",
+      "licenseUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/roboto/OFL.txt",
+      "licenseBytes": 4394,
+      "displayName": "Roboto",
+      "coverage": "拉丁字母与数字；中文使用系统字体",
+      "style": "Android 经典界面字体",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "licenseName": "SIL Open Font License 1.1",
+      "licenseAsset": "fonts/catalog/licenses/roboto-OFL.txt"
+    },
+    {
+      "id": "montserrat",
+      "filename": "Montserrat[wght].ttf",
+      "downloadUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/montserrat/Montserrat%5Bwght%5D.ttf",
+      "bytes": 744936,
+      "sha256": "0f7b311b2f3279e4eef9b2f968bcdbab6e28f4daeb1f049f4f278a902bcd82f7",
+      "axes": [
+        {
+          "tag": "wght",
+          "min": 100.0,
+          "default": 100.0,
+          "max": 900.0
+        }
+      ],
+      "sourceUrl": "https://github.com/JulietaUla/Montserrat",
+      "licenseUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/montserrat/OFL.txt",
+      "licenseBytes": 4400,
+      "displayName": "Montserrat",
+      "coverage": "拉丁字母与数字；中文使用系统字体",
+      "style": "几何标题字体",
+      "minWeight": 100,
+      "maxWeight": 900,
+      "licenseName": "SIL Open Font License 1.1",
+      "licenseAsset": "fonts/catalog/licenses/montserrat-OFL.txt"
+    },
+    {
+      "id": "manrope",
+      "filename": "Manrope[wght].ttf",
+      "downloadUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/manrope/Manrope%5Bwght%5D.ttf",
+      "bytes": 164700,
+      "sha256": "3ae11c49db0455a3cc33e37d380f20fdb8c7f8b41dc07625c177e3d87a9d6ae6",
+      "axes": [
+        {
+          "tag": "wght",
+          "min": 200.0,
+          "default": 200.0,
+          "max": 800.0
+        }
+      ],
+      "sourceUrl": "https://github.com/googlefonts/manrope",
+      "licenseUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/manrope/OFL.txt",
+      "licenseBytes": 4387,
+      "displayName": "Manrope",
+      "coverage": "拉丁字母与数字；中文使用系统字体",
+      "style": "现代几何字体",
+      "minWeight": 200,
+      "maxWeight": 800,
+      "licenseName": "SIL Open Font License 1.1",
+      "licenseAsset": "fonts/catalog/licenses/manrope-OFL.txt"
+    },
+    {
+      "id": "opensans",
+      "filename": "OpenSans[wdth,wght].ttf",
+      "downloadUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/opensans/OpenSans%5Bwdth%2Cwght%5D.ttf",
+      "bytes": 532636,
+      "sha256": "36643644f318a812aab2d2ed3bb98f8cf0872527f835fe9398d95fe6b9adb878",
+      "axes": [
+        {
+          "tag": "wght",
+          "min": 300.0,
+          "default": 400.0,
+          "max": 800.0
+        },
+        {
+          "tag": "wdth",
+          "min": 75.0,
+          "default": 100.0,
+          "max": 100.0
+        }
+      ],
+      "sourceUrl": "https://github.com/googlefonts/opensans",
+      "licenseUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/opensans/OFL.txt",
+      "licenseBytes": 4389,
+      "displayName": "Open Sans",
+      "coverage": "拉丁字母与数字；中文使用系统字体",
+      "style": "人文无衬线字体",
+      "minWeight": 300,
+      "maxWeight": 800,
+      "licenseName": "SIL Open Font License 1.1",
+      "licenseAsset": "fonts/catalog/licenses/opensans-OFL.txt"
+    },
+    {
+      "id": "jetbrainsmono",
+      "filename": "JetBrainsMono[wght].ttf",
+      "downloadUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf",
+      "bytes": 187208,
+      "sha256": "48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda",
+      "axes": [
+        {
+          "tag": "wght",
+          "min": 100.0,
+          "default": 400.0,
+          "max": 800.0
+        }
+      ],
+      "sourceUrl": "https://github.com/JetBrains/JetBrainsMono",
+      "licenseUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/jetbrainsmono/OFL.txt",
+      "licenseBytes": 4399,
+      "displayName": "JetBrains Mono",
+      "coverage": "拉丁字母与数字；中文使用系统字体",
+      "style": "等宽数字与代码字体",
+      "minWeight": 100,
+      "maxWeight": 800,
+      "licenseName": "SIL Open Font License 1.1",
+      "licenseAsset": "fonts/catalog/licenses/jetbrainsmono-OFL.txt"
+    },
+    {
+      "id": "nunito",
+      "filename": "Nunito[wght].ttf",
+      "downloadUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/nunito/Nunito%5Bwght%5D.ttf",
+      "bytes": 276932,
+      "sha256": "bb55a5ca5c2042335b3991af27c4d0705d0ef41cac6164ac737fd8f2a1e85207",
+      "axes": [
+        {
+          "tag": "wght",
+          "min": 200.0,
+          "default": 200.0,
+          "max": 1000.0
+        }
+      ],
+      "sourceUrl": "https://github.com/googlefonts/nunito",
+      "licenseUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/nunito/OFL.txt",
+      "licenseBytes": 4385,
+      "displayName": "Nunito",
+      "coverage": "拉丁字母与数字；中文使用系统字体",
+      "style": "圆润无衬线字体",
+      "minWeight": 200,
+      "maxWeight": 1000,
+      "licenseName": "SIL Open Font License 1.1",
+      "licenseAsset": "fonts/catalog/licenses/nunito-OFL.txt"
+    },
+    {
+      "id": "oswald",
+      "filename": "Oswald[wght].ttf",
+      "downloadUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/oswald/Oswald%5Bwght%5D.ttf",
+      "bytes": 172088,
+      "sha256": "5b38c246e255a12f5712d640d56bcced0472466fc68983d2d0410ec0457c2817",
+      "axes": [
+        {
+          "tag": "wght",
+          "min": 200.0,
+          "default": 400.0,
+          "max": 700.0
+        }
+      ],
+      "sourceUrl": "https://github.com/googlefonts/OswaldFont",
+      "licenseUrl": "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/oswald/OFL.txt",
+      "licenseBytes": 4483,
+      "displayName": "Oswald",
+      "coverage": "拉丁字母与数字；中文使用系统字体",
+      "style": "紧凑长形字体",
+      "minWeight": 200,
+      "maxWeight": 700,
+      "licenseName": "SIL Open Font License 1.1",
+      "licenseAsset": "fonts/catalog/licenses/oswald-OFL.txt"
+    }
+  ]
+}

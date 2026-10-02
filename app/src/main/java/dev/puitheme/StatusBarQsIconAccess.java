@@ -21,6 +21,7 @@ final class StatusBarQsIconAccess {
     private final Field listenerOwner, view, fakeController, nativeIcons, fakeIcons;
     private final Field rawFraction, animatorManager, tracking, stub, expandFraction, pendingPosition;
     private final Method running, fractionAnimation, spring, finalPosition, keyguard;
+    private final LeftAccess left;
     private WeakReference<Object> current = new WeakReference<>(null);
     private boolean warned;
 
@@ -45,6 +46,10 @@ final class StatusBarQsIconAccess {
         spring = method(fractionAnimation.getReturnType(), "getSpring");
         finalPosition = method(spring.getReturnType(), "getFinalPosition");
         keyguard = method(stub.getType(), "isKeyguardShowing");
+        LeftAccess optionalLeft = null;
+        try { optionalLeft = new LeftAccess(loader, fakeType); }
+        catch (ReflectiveOperationException ignored) { }
+        left = optionalLeft;
     }
 
     Class<?> componentType() { return componentType; }
@@ -85,6 +90,17 @@ final class StatusBarQsIconAccess {
             // the old receiver's actual owned sources, rather than detaching an unbound view.
             if (current.get() != component) current = new WeakReference<>(component);
             receiver.onSeparateQsStatusChanged(panel, icons, phone, copy, fraction, state, closed);
+            if (left != null) try {
+                View clockContainer = (View) left.clockContainer.get(fake);
+                View notificationContainer = (View) left.notificationContainer.get(fake);
+                Object clockElement = left.clockElement.get(fake), notificationElement = left.notificationElement.get(fake);
+                View clockCopy = clockElement == null ? null : (View) left.elementView.invoke(clockElement);
+                View notificationCopy = notificationElement == null ? null : (View) left.elementView.invoke(notificationElement);
+                View clockSource = clockCopy == null || anchorReader == null ? null : anchorReader.read(clockCopy);
+                View notificationSource = notificationCopy == null || anchorReader == null ? null : anchorReader.read(notificationCopy);
+                receiver.onSeparateQsLeftChanged(panel, clockContainer, clockCopy, clockSource,
+                        notificationContainer, notificationCopy, notificationSource, state, closed);
+            } catch (Throwable ignored) { receiver.onSeparateQsLeftDetached(panel); }
         } catch (Throwable error) { unavailable(error); }
     }
 
@@ -99,6 +115,17 @@ final class StatusBarQsIconAccess {
         Object force = spring.invoke(animation);
         if (force == null) throw new IllegalStateException("Native QS spring force unavailable");
         return ((Number) finalPosition.invoke(force)).floatValue();
+    }
+
+    private static final class LeftAccess {
+        final Field clockContainer, notificationContainer, clockElement, notificationElement;
+        final Method elementView;
+        LeftAccess(ClassLoader loader, Class<?> fake) throws ReflectiveOperationException {
+            clockContainer = field(fake, "fakeClockContainer");
+            notificationContainer = field(fake, "fakeNotificationIconContainer");
+            clockElement = field(fake, "qsFakeClock"); notificationElement = field(fake, "qsFakeNotificationIcon");
+            elementView = method(loader.loadClass("com.android.systemui.plugins.qs.QSFakeStatusElement"), "getElementView");
+        }
     }
 
     void detached(Object component) {

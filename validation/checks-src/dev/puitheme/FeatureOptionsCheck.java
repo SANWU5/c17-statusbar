@@ -23,6 +23,9 @@ public final class FeatureOptionsCheck {
         expectedBooleans.putAll(NotificationBigClockSettings.BOOLEANS);
         expectedBooleans.putAll(NotificationClearAppearance.BOOLEANS);
         expectedBooleans.putAll(NotificationIconArea.BOOLEANS);
+        expectedBooleans.putAll(BatteryTextStyle.BOOLEANS);
+        expectedBooleans.putAll(QsTileIconSize.BOOLEANS);
+        expectedBooleans.putAll(StatusBarShadeIconSettings.BOOLEANS);
         equal(expectedBooleans, StatusBarSettings.BOOLEAN_DEFAULTS);
         equal(false, StatusBarSettings.BOOLEAN_DEFAULTS.get(QsTileCorners.MASTER));
         equal(false, StatusBarSettings.bool(new HashMap<String,Object>(), QsTileCorners.MASTER));
@@ -37,7 +40,15 @@ public final class FeatureOptionsCheck {
         equal(false, defaults.enabled("unknown"));
         equal(false, defaults.isEnabled("unknown"));
         equal(10, FeatureOptions.GROUPS.length);
-        equal(80, FeatureOptions.DEFAULTS.size());
+        equal(81, FeatureOptions.DEFAULTS.size());
+        equal(false, defaults.isEnabled(DataBatterySpacing.ENABLED));
+        equal(false, defaults.effective("data", DataBatterySpacing.ENABLED));
+        Map<String,Object> spacing = new HashMap<>();spacing.put(DataBatterySpacing.ENABLED,true);
+        equal(false, FeatureOptions.from(spacing).effective("data", DataBatterySpacing.ENABLED));
+        spacing.put("data_enabled",true);
+        equal(true, FeatureOptions.from(spacing).effective("data", DataBatterySpacing.ENABLED));
+        spacing.put(StatusBarSettings.SAFE_MODE,true);
+        equal(false, FeatureOptions.from(spacing).effective("data", DataBatterySpacing.ENABLED));
         equal("shade_clock_controls_enabled", FeatureOptions.masterKey("shade_clock"));
         equal(false, defaults.enabled("shade_clock"));
         equal(false, defaults.isEnabled("shade_clock_enabled"));

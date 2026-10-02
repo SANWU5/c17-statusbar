@@ -23,7 +23,13 @@ public final class RadioState {
      */
     public static String cellularLabel(boolean enabled, boolean wifiInUse, boolean airplaneMode,
                                        String nativeLabel, String activeDataFallback, boolean normalize) {
-        if (!enabled || wifiInUse || airplaneMode) return "";
+        return cellularLabel(enabled,wifiInUse,airplaneMode,nativeLabel,activeDataFallback,normalize,null,null);
+    }
+
+    public static String cellularLabel(boolean enabled, boolean wifiInUse, boolean airplaneMode,
+                                       String nativeLabel, String activeDataFallback, boolean normalize,
+                                       Boolean wifiEnabled,Boolean mobileDataEnabled) {
+        if (!enabled || wifiInUse || airplaneMode || NetworkLabel.radiosDisabled(wifiEnabled,mobileDataEnabled)) return "";
         String result = label(nativeLabel, normalize);
         return result.isEmpty() ? label(activeDataFallback, normalize) : result;
     }

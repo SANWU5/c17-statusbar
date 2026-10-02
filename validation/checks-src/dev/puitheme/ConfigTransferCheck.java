@@ -129,9 +129,12 @@ public final class ConfigTransferCheck {
         equal(Float.MAX_VALUE, values("\"wifi_offset_x\":3.4028235e38").get("wifi_offset_x"));
         equal(Float.MIN_VALUE, values("\"wifi_offset_x\":1.4e-45").get("wifi_offset_x"));
         equal(0f, values("\"wifi_icon_scale\":-0").get("wifi_icon_scale"));
-        for (String setting : new String[]{"\"font_weight\":99", "\"carrier_weight\":901",
-                "\"wifi_icon_scale\":-0.01", "\"battery_scale\":-1", "\"slot_width\":-1",
-                "\"wifi_offset_x\":1e100", "\"wifi_offset_x\":1e2147483647",
+        equal(99f,values("\"font_weight\":99").get("font_weight"));
+        equal(901f,values("\"carrier_weight\":901").get("carrier_weight"));
+        equal(-.01f,values("\"wifi_icon_scale\":-0.01").get("wifi_icon_scale"));
+        equal(-1f,values("\"battery_scale\":-1").get("battery_scale"));
+        equal(-1f,values("\"slot_width\":-1").get("slot_width"));
+        for (String setting : new String[]{"\"wifi_offset_x\":1e100", "\"wifi_offset_x\":1e2147483647",
                 "\"wifi_offset_x\":1e-2147483647", "\"wifi_icon_scale\":-1e-100",
                 "\"wifi_offset_x\":NaN", "\"wifi_offset_x\":Infinity", "\"wifi_offset_x\":\"3.25\"",
                 "\"wifi_offset_x\":null", "\"wifi_offset_x\":true", "\"wifi_offset_x\":[]",
@@ -207,14 +210,14 @@ public final class ConfigTransferCheck {
         stored.put("clock_pattern", "{未知}");
         stored.put("battery_style", "invalid");
         full = ConfigTransfer.prepare(ConfigTransfer.exportJson(stored), true);
-        equal(0f, full.values().get("wifi_icon_scale"));
-        equal(900f, full.values().get("clock_weight"));
+        equal(-5f, full.values().get("wifi_icon_scale"));
+        equal(5000f, full.values().get("clock_weight"));
         equal(TimeFormat.CLOCK_DEFAULT, full.values().get("clock_pattern"));
         equal("pui", full.values().get("battery_style"));
 
         FakePreferences preferences = new FakePreferences(stored);
         equal(0, preferences.editCount);
-        invalidSetting("\"wifi_offset_x\":3,\"battery_scale\":-1");
+        invalidSetting("\"wifi_offset_x\":3,\"battery_scale\":\"invalid\"");
         equal(0, preferences.editCount);
         ConfigTransfer.PreparedImport prepared = ConfigTransfer.prepare(document("\"wifi_offset_x\":3.25,\"data_enabled\":false,\"carrier_text\":\"导入\",\"wifi_color_light\":-1"), true);
         equal(0, preferences.editCount);
@@ -286,11 +289,14 @@ public final class ConfigTransferCheck {
                     equal(false, values("\"" + prefix + "_gradient_enabled\":false").get(prefix + "_gradient_enabled"));
                     equal(0xff223344, values("\"" + prefix + "_gradient_color\":" + 0xff223344).get(prefix + "_gradient_color"));
                     equal(100.01f, values("\"" + prefix + "_opacity\":100.01").get(prefix + "_opacity"));
-                    invalidSetting("\"" + prefix + "_opacity\":-1");
-                    invalidSetting("\"" + prefix + "_gradient_angle\":-1");
+                    equal(-1f,values("\"" + prefix + "_opacity\":-1").get(prefix + "_opacity"));
+                    equal(-1f,values("\"" + prefix + "_gradient_angle\":-1").get(prefix + "_gradient_angle"));
         }
         invalidSetting("\"qs_style_wifi_enabled\":true");
         invalidSetting("\"qs_style_wifi_light_opacity\":50");
+        invalidSetting("\"notification_icons_max_count\":2.0000000000000000001");
+        invalidSetting("\"notification_icons_max_count\":-0.00000001");
+        invalidSetting("\"qs_tile_corner_radius\":30.000000000000000001");
         independentShadeClockConfig();
         System.out.println(checks + " checks passed (portable snapshots, strict bounded import, legacy migration, numeric rules, font fallback, one bulk commit)");
     }
@@ -312,8 +318,10 @@ public final class ConfigTransferCheck {
         equal(false,old.values().containsKey(StatusBarSettings.SHADE_CLOCK_CONTROLS_ENABLED));
         equal(true,ConfigTransfer.commit(prior,old));equal(true,prior.values.get(StatusBarSettings.SHADE_CLOCK_CONTROLS_ENABLED));
         equal("'通知' HH:mm:ss",prior.values.get(StatusBarSettings.SHADE_CLOCK_PATTERN));
+        equal(-1f,values("\"shade_clock_scale\":-1").get("shade_clock_scale"));
+        equal(901f,values("\"shade_clock_weight\":901").get("shade_clock_weight"));
         for(String invalid:new String[]{"\"shade_clock_pattern\":\"{未知}\"","\"shade_clock_pattern\":\"HH:mm\\nss\"",
-                "\"shade_clock_scale\":-1","\"shade_clock_weight\":901","\"shade_clock_controls_enabled\":\"true\""})invalidSetting(invalid);
+                "\"shade_clock_controls_enabled\":\"true\""})invalidSetting(invalid);
     }
 
     private static Map<String, Object> nullMap() { return null; }

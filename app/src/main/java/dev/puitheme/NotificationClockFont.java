@@ -53,6 +53,7 @@ public final class NotificationClockFont {
     public static final class Resolver {
         public final String family, nativeFamily;
         public final int baseHeight, nativeWeight;
+        public final int minWeight, maxWeight;
         public final boolean usesFallbackFamily;
         private final AssetManager assets;
         private final Map<Integer, Typeface> faces = new LinkedHashMap<Integer, Typeface>(96, .75f, true) {
@@ -60,17 +61,18 @@ public final class NotificationClockFont {
         };
         private int buildWarnings;
 
-        private Resolver(AssetManager assets, String family, Metadata source, boolean fallback) {
+        private Resolver(AssetManager assets, String family, Metadata source, boolean fallback, WeightRange weights) {
             this.assets = assets; this.family = family; nativeFamily = source.family;
             usesFallbackFamily = fallback;
             baseHeight = fallback ? DEFAULT_HEIGHT : clamp(source.height, 1, 1000);
             nativeWeight = clamp(source.weight, 1, 1000);
+            minWeight=weights.minimum;maxWeight=weights.maximum;
         }
 
         /** Same integer HGHT interpolation used by native ClockTimeView.setFontStyleProgress. */
         public synchronized Typeface typeface(int weight, float heightRatio) {
             if (Float.isNaN(heightRatio) || Float.isInfinite(heightRatio)) return null;
-            int selectedWeight = clamp(weight, 100, 900);
+            int selectedWeight = clamp(weight, minWeight, maxWeight);
             int height = clamp(Math.round(baseHeight * Math.max(0f, heightRatio)), 1, 1000);
             int key = selectedWeight * 1001 + height;
             Typeface result = faces.get(key);
@@ -95,14 +97,18 @@ public final class NotificationClockFont {
         String name = filename(source.family);
         if (!name.isEmpty()) {
             String candidate = "fonts/tunable/" + name;
-            if (hasHeightAxes(assets, candidate)) return new Resolver(assets, candidate, source, false);
+            WeightRange weights=heightAxes(assets,candidate);
+            if (weights!=null) return new Resolver(assets, candidate, source, false, weights);
             // The older native base-clock family uses the same Sans design without a height axis.
-            if (name.equals("OPPOSans4.0No.ttf") && hasHeightAxes(assets, DEFAULT_FAMILY))
-                return new Resolver(assets, DEFAULT_FAMILY, source, false);
+            if (name.equals("OPPOSans4.0No.ttf")) {
+                weights=heightAxes(assets,DEFAULT_FAMILY);
+                if(weights!=null)return new Resolver(assets, DEFAULT_FAMILY, source, false, weights);
+            }
         }
-        if (!hasHeightAxes(assets, DEFAULT_FAMILY)) return null;
+        WeightRange weights=heightAxes(assets,DEFAULT_FAMILY);
+        if (weights==null) return null;
         boolean fallback = !source.family.isEmpty() && !source.family.equals(DEFAULT_FAMILY);
-        return new Resolver(assets, DEFAULT_FAMILY, source, fallback);
+        return new Resolver(assets, DEFAULT_FAMILY, source, fallback, weights);
     }
 
     private static String filename(String family) {
@@ -113,38 +119,43 @@ public final class NotificationClockFont {
     }
 
     /** Confirm the actual asset's fvar records instead of assuming a height axis for a fixed font. */
-    private static boolean hasHeightAxes(AssetManager assets, String path) {
+    private static final class WeightRange {
+        final int minimum,maximum;
+        WeightRange(int minimum,int maximum) { this.minimum=minimum;this.maximum=maximum; }
+    }
+    private static WeightRange heightAxes(AssetManager assets, String path) {
         try (InputStream input = assets.open(path)) {
             ByteArrayOutputStream output = new ByteArrayOutputStream(24576);
             byte[] block = new byte[4096];
             int count;
             while ((count = input.read(block)) != -1) {
-                if ((long) output.size() + count > MAX_FONT_BYTES) return false;
+                if ((long) output.size() + count > MAX_FONT_BYTES) return null;
                 output.write(block, 0, count);
             }
             byte[] font = output.toByteArray();
-            if (font.length < 12) return false;
+            if (font.length < 12) return null;
             int tableCount = u16(font, 4);
-            if (12L + tableCount * 16L > font.length) return false;
+            if (12L + tableCount * 16L > font.length) return null;
             for (int i = 0; i < tableCount; i++) {
                 int entry = 12 + i * 16;
                 if (u32(font, entry) != FVAR) continue;
                 long start = unsigned32(font, entry + 8), length = unsigned32(font, entry + 12);
-                if (start + length > font.length || length < 16) return false;
+                if (start + length > font.length || length < 16) return null;
                 int base = (int) start, axisOffset = u16(font, base + 4);
                 int axes = u16(font, base + 8), axisSize = u16(font, base + 10);
-                if (axisSize < 20 || (long) axisOffset + axes * (long) axisSize > length) return false;
-                boolean height = false, weight = false;
+                if (axisOffset<16||axisSize < 20 || (long) axisOffset + axes * (long) axisSize > length) return null;
+                boolean height = false;WeightRange weight=null;
                 for (int j = 0; j < axes; j++) {
                     int record = base + axisOffset + j * axisSize, tag = u32(font, record);
                     float minimum = fixed(font, record + 4), maximum = fixed(font, record + 12);
                     if (tag == HGHT && minimum <= 1f && maximum >= 1000f) height = true;
-                    if (tag == WGHT && minimum <= 100f && maximum >= 900f) weight = true;
+                    if (tag == WGHT && minimum>=1f && maximum<=1000f && minimum<maximum)
+                        weight=new WeightRange((int)Math.ceil(minimum),(int)Math.floor(maximum));
                 }
-                return height && weight;
+                return height?weight:null;
             }
         } catch (Exception ignored) { }
-        return false;
+        return null;
     }
 
     private static Metadata metadata(View template) {

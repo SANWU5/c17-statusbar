@@ -70,8 +70,8 @@ public final class NotificationBigClockStack {
         final int visibleCount;
         final float width1, width2, width3;
         Settings(Bundle source) {
-            Object enabledValue = source == null ? null : source.get(PREFIX + "stack_enabled");
-            enabled = !(enabledValue instanceof Boolean) || (Boolean) enabledValue;
+            // Retain the editor and old parameters, but never run the unresolved native stack path.
+            enabled = false;
             Object countValue = source == null ? null : source.get(PREFIX + "visible_count");
             visibleCount = NotificationBigClockSettings.visibleCount(countValue);
             width1 = Math.max(0f, number(source == null ? null : source.get(PREFIX + "tail_width_1"), 96f));

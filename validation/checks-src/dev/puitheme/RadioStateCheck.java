@@ -38,6 +38,16 @@ public final class RadioStateCheck {
         equal("",RadioState.cellularLabel(true,false,false,null,null,true),"Removed SIM cannot reuse old label");
         equal("LTE-A",RadioState.cellularLabel(true,false,false,null,"LTE-A",false),"Normalization switch off during hydration");
         equal("4G",RadioState.cellularLabel(true,false,false,null,"LTE-A",true),"Normalization switch on during hydration");
+        for(Boolean wifi:new Boolean[]{null,false,true})for(Boolean data:new Boolean[]{null,false,true}) {
+            boolean off=Boolean.FALSE.equals(wifi)&&Boolean.FALSE.equals(data);
+            equal(off,NetworkLabel.radiosDisabled(wifi,data),"Both radio switches require known OFF");
+            equal(off?"":"5G",RadioState.cellularLabel(true,false,false,"5GA","4G",true,wifi,data),"Native stale label radio guard");
+            equal(off?"":"4G",RadioState.cellularLabel(true,false,false,null,"LTE-A",true,wifi,data),"Fallback stale label radio guard");
+            equal("",RadioState.cellularLabel(false,false,false,"5GA","4G",true,wifi,data),"Default OFF with nullable radio state");
+        }
+        // Only switch state matters: enabled-but-disconnected Wi-Fi does not count as OFF.
+        equal("5GA",RadioState.cellularLabel(true,false,false,"5GA","4G",false,true,false),"Wi-Fi switch ON without connection");
+        equal("5G",RadioState.cellularLabel(true,false,false,"5GA","4G",true,false,null),"Unknown active-data SIM must preserve label");
         System.out.println(checks + " checks passed (Wi-Fi handover, native icon authority, default routes, model fallback)");
     }
 }

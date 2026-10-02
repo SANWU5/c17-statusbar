@@ -45,7 +45,11 @@ public final class NotificationBigClock {
     private final Map<View, StackState> stacks = new WeakHashMap<>();
     private final Map<View, FakeState> fakeClocks = new WeakHashMap<>();
     private final NotificationBigClockStack notificationStack = new NotificationBigClockStack();
+    // Compatibility retirement only: this instance never calls show() or owns a RIGHT copy.
     private final StatusBarFixedIcons fixedStatusIcons = new StatusBarFixedIcons();
+    private final StatusBarPhoneRightIcons phoneRightIcons = new StatusBarPhoneRightIcons();
+    private final StatusBarNotificationRightIcons notificationRightIcons = new StatusBarNotificationRightIcons();
+    private final StatusBarPageLeftIcons pageLeftIcons = new StatusBarPageLeftIcons();
     private final StatusBarClosingIcons closingStatusIcons = new StatusBarClosingIcons();
     private final Map<View, FakeState> closingStatusSources = new WeakHashMap<>();
     private WeakReference<View> closingPhoneClock = new WeakReference<>(null);
@@ -72,6 +76,7 @@ public final class NotificationBigClock {
     private boolean footerMarginHookAvailable;
     public NotificationBigClock() {
         fixedStatusIcons.setFailureListener(this::refresh);
+        fixedStatusIcons.setLeftCopyPolicy(pageLeftIcons);
         closingStatusIcons.setFailureListener(this::restoreClosingSources);
     }
     private final View.OnLayoutChangeListener headerLayoutListener = (view, left, top, right, bottom,
@@ -81,7 +86,8 @@ public final class NotificationBigClock {
     };
 
     private static final class Settings {
-        final boolean enabled, glass, seconds, dateEnabled, footerEnabled, safeMode;
+        final boolean enabled, glass, seconds, dateEnabled, footerEnabled, safeMode, statusIconsEnabled;
+        final boolean rightStatusIconsEnabled;
         final boolean glassBorderEnabled, entryEffectEnabled, borderLightAlpha, borderDarkAlpha;
         final float glassBorderWidth, entryBlurRadius, entryFadeStrength, entryCompletion, entryTravel;
         final boolean notificationEdgeEnabled;
@@ -97,8 +103,12 @@ public final class NotificationBigClock {
         final int colorLight, colorDark, dateColorLight, dateColorDark, footerColorLight, footerColorDark;
         final boolean clockLightAlpha, clockDarkAlpha, dateLightAlpha, dateDarkAlpha, footerLightAlpha, footerDarkAlpha;
         Settings(Bundle source) {
+            statusIconsEnabled = bool(source, StatusBarShadeIconSettings.MASTER, false);
             safeMode = SafetyMode.enabled(source);
             enabled = bool(source, PREFIX + "enabled", false);
+            // Either layout policy hides the exact Phone and notification slots until both
+            // native panels truly close. The control-center left-page policy is independent.
+            rightStatusIconsEnabled = statusIconsEnabled || enabled;
             glass = bool(source, PREFIX + "glass", true);
             glassBorderEnabled = bool(source, PREFIX + "glass_border_enabled", true);
             glassBorderWidth = number(source, PREFIX + "glass_border_width", .65f, 0f, Float.MAX_VALUE);
@@ -126,7 +136,7 @@ public final class NotificationBigClock {
                     || (footerEnabled && TimeFormat.contentHasSeconds(footerPattern));
             scale = number(source, PREFIX + "scale", 100f, 0f, Float.MAX_VALUE);
             compactScale = number(source, PREFIX + "compact_scale", 36f, 0f, Float.MAX_VALUE);
-            weight = number(source, PREFIX + "weight", 600f, 100f, 900f);
+            weight = number(source, PREFIX + "weight", 600f, 1f, 1000f);
             // Retain the legacy preference in exports; collapsing never changes the selected weight.
             compactWeight = weight;
             offsetY = number(source, PREFIX + "offset_y", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
@@ -137,7 +147,7 @@ public final class NotificationBigClock {
             compactOffsetY = number(source, PREFIX + "compact_offset_y", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
             letterSpacing = number(source, PREFIX + "letter_spacing", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
             dateSize = number(source, PREFIX + "date_size", 15f, 0f, Float.MAX_VALUE);
-            dateWeight = number(source, PREFIX + "date_weight", 600f, 100f, 900f);
+            dateWeight = number(source, PREFIX + "date_weight", 600f, 1f, 1000f);
             dateOffsetX = number(source, PREFIX + "date_offset_x", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
             dateOffsetY = number(source, PREFIX + "date_offset_y", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
             dateGap = number(source, PREFIX + "date_gap", 12f, 0f, Float.MAX_VALUE);
@@ -147,7 +157,7 @@ public final class NotificationBigClock {
             tailWidth2 = number(source, NotificationBigClockSettings.TAIL_WIDTH_2, 92f, 0f, Float.MAX_VALUE);
             tailWidth3 = number(source, NotificationBigClockSettings.TAIL_WIDTH_3, 88f, 0f, Float.MAX_VALUE);
             footerSize = number(source, PREFIX + "footer_size", 13f, 0f, Float.MAX_VALUE);
-            footerWeight = number(source, PREFIX + "footer_weight", 400f, 100f, 900f);
+            footerWeight = number(source, PREFIX + "footer_weight", 400f, 1f, 1000f);
             footerOffsetX = number(source, PREFIX + "footer_offset_x", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
             footerOffsetY = number(source, PREFIX + "footer_offset_y", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
             footerMargin = number(source, PREFIX + "footer_margin", 24f, 0f, Float.MAX_VALUE);
@@ -199,7 +209,7 @@ public final class NotificationBigClock {
         WeakReference<View> fakeStatusIcons = new WeakReference<>(null);
         WeakReference<View> phoneStatusIcons = new WeakReference<>(null);
         boolean hidden, buttonHidden;
-        float clockAlpha, dateAlpha, carrierAlpha;
+        float dateAlpha, carrierAlpha;
         int nativeButtonVisibility;
         HeaderState(View header) {
             clock = new WeakReference<>(textView(header, "qs_footer_clock"));
@@ -209,14 +219,12 @@ public final class NotificationBigClock {
             settingsButton = new WeakReference<>(childView(header, "settings_button"));
         }
         void hide() {
-            TextView c = clock.get(), d = date.get();
+            TextView d = date.get();
             View operator = carrier.get();
             // Native transition writers may change alpha after our last frame; retain their latest value.
-            if (!hidden || (c != null && c.getAlpha() != 0f)) clockAlpha = c == null ? 1f : c.getAlpha();
             if (!hidden || (d != null && d.getAlpha() != 0f)) dateAlpha = d == null ? 1f : d.getAlpha();
             if (!hidden || (operator != null && operator.getAlpha() != 0f)) carrierAlpha = operator == null ? 1f : operator.getAlpha();
             hidden = true;
-            if (c != null) c.setAlpha(0f);
             if (d != null) d.setAlpha(0f);
             if (operator != null) operator.setAlpha(0f);
             View button = settingsButton.get();
@@ -228,8 +236,7 @@ public final class NotificationBigClock {
         }
         void restore() {
             if (!hidden) return;
-            TextView c = clock.get(), d = date.get();
-            if (c != null) c.setAlpha(clockAlpha);
+            TextView d = date.get();
             if (d != null) d.setAlpha(dateAlpha);
             View operator = carrier.get();
             if (operator != null) operator.setAlpha(carrierAlpha);
@@ -281,8 +288,22 @@ public final class NotificationBigClock {
     /** May be called when settings are reloaded; view work is dispatched through the existing panel. */
     public void configure(Bundle source) {
         settings = new Settings(source);
+        // Retire the previous fixed-row policy before a native Phone-only alpha owner may run.
+        fixedStatusIcons.setPhoneCaptureAllowed(false);
+        fixedStatusIcons.hide();
+        // The control-center fake/header already owns the real Phone RIGHT handoff.
+        // A second force-zero owner breaks that native render transition at both endpoints.
+        phoneRightIcons.configure(false);
+        notificationRightIcons.configure(settings.rightStatusIconsEnabled && !settings.safeMode,
+                settings.enabled && !settings.safeMode);
+        restoreClosingSources();
+        if (settings.safeMode || !settings.statusIconsEnabled && !settings.enabled)
+            pageLeftIcons.restoreNotificationCopies();
         if (ModuleLifecycle.removed()) {
             fixedStatusIcons.releaseRuntime();
+            phoneRightIcons.releaseRuntime();
+            notificationRightIcons.releaseRuntime();
+            pageLeftIcons.release();
             clearSeparateQsStatus();
         }
         fixedStatusIcons.configureDiagnostics();
@@ -302,6 +323,7 @@ public final class NotificationBigClock {
     /** Hook OplusQSSimpleHeader.onInit / onFinishInflate after native child initialization. */
     public void onHeaderInflated(View header) {
         if (header == null) return;
+        notificationRightIcons.detached(header);
         HeaderState previous = headers.remove(header);
         if (previous != null) {
             previous.restore();
@@ -316,6 +338,9 @@ public final class NotificationBigClock {
             state.phoneStatusIcons = previous.phoneStatusIcons;
         }
         headers.put(header, state);
+        notificationRightIcons.clock(header, state.clock.get());
+        if (state.fakeStatusIcons.get() != null)
+            notificationRightIcons.bind(header, state.statusIcons.get(), state.fakeStatusIcons.get(), state.phoneStatusIcons.get());
         header.addOnLayoutChangeListener(headerLayoutListener);
         View icons = state.statusIcons.get();
         if (icons != null) icons.addOnLayoutChangeListener(headerLayoutListener);
@@ -340,6 +365,7 @@ public final class NotificationBigClock {
     }
 
     public void onHeaderDetached(View header) {
+        notificationRightIcons.detached(header);
         HeaderState state = headers.remove(header);
         header.removeOnLayoutChangeListener(headerLayoutListener);
         if (state != null) {
@@ -355,8 +381,7 @@ public final class NotificationBigClock {
     /** Only barState=0, portrait and the notification page may draw this clock. */
     public void onPanelMotionState(boolean running, boolean settledClosed) {
         panelSettledClosed = settledClosed && !running;
-        if (statusIconsSettledClosed()) fixedStatusIcons.hide();
-        fixedStatusIcons.setPhoneCaptureAllowed(statusIconsSettledClosed() && statusIconsBarState() == 0);
+        refreshStatusIcons();
     }
 
     public void setReboundReader(ReboundReader reader) { reboundReader = reader; }
@@ -585,20 +610,8 @@ public final class NotificationBigClock {
     public void onFakeClockChanged(View fakeClock, float presentFraction, View phoneClock) {
         if (fakeClock == null) return;
         if (eligible()) for (HeaderState header : new ArrayList<>(headers.values())) header.hide();
-        float f = NotificationBigClockModel.bounded(presentFraction, 0f, 0f, 1f);
-        if (!eligible()) {
-            FakeState previous = fakeClocks.remove(fakeClock);
-            if (previous != null) previous.restore(fakeClock, f > 0f && f < 1f);
-            return;
-        }
-        FakeState state = fakeClocks.get(fakeClock);
-        if (state == null) { state = new FakeState(fakeClock); fakeClocks.put(fakeClock, state); }
-        else state.captureNative(fakeClock);
-        showClosingSource(fakeClock, phoneClock, f, true);
-        // Keep the replaced copy suppressed through both directions, including spring zero crossings.
-        // Native spring and horizontal page transitions retain ownership of every transform.
-        fakeClock.setAlpha(0f);
-        state.markApplied(fakeClock);
+        refreshStatusIcons();
+        pageLeftIcons.notification(fakeClock, phoneClock, hideNotificationLeft(), StatusIconTransition.CLOCK);
     }
 
     /** Bind all native right-side sources independently of the notification clock feature. */
@@ -607,20 +620,24 @@ public final class NotificationBigClock {
     }
 
     public void onFakeStatusChanged(View group, View header, View phoneAnchor) {
-        fixedStatusIcons.setPhoneCaptureAllowed(statusIconsSettledClosed() && statusIconsBarState() == 0);
-        if (phoneAnchor != null) fixedStatusIcons.observePhoneAnchor(phoneAnchor);
+        if (phoneAnchor != null) phoneRightIcons.bind(phoneAnchor);
         HeaderState source = headers.get(header);
         if (source != null && source.fakeStatusIcons.get() != group)
             source.fakeStatusIcons = new WeakReference<>(group);
         if (source != null && source.phoneStatusIcons.get() != phoneAnchor)
             source.phoneStatusIcons = new WeakReference<>(phoneAnchor);
+        if (source != null && source.statusIcons.get() != separateQsIcons.get()
+                && group != separateQsFakeIcons.get())
+            notificationRightIcons.bind(header, source.statusIcons.get(), group, phoneAnchor);
         refreshStatusIcons();
     }
 
-    /** Exact QS plugin callback. It updates only the shared right slot, never notification layout. */
+    /** Exact QS plugin callback. It updates Phone opacity only, never native shade RIGHT/layout. */
     public void onSeparateQsStatusChanged(View nativePanel, View icons, View phone, View fake,
             float displayedFraction, int nativeBarState, boolean settledClosed) {
-        if (ModuleLifecycle.removed()) { clearSeparateQsStatus(); fixedStatusIcons.releaseRuntime(); return; }
+        if (ModuleLifecycle.removed()) {
+            clearSeparateQsStatus(); fixedStatusIcons.releaseRuntime(); phoneRightIcons.releaseRuntime(); return;
+        }
         if (nativePanel == null || !NotificationBigClockModel.finite(displayedFraction)) return;
         if (separateQsPanel.get() != nativePanel) separateQsPanel = new WeakReference<>(nativePanel);
         if (separateQsIcons.get() != icons) separateQsIcons = new WeakReference<>(icons);
@@ -629,8 +646,7 @@ public final class NotificationBigClock {
         separateQsFraction = NotificationBigClockModel.clamp(displayedFraction, 0f, 1f);
         separateQsBarState = nativeBarState;
         separateQsSettledClosed = settledClosed;
-        fixedStatusIcons.setPhoneCaptureAllowed(statusIconsSettledClosed() && statusIconsBarState() == 0);
-        if (phone != null) fixedStatusIcons.observePhoneAnchor(phone);
+        if (phone != null) phoneRightIcons.bind(phone);
         refreshStatusIcons();
     }
 
@@ -645,7 +661,9 @@ public final class NotificationBigClock {
         separateQsFraction = 0f; separateQsSettledClosed = true; separateQsBarState = -1;
     }
 
-    private boolean statusIconsSettledClosed() { return panelSettledClosed && separateQsSettledClosed; }
+    private boolean statusIconsSettledClosed() {
+        return panelSettledClosed && separateQsSettledClosed && (pageMotion == null || !pageMotion.isRunning());
+    }
 
     private int statusIconsBarState() {
         if (!separateQsSettledClosed && separateQsBarState != 0) return separateQsBarState;
@@ -670,25 +688,60 @@ public final class NotificationBigClock {
         fixedStatusIcons.setNativeCopyInspector(inspector);
     }
 
-    public void onStatusIconHorizontalProgressChanged() { fixedStatusIcons.onHorizontalProgressChanged(); }
+    public void onStatusIconHorizontalProgressChanged() {
+        refreshStatusIcons();
+    }
+
+    public void onSeparateQsLeftChanged(View nativePanel, View clockContainer, View clockCopy, View phoneClock,
+            View notificationContainer, View notificationCopy, View phoneNotifications,
+            int nativeBarState, boolean settledClosed) {
+        // The original SeparateQSFakeStatusController owns LEFT exactly as it owns RIGHT.
+    }
+    public void onSeparateQsLeftDetached(View nativePanel) { }
+    public float statusIconLeftTransitionAlpha(View target, float nativeAlpha) {
+        return nativeAlpha;
+    }
+    public float statusIconNotificationTransitionAlpha(View target, float nativeAlpha) {
+        return nativeAlpha;
+    }
 
     public void onStatusIconCopyBound(View copy, View copiedSource, int kind) {
-        fixedStatusIcons.onNativeCopyBound(copy, copiedSource, kind);
+        if ((kind == StatusIconTransition.CLOCK || kind == StatusIconTransition.NOTIFICATIONS)
+                && pageLeftIcons.notificationSourceBound(copy, copiedSource)) {
+            refreshStatusIcons();
+        }
+        if (kind == StatusIconTransition.RIGHT) notificationRightIcons.copyBound(copy, copiedSource);
         if (kind == StatusIconTransition.RIGHT && copiedSource != null) try {
             if (copiedSource.getId() > 0 && "status_bar_end_side_container_for_fake".equals(
                     copiedSource.getResources().getResourceEntryName(copiedSource.getId()))) {
-                fixedStatusIcons.setPhoneCaptureAllowed(statusIconsSettledClosed() && statusIconsBarState() == 0);
-                fixedStatusIcons.observePhoneAnchor(copiedSource);
+                phoneRightIcons.bind(copiedSource);
+                refreshStatusIcons();
             }
         } catch (Throwable ignored) { }
     }
 
     public boolean suppressStatusIconCopy(View copy, View copiedSource, int kind) {
-        boolean closed = statusIconsSettledClosed();
+        if (kind == StatusIconTransition.RIGHT) return notificationRightIcons.suppressCopy(copy, copiedSource);
         int state = statusIconsBarState();
-        String gate = settings.safeMode ? "safe" : state != 0 ? "keyguard" : closed ? "closed" : "open";
-        return fixedStatusIcons.suppressNativeCopy(copy, copiedSource, kind,
-                !settings.safeMode && state == 0 && !closed, gate);
+        if (settings.rightStatusIconsEnabled && !settings.safeMode && state == 0
+                && pageLeftIcons.suppressNotification(copy, copiedSource)) return true;
+        return false;
+    }
+
+    public float statusIconPhoneRightAlpha(View target, float nativeAlpha) {
+        float value = phoneRightIcons.nativeAlpha(target, nativeAlpha);
+        return pageLeftIcons.notificationAlpha(target, notificationRightIcons.nativeAlpha(target, value));
+    }
+
+    public boolean ownsNotificationRightCopy(View copy) { return notificationRightIcons.ownsCopy(copy); }
+    public int nativeNotificationHeaderVisibility(View target, int value) {
+        return notificationRightIcons.nativeVisibility(target, value);
+    }
+    public float statusIconPhoneLeftTranslationY(View target, float value) {
+        return value;
+    }
+    public void onNotificationFakeParents(View moving, View fixed, boolean clockGone) {
+        // Native parent visibility and the isFakeClockGone policy are never overridden.
     }
 
     public void onFakeCarrierChanged(View carrier, float presentFraction) {
@@ -715,47 +768,19 @@ public final class NotificationBigClock {
 
     public void onFakeNotificationChanged(View notificationCopy, View phoneNotifications, float presentFraction) {
         if (notificationCopy == null) return;
-        if (!eligible()) {
-            FakeState previous = fakeClocks.remove(notificationCopy);
-            if (previous != null) previous.restore(notificationCopy, false);
-            return;
-        }
-        FakeState state = fakeState(notificationCopy);
-        float f = NotificationBigClockModel.bounded(presentFraction, 0f, 0f, 1f);
-        showClosingSource(notificationCopy, phoneNotifications, f, false);
-        notificationCopy.setAlpha(0f);
-        state.markApplied(notificationCopy);
+        refreshStatusIcons();
+        pageLeftIcons.notification(notificationCopy, phoneNotifications, hideNotificationLeft(), StatusIconTransition.NOTIFICATIONS);
     }
 
-    private void showClosingSource(View copy, View source, float displayedFraction, boolean clock) {
-        if (source == null || copy == null) return;
-        View old = clock ? closingPhoneClock.get() : closingPhoneNotifications.get();
-        if (old != null && old != source) {
-            closingStatusIcons.removeSource(old);
-            FakeState retired = closingStatusSources.remove(old);
-            if (retired != null) retired.restore(old, false);
-            closingStatusIcons.resetFailure();
-        }
-        FakeState previous = closingStatusSources.get(source);
-        if (previous != null) previous.captureNative(source);
-        if (!closingStatusIcons.show(copy.getRootView(), source, displayedFraction)) {
-            restoreClosingSources();
-            return;
-        }
-        if (clock) closingPhoneClock = new WeakReference<>(source);
-        else closingPhoneNotifications = new WeakReference<>(source);
-        if (previous == null) {
-            previous = new FakeState(source);
-            closingStatusSources.put(source, previous);
-        }
-        // The real Phone window may become visible before shade reaches zero. Render one
-        // copy in the shade overlay, then hand its original alpha back at the closed boundary.
-        source.setAlpha(0f);
-        previous.markApplied(source);
+    private boolean hideNotificationLeft() {
+        return settings.rightStatusIconsEnabled && !settings.safeMode && statusIconsBarState() == 0
+                && !ModuleLifecycle.removed() && !statusIconsSettledClosed()
+                && (panelSettledClosed || qsExpanded || fraction >= .2f || pageMotion != null && pageMotion.isRunning());
     }
 
     private void restoreClosingSources() {
         closingStatusIcons.hide();
+        if (closingStatusSources.isEmpty()) return;
         for (Map.Entry<View, FakeState> entry : new ArrayList<>(closingStatusSources.entrySet()))
             if (entry.getKey() != null) entry.getValue().restore(entry.getKey(), false);
         closingStatusSources.clear();
@@ -823,10 +848,14 @@ public final class NotificationBigClock {
     /** Configuration changes, page switches and feature disable all release our native overrides. */
     public void restore() {
         fixedStatusIcons.hide();
+        if (!hideNotificationLeft()) {
+            phoneRightIcons.restore();
+            notificationRightIcons.restore();
+        }
         restoreClock();
     }
 
-    /** QS switches may release the clock while the shared right-side slot remains owned. */
+    /** The Phone opacity policy is independent of releasing the notification clock layout. */
     private void restoreClock() {
         boolean wasActive = active;
         active = false;
@@ -945,53 +974,19 @@ public final class NotificationBigClock {
         if (entering) notifyVisibilityChanged();
     }
 
-    /** Notification/QS/landscape share this slot; keyguard and a settled close restore all sources. */
+    /** Hide obsolete notification copies only; all Phone/control-center handoff stays native. */
     private void refreshStatusIcons() {
-        View host = panel.get();
-        if (host == null) host = separateQsPanel.get();
         boolean closed = statusIconsSettledClosed();
         int state = statusIconsBarState();
-        fixedStatusIcons.setPhoneCaptureAllowed(closed && state == 0);
-        if (settings.safeMode || host == null || state != 0 || closed) {
-            fixedStatusIcons.traceRuntimeStage(settings.safeMode ? "gate safe mode" : host == null ? "gate panel missing"
-                    : state != 0 ? "gate keyguard state" : "gate settled closed");
-            fixedStatusIcons.hide();
-            return;
-        }
-        float displayed = Math.max(panelSettledClosed ? 0f : fraction,
-                separateQsSettledClosed ? 0f : separateQsFraction);
-        View qsIcons = separateQsIcons.get();
-        if (!separateQsSettledClosed && qsIcons != null && qsIcons.isAttachedToWindow()
-                && qsIcons.getVisibility() != View.GONE) {
-            View phone = separateQsPhone.get();
-            if (phone == null) phone = fixedStatusIcons.observedPhoneAnchor();
-            View companion = null;
-            for (HeaderState header : headers.values()) {
-                View other = header.statusIcons.get();
-                if (other != null && other.isAttachedToWindow() && other.getRootView() == qsIcons.getRootView()) {
-                    companion = other; break;
-                }
-            }
-            fixedStatusIcons.traceRuntimeStage("gate separate QS sources available");
-            if (phone != null && fixedStatusIcons.show(qsIcons.getRootView(), qsIcons, phone,
-                    separateQsFakeIcons.get(), companion, displayed)) return;
-        }
-        for (HeaderState header : headers.values()) {
-            View icons = header.statusIcons.get(), anchor = header.phoneStatusIcons.get();
-            if (anchor == null) anchor = fixedStatusIcons.observedPhoneAnchor();
-            if (icons == null || anchor == null || !icons.isAttachedToWindow()) {
-                fixedStatusIcons.traceRuntimeStage(icons == null ? "gate status row missing" : anchor == null
-                        ? "gate native anchor missing" : "gate status row detached");
-                continue;
-            }
-            fixedStatusIcons.traceRuntimeStage("gate sources available");
-            if (fixedStatusIcons.show(icons.getRootView(), icons, anchor,
-                    header.fakeStatusIcons.get(), qsIcons, displayed)) {
-                return;
-            }
-        }
-        if (headers.isEmpty() && qsIcons == null) fixedStatusIcons.traceRuntimeStage("gate header missing");
-        fixedStatusIcons.hide();
+        boolean managed = settings.rightStatusIconsEnabled && !settings.safeMode && state == 0;
+        boolean hide = managed && !closed;
+        if (!managed || closed) pageLeftIcons.restoreNotificationCopies();
+        pageLeftIcons.progress(hideNotificationLeft());
+        // A single page fraction can cross zero while another page/its native switch still owns
+        // the shade. Release only at the real global settled close, never at a horizontal zero.
+        phoneRightIcons.progress(1f, false);
+        // LEFT and RIGHT keep the original OEM Phone/fake/header rendering chain.
+        notificationRightIcons.progress(1f, hide);
     }
 
     private void applyPadding(View stack, StackState state) {
@@ -1163,14 +1158,17 @@ public final class NotificationBigClock {
             scheduleWidgets();
         }
         boolean refreshText(boolean force) {
-            long now = System.currentTimeMillis();
+            return refreshText(force, System.currentTimeMillis());
+        }
+        boolean refreshText(boolean force, long now) {
             Settings s = settings;
             long bucket = now / (s.seconds ? 1000L : 60000L);
             if (!force && s == textSettings && bucket == textBucket) return false;
             boolean animate = textSettings == s && textBucket != Long.MIN_VALUE && bucket != textBucket && hasVisibleTime();
-            String nextTime = TimeFormat.format(s.pattern, now);
-            String nextDate = s.dateEnabled ? TimeFormat.format(s.datePattern, now) : "";
-            String nextFooter = s.footerEnabled ? TimeFormat.formatContent(s.footerPattern, s.footerText, now) : "";
+            java.util.TimeZone zone = java.util.TimeZone.getDefault();
+            String nextTime = TimeFormat.format(s.pattern, now, zone);
+            String nextDate = s.dateEnabled ? TimeFormat.format(s.datePattern, now, zone) : "";
+            String nextFooter = s.footerEnabled ? TimeFormat.formatContent(s.footerPattern, s.footerText, now, zone) : "";
             boolean changed = !time.equals(nextTime) || !date.equals(nextDate) || !footer.equals(nextFooter);
             if (!time.equals(nextTime)) {
                 time = nextTime;
@@ -1194,15 +1192,8 @@ public final class NotificationBigClock {
             return getHeight() > 0 ? getHeight() : host != null && host.getHeight() > 0 ? host.getHeight()
                     : getResources().getDisplayMetrics().heightPixels;
         }
-        Typeface face(int requestedWeight, boolean time) {
-            return face(requestedWeight, time, 1f);
-        }
-        Typeface face(int requestedWeight, boolean time, float heightRatio) {
-            int weight = Math.max(100, Math.min(900, requestedWeight));
-            if (time && "native".equals(settings.font) && heightFont != null) {
-                Typeface variable = heightFont.typeface(weight, heightRatio);
-                if (variable != null) return variable;
-            }
+        Typeface fallbackFace(int requestedWeight, boolean time) {
+            int weight = Math.max(1, Math.min(1000, requestedWeight));
             int cacheKey = weight + (time ? 0 : 1000);
             Typeface result = faces.get(cacheKey);
             if (result == null) {
@@ -1217,8 +1208,14 @@ public final class NotificationBigClock {
             textStyle(view, text, size, weight, spacing, 1f);
         }
         void textStyle(TextView view, String text, float size, int weight, float spacing, float heightRatio) {
-            Typeface wanted = face(weight, view instanceof ClockText, heightRatio);
-            if (view.getTypeface() != wanted) view.setTypeface(wanted);
+            boolean time = view instanceof ClockText;
+            Typeface nativeHeight = time && "native".equals(settings.font) && heightFont != null
+                    ? heightFont.typeface(Math.max(1, Math.min(1000, weight)), heightRatio) : null;
+            if (nativeHeight != null) FontWeight.restore(view, nativeHeight, null);
+            else FontWeight.apply(view, fallbackFace(weight, time),
+                    FontRepository.weightForMode(settings.font, weight),
+                    time && ("native".equals(settings.font) || "global".equals(settings.font) && FontRepository.systemMode())
+                            ? nativeStyle.fontVariationSettings : null);
             if (view.getTextSize() != size) view.setTextSize(TypedValue.COMPLEX_UNIT_PX, size);
             float em = Math.min(64f, Math.max(-.5f, spacing));
             if (view.getLetterSpacing() != em) view.setLetterSpacing(em);
@@ -1448,7 +1445,7 @@ public final class NotificationBigClock {
                 float x = s.offsetX + s.compactOffsetX * f.progress;
                 boolean nativeReady = nativeClock != null && nativeClock.isAvailable()
                         && nativeClock.setTypography(clock.getTypeface(), size, clock.getCurrentTextColor(),
-                                nativeStyle.letterSpacing + s.letterSpacing);
+                                nativeStyle.letterSpacing + s.letterSpacing, clock.getFontVariationSettings());
                 if (nativeReady) {
                     nativeClock.setGlass(s.glass, density()); measureText(nativeClock);
                     nativeClock.setGlassBorder(s.glass && s.glassBorderEnabled, clock.borderWidth, borderColor);

@@ -36,6 +36,7 @@ public final class FeatureOptions {
         // Retained for old imports/runtime transport; no longer a user-editable switch.
         defaults.put(StatusBarSettings.DATA_ACTIVITY_HIDDEN, true);
         add(defaults, groups, "data", "data_single_enabled", true);
+        add(defaults, groups, "data", DataBatterySpacing.ENABLED, false);
         add(defaults, groups, "wifi", "wifi_icon_enabled", true);
         add(defaults, groups, "wifi", "wifi_badge_hidden", true);
         add(defaults, groups, "wifi", "wifi_activity_hidden", true);

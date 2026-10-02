@@ -48,6 +48,7 @@ public final class NotificationNativeClock extends FrameLayout {
     private final IdentityHashMap<Paint, Shader> originalShaders = new IdentityHashMap<>();
     private String time = "";
     private Typeface typeface = Typeface.DEFAULT;
+    private String fontVariations;
     private float size, spacing, glassDensity = 1f;
     private int color = Color.WHITE, warnings;
     private boolean available = true, glass;
@@ -106,6 +107,7 @@ public final class NotificationNativeClock extends FrameLayout {
                 TextView text = (TextView) source;
                 result.typeface = text.getPaint().getTypeface();
                 if (result.typeface == null) result.typeface = text.getTypeface();
+                result.fontVariations = text.getFontVariationSettings();
                 result.size = text.getTextSize(); result.color = text.getCurrentTextColor();
                 result.suppliedShader = text.getPaint().getShader();
             }
@@ -169,12 +171,19 @@ public final class NotificationNativeClock extends FrameLayout {
 
     /** The supplied face may contain the actual lockscreen weight/height axes or a custom font. */
     public boolean setTypography(Typeface face, float textSizePx, int textColor, float letterSpacing) {
+        return setTypography(face,textSizePx,textColor,letterSpacing,null);
+    }
+
+    /** Copies explicit Paint axes as well as the face into this bridge's private native layers. */
+    public boolean setTypography(Typeface face, float textSizePx, int textColor, float letterSpacing,
+            String variations) {
         if (!available) return false;
         Typeface nextFace = face == null ? Typeface.DEFAULT : face;
         float nextSize = finite(textSizePx) ? Math.max(0f, textSizePx) : size;
         float nextSpacing = finite(letterSpacing) ? letterSpacing : 0f;
-        if (typeface == nextFace && size == nextSize && color == textColor && spacing == nextSpacing) return true;
-        typeface = nextFace; size = nextSize; color = textColor; spacing = nextSpacing;
+        if (typeface == nextFace && size == nextSize && color == textColor && spacing == nextSpacing
+                && java.util.Objects.equals(fontVariations,variations)) return true;
+        typeface = nextFace; size = nextSize; color = textColor; spacing = nextSpacing; fontVariations=variations;
         glassShader = null;
         try {
             for (Slot slot : slots) slot.applyTypography();
@@ -488,6 +497,12 @@ public final class NotificationNativeClock extends FrameLayout {
         void styleLayer(TextView view) throws ReflectiveOperationException {
             if (digit) nativeAccess.setFont.invoke(view, typeface, true, false);
             else view.setTypeface(typeface);
+            Paint rt=null;
+            if(digit&&nativeAccess.getRtPaint!=null){
+                Object value=nativeAccess.getRtPaint.invoke(view);
+                if(value instanceof Paint)rt=(Paint)value;
+            }
+            applyLayerFont(view,typeface,fontVariations,rt);
             view.setTextSize(TypedValue.COMPLEX_UNIT_PX, size); view.setTextColor(color);
             view.setLetterSpacing(digit ? 0f : spacing);
         }
@@ -606,6 +621,12 @@ public final class NotificationNativeClock extends FrameLayout {
                 } catch (ReflectiveOperationException | RuntimeException error) { warn(error); }
             }
         }
+    }
+
+    /** Native animations can retain a separate RT Paint; only our private copies are changed. */
+    private static void applyLayerFont(TextView view,Typeface face,String variations,Paint rt){
+        FontWeight.restore(view,face,variations);
+        if(rt!=null&&rt!=view.getPaint())FontWeight.restore(rt,face,variations);
     }
 
     /** No fields on the controller singleton are modified; all animation targets belong to this view. */

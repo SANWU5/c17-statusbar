@@ -1,14 +1,16 @@
 # ColorOS 17 的统一磁贴圆角
 
-当前适配目标为 OnePlus 13 的 Android 17 / ColorOS 17。`qs_tile_corners_enabled` 默认关闭，`qs_tile_corner_radius` 默认 `24dp`，硬范围 `0..80dp`。已有用户保存的开关和半径优先，不重置偏好。开启时按控件密度换算像素，以实际背景宽高较小值的一半约束半径；关闭时恢复各控件自己的原生圆角。
+当前正式版 `1.6.0` / versionCode 51 的适配目标为 OnePlus 13 的 Android 17 / ColorOS 17。`qs_tile_corners_enabled` 默认关闭，`qs_tile_corner_radius` 默认 `24dp`，硬范围为 `0..30dp`，手动输入和配置导入同样遵守。旧配置文件中的超范围半径不会因为打开设置页而回写，实际绘制以30dp及控件宽高一半为上限；重新编辑保存时需使用新范围。开启时按控件密度换算像素；关闭时恢复各控件自己的原生圆角。
 
-最终code40的正式Gradle classes复验面板圆角743项、磁贴圆角655项通过；code38的专用圆角实机观察与此版使用相同圆角实现，覆盖0dp与关闭后的各类原生形状恢复。完整构建哈希与有限实机范围见 [VALIDATION.md](../VALIDATION.md)。
+beta2 开发阶段曾对照用户指定的 [Maga-King/coloros16-control-center](https://github.com/Maga-King/coloros16-control-center) 审查原生背景、几何和动画两端的处理思路；读取时未见授权许可证，没有复制其源码。当前版保留本项目已接入的目标 ROM 原生 provider、滑块轨道和材质路径，范围收紧并增加独立 1×1 图标调节。正式构建、检查与本版实机范围见 [VALIDATION.md](../VALIDATION.md)。以下 code38/code40 设备证据均属于 beta1 历史，不代表本版实机通过。
 
 ## 快捷开关磁贴
 
 `QsTileCorners` 覆盖 `OplusQSResizeableTileView` 和目标系统全部四种子类：`OneXOne`、`TwoXOne`、`TwoXTwo`、`OplusQSResizeableThreeStageView`。
 
-每个实例单独拥有背景 provider。系统 `QSConstant.getSmoothRoundRectOutlineProvider(Context,float)` 会把设计半径映射为更大的 smooth 半径；本实现保留其原生 smooth weight，再通过 `RoundRectOutlineProvider.update(float,Float)` 规范为已经按实际尺寸约束的像素值，避免再次放大造成形状及内容边缘异常。
+每个实例单独拥有背景 provider。系统 `QSConstant.getSmoothRoundRectOutlineProvider(Context,float)` 会把设计半径映射为更大的 smooth 半径；当前实现用其原生24dp连续圆角模板取得统一的 smooth weight，再通过 `RoundRectOutlineProvider.update(float,Float)` 写入已经按实际尺寸约束的像素半径。模板只用于取得原生连续角参数，不把用户半径改成24dp，也不再次放大半径；0dp和小数半径不会因工厂分支不同而切换为另一套圆角。
+
+磁贴、音乐、滑块和设备卡共用上述无量纲连续角参数，使用本机原生返回值，不硬编码为3。已核对目标系统的 `OplusOutline/OplusOutlineAdapter.setSmoothRoundRect`、`OplusPath/OplusCanvas` 连续路径接口，以及 `BlurConfig.radiusWeight` 向 `OplusBlurParam.setSmoothCornerWeight` 的传递，属于同一种原生曲线参数。实际半径统一为 `min(dp × density, min(localWidth, localHeight) / 2)`，不按卡片大小比例换算静态半径。
 
 目标 ROM 的 `TileDrawableDelegate.getPathProvider()` 优先返回非空的 `blockPathProvider`，因此只替换普通 provider 无法完整覆盖背景。实现分别读取并跟踪 delegate 的静态路径和临时路径。原生 fixed-tile `TileDeformOutlineProvider` 使用实例专属的同类型 provider，保留其 span 和描边实现；未知的 launch/dialog provider 继续由原生拥有。关闭、安全模式及回收时恢复最新的原生静态路径和 fixed provider。不会修改共享资源池或共享 provider。
 
@@ -18,17 +20,17 @@
 
 `QsPanelCorners` 对不属于快捷开关基类的控件单独适配，不裁剪整个控件。
 
-- 亮度、音量的五个原生 radius 字段保持不变。真实 `COUIVerticalSeekBar.draw()` 使用半径计算轨道 top、height、thumb 位置和 clipping rectangle，所以不能在整次 draw 中替换这些字段。新的作用域只记录当前 `OplusQsVerticalSeekBar` 的真实 Path/Adapter/Paint 和 Canvas 身份；OEM smooth path 及普通 roundrect 的最终曲率参数按原生按压比例调整，矩形坐标、权重、材料、thumb/input 几何不变。Android Path/Canvas fallback 必须同时命中当前原生 draw 与实际路径/paint 身份，图标、其他内容和普通 COUI 控件不参与。
-- 滑块玻璃同时接入 `QsSeekBarBlurManager.createSeekBarBlurDrawable()`、`applySeekBarBgBlurConfig()` 和 `applySeekBarActiveBlurConfig()`，仅修改实际原生矩形内的 corner radius。目标 ROM 的首次 factory 不调用后两者，单独 hook 更新接口会漏掉首次创建。`updateBaseMixColorDrawableRadius()` 另记录最新原生半径，并用作用域避免 factory/setter 转发时重复施加按压比例。关闭与安全模式恢复该原生值，异常路径释放作用域并恢复已经修改的 blur。
+- 亮度、音量的五个原生 radius 字段及原生 weight 字段保持不变。真实 `COUIVerticalSeekBar.draw()` 使用半径计算轨道 top、height、thumb 位置和 clipping rectangle，所以不能在整次 draw 中替换这些字段。作用域只记录当前 `OplusQsVerticalSeekBar` 的真实 Path/Adapter/Paint 和 Canvas 身份；最终路径采用统一连续角参数，按原生当前半径与基准半径的比例保留按压形变。原生最终 weight 如有相对当前基准的变化，也保留该动态比例。矩形坐标、材料、thumb/input 几何不变；零半径的活动轨道接合角仍保留。Android Path/Canvas fallback 必须同时命中当前原生 draw 与实际路径/paint 身份，图标、其他内容和普通 COUI 控件不参与。
+- 滑块玻璃同时接入 `QsSeekBarBlurManager.createSeekBarBlurDrawable()`、`applySeekBarBgBlurConfig()` 和 `applySeekBarActiveBlurConfig()`，只同步实际原生矩形内的半径与连续角参数，保留 mirror、stroke 和材质。目标 ROM 的首次 factory 不调用后两者，单独 hook 更新接口会漏掉首次创建。`updateBaseMixColorDrawableRadius()` 另记录最新原生半径，独立作用域覆盖配置更新时尚未开始 draw 的调用，并避免 factory/setter 转发时重复施加按压比例。关闭、安全模式和回收恢复原生参数，恢复调用不会再次进入自定义参数重写。
 - 音乐卡同时同步 `OplusQsBaseMediaPanelView` 的静态 provider 与 `OplusQsMediaBackgroundDrawable.setCornerParams(radius,weight)` 的光照路径。原生临时 block provider 存在时光照匹配当前有效路径；清除后恢复当前配置。关闭动画途中仍观察 block 清除，使光照最终恢复静态原生路径。新测量尺寸优先于尚未完成布局的旧尺寸。
-- 设备卡覆盖 separate-card 基类 `d` 的全部五种设备/入口子类，由 `QsDeviceCorners` 单独拥有各真实 native surface。实际 DEX 的 inner body 是 `y/s/v/s/q` 字段，不再要求资源属于固定 package。分别跟踪当前 body background、`getBlurDrawable()`、现有 body/outer outline 及 smooth provider：`d.h()` 在 `g()` 换背景之前可能把旧 blur provider 绑定外层，旧外层与新背景必须同时更新。原生 `PluginDrawable` 是 `DrawableWrapper` 子类，setter 更新独立的 `RoundRectOutlineProvider` 并调用 `invalidatePath()`；每个 surface 单独保存真实原生 radius/weight，包含 OnePlus 的 null weight，不统一用资源默认值覆盖。换绑退休对象、关闭、安全模式与 detach 都恢复各自最新原生值。主题 GradientDrawable 保留原对象、颜色、shader 与原生非对称角数组。不会添加 outline、设置 clipToOutline 或改变 View/content/input 布局。
-- 原生 `EditablePluginViewHolder$realPluginContainer$2$1` 另有独立高光路径。仅当它包含已跟踪的面板控件时，窄范围调整其 `getViewRadius()` 返回值。不会改写 final radius 字段、设置新的 clip、移动内容或调整点击布局。未知插件、关闭、安全模式和失去所有权时保留原生值。
+- 设备卡覆盖 separate-card 基类 `d` 的全部五种设备/入口子类，由 `QsDeviceCorners` 单独拥有各真实 native surface。实际 DEX 的 inner body 是 `y/s/v/s/q` 字段，不再要求资源属于固定 package。分别跟踪当前 body background、`getBlurDrawable()`、现有 body/outer outline 及 smooth provider：`d.h()` 在 `g()` 换背景之前可能把旧 blur provider 绑定外层，旧外层与新背景必须同时更新。原生 `PluginDrawable` 是 `DrawableWrapper` 子类，setter 更新独立的 `RoundRectOutlineProvider` 并调用 `invalidatePath()`。当前版还同步同一 `BlurConfig` 的五个实际半径字段及独立 `radiusWeight`，最后调用本实例 `applyBlurConfig()`，避免 provider 与真正显示的材质使用不同曲线。每个 surface 保存各自原生半径和 weight，包括 null weight；原生只改变 weight 时不把模块半径误记为新的恢复基线。换绑退休对象、关闭、安全模式与 detach 都恢复各自最新原生值，部分写入失败回滚整次事务。主题 GradientDrawable 保留原对象、颜色、shader 与原生非对称角数组。不会添加 outline、设置 clipToOutline 或改变 View/content/input 布局。
+- 原生 `EditablePluginViewHolder$realPluginContainer$2$1` 另有独立高光路径。仅当它包含已拥有的设备或音乐控件时，窄范围调整 `getViewRadius()`，并在其 `updateSpotLightPath()` 作用域内对确切 Path/Adapter 使用同一个 OEM 连续路径接口；保留原生矩形边界与路径方向。不会改写 final radius 字段、编辑描边或 shadow，不设置新的 clip、不移动内容、不调整点击布局。未知 adapter、关闭、安全模式和失去所有权时保留原生路径。
 
 上述路径保留原生颜色、透明度、着色器和玻璃材质。安全模式仍执行原生资源、尺寸、背景重建和 attach/detach 方法；观察回调用于恢复和退出安全模式后的重新绑定，不阻止原生方法。
 
 ## 配置、迁移与加载
 
-旧 `qs_tile_2x1_corner_radius` 仅作为迁移读取键，新统一键优先。导出只写新键；旧键导入转换为新键。迁移只复制旧半径与记录迁移标记，不自动开启功能；旧配置的显式关闭值不再被覆盖。导入与运行时均约束 `0..80dp`。
+旧 `qs_tile_2x1_corner_radius` 仅作为迁移读取键，新统一键优先。导出只写新键；旧键导入转换为新键。迁移只复制旧半径与记录迁移标记，不自动开启功能；旧配置的显式关闭值不再被覆盖。当前导入和新保存的硬范围为 `0..30dp`，运行时按该范围和实际轮廓半径保护；历史 `0..80dp` 仅属于下文 beta1 记录。
 
 所有功能主开关默认关闭，已有保存配置优先并继续开机加载。运营商的通知页、控制中心、锁屏三个场景分别默认关闭，单场景开启不依赖隐藏的全局开关。唯一默认行为例外为蜂窝数据箭头强制隐藏；安全模式只禁用运行效果，保留偏好。
 
@@ -36,7 +38,11 @@ preview5 加载标识为 `c17-runtime-20261002-layout-polish-preview5`；逐卡�
 
 技术参考来自 MCGA 的 `TwoXOneTileHook.kt`，作者 Zhuangzhi Meng（Gustate XiaoMeng），许可 GPL-3.0-or-later；项目 GPL-3.0-only。根据目标系统签名重新实现为实例所有权方案，完整署名见第三方许可声明。
 
-## 验证与实机边界
+## 当前版定向检查与实机边界
+
+圆角源码在 code47 准备阶段的 Module/Tile/Panel/Device 独立编译使用实际 Android37 API 和 Java8，检查已通过。code49 保持该圆角实现冻结，最终版本的整体构建仍单独核验。`QsTileCornersCheck` 为656项，`QsPanelCornersCheck` 为869项，包含统一物理半径及连续角参数、0dp与小数半径、native按压与weight比例、新旧smooth路径接口、BlurConfig独立weight及null恢复、部分写入失败回滚、高光作用域、1000次稳定滑块draw和设备原生回调不重复提交材质。这是定向逻辑检查；最终正式 Gradle classes 与实机核验范围以 [VALIDATION.md](../VALIDATION.md) 为准。
+
+## beta1 历史验证与实机边界
 
 本轮生产源码（FeatureOptions、QsTileCorners、QsPanelCorners、ConfigTransfer、StatusBarModule）已独立以 Java 8 编译通过。定向检查使用本轮独立编译目录，尚不等于最终 Gradle 产物全套回归：
 
@@ -64,7 +70,7 @@ preview5 实机已确认并实际加载新运行代码：0dp 时快捷开关和�
 
 主动开启诊断时，短消息使用合法 `qs_style` source，分别记录实际 child/background 类型、body 尺寸，以及每个 config 的弱引用序号、scalar 和四角读回值、原生同步完成。实际几何设置改变后允许再次记录；默认关闭、预算有界、不记录控件内容，诊断读取失败不阻断功能或恢复。
 
-当前 `QsPanelCornersCheck` 为 **743 项通过**，新增 provider 已为 `0` 而 visible blur 仍胶囊的旧实现复现，以及全部五种设备卡的五字段和实际 apply、`0/34.5/80dp` 与真实尺寸约束、原生单角更新、独立 config/proxy 更换、stroke 副作用、三阶段部分失败、安全模式/关闭/detach 恢复。复用 AutoBlur fixture 的 `QsTileAppearanceCheck` 另有 **514 项通过**。完整 Module/Panel/Device 源使用 API 37、Java 8 独立编译，class major version 为 52，日志为 `validation/build-checks/beta1-device-blur-targeted.txt`，生产目录为 `.local-private/beta1-device-blur-classes`。这一阶段属于定向逻辑证据；随后 versionCode 38 正式产物及实机核验记录如下。
+该阶段 `QsPanelCornersCheck` 为 **743 项通过**，新增 provider 已为 `0` 而 visible blur 仍胶囊的旧实现复现，以及全部五种设备卡的五字段和实际 apply、`0/34.5/80dp` 与真实尺寸约束、原生单角更新、独立 config/proxy 更换、stroke 副作用、三阶段部分失败、安全模式/关闭/detach 恢复。复用 AutoBlur fixture 的 `QsTileAppearanceCheck` 另有 **514 项通过**。完整 Module/Panel/Device 源使用 API 37、Java 8 独立编译，class major version 为 52，日志为 `validation/build-checks/beta1-device-blur-targeted.txt`，生产目录为 `.local-private/beta1-device-blur-classes`。这一阶段属于定向逻辑证据；随后 versionCode 38 正式产物及实机核验记录如下。
 
 ## versionCode 38 的正式产物与实机核验
 

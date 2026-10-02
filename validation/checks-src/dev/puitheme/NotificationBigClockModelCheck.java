@@ -57,7 +57,7 @@ public final class NotificationBigClockModelCheck {
                 Float.POSITIVE_INFINITY, Float.NaN, Float.NaN, Float.NaN, Float.NaN, Float.NaN,
                 Integer.MAX_VALUE, Float.NaN, Float.NaN);
         expect(NotificationBigClockModel.finite(invalid.clockTop) && NotificationBigClockModel.finite(invalid.clockHeight));
-        expect(invalid.clockHeight > 0f && invalid.weight >= 100 && invalid.weight <= 900);
+        expect(invalid.clockHeight > 0f && invalid.weight >= 1 && invalid.weight <= 1000);
         expect(invalid.progress == 1f && invalid.entryAlpha == 0f);
         System.out.println("Notification big clock model checks passed: " + checks);
     }

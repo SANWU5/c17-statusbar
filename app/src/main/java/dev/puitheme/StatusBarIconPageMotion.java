@@ -9,9 +9,10 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 /** Reads the actual native progressive spring, rather than the page's prewritten target X. */
-final class StatusBarIconPageMotion implements StatusBarFixedIcons.HorizontalProgressReader {
+final class StatusBarIconPageMotion implements StatusBarFixedIcons.HorizontalProgressReader,
+        StatusBarPageLeftIcons.PageVisibilityReader {
     final Method animatedValue;
-    private final Field animation, helperDriver, screenWidth, pagerView;
+    private final Field animation, helperDriver, screenWidth, pagerView, qsPanelView;
     private final Method horizontalValue, progressiveController, progressiveHelper, logicalOffset;
     private WeakReference<Object> pager = new WeakReference<>(null);
     private WeakReference<Object> driver = new WeakReference<>(null);
@@ -21,6 +22,7 @@ final class StatusBarIconPageMotion implements StatusBarFixedIcons.HorizontalPro
         animation = field(pagerType, "slidSwitchAnimation");
         screenWidth = field(pagerType, "screenWidth");
         pagerView = field(pagerType, "mView");
+        qsPanelView = field(pagerType, "qsPanelView");
         horizontalValue = method(animation.getType(), "getHorizontalTranslationValue");
         progressiveController = method(horizontalValue.getReturnType(), "getProgressiveController");
         progressiveHelper = method(progressiveController.getReturnType(), "getProgressiveHelper");
@@ -53,6 +55,21 @@ final class StatusBarIconPageMotion implements StatusBarFixedIcons.HorizontalPro
             return StatusIconTransition.pageFraction(((Number) logicalOffset.invoke(nativeDriver)).floatValue(), width);
         } catch (Throwable error) { unavailable(error); return 0f; }
     }
+
+    @Override public float qsVisibility(View shadeRoot) {
+        try {
+            Object owner = pager.get();
+            View qs = owner == null ? null : (View) qsPanelView.get(owner);
+            if (ModuleLifecycle.removed() || shadeRoot == null || qs == null
+                    || !qs.isAttachedToWindow() || qs.getRootView() != shadeRoot
+                    || qs.getVisibility() != View.VISIBLE) return Float.NaN;
+            float width = ((Number) screenWidth.get(owner)).floatValue();
+            float x = qs.getTranslationX();
+            if (!Float.isFinite(width) || width <= 0f || !Float.isFinite(x)) return Float.NaN;
+            return Math.max(0f, Math.min(1f, 1f - Math.abs(x) / width));
+        } catch (Throwable error) { unavailable(error); return Float.NaN; }
+    }
+
 
     private Object currentDriver() throws ReflectiveOperationException {
         Object owner = pager.get();

@@ -18,7 +18,7 @@ public final class CarrierPanelSettingsCheck {
     public static void main(String[] args) {
         equal(10, FeatureOptions.GROUPS.length);
         equal(3, CarrierPanels.GROUPS.length);
-        equal(80, FeatureOptions.DEFAULTS.size());
+        equal(81, FeatureOptions.DEFAULTS.size());
         equal(n("mode"), CarrierPanels.key(CarrierPanels.NOTIFICATION, "_mode"));
         equal(null == CarrierPanels.legacyKey(n("enabled")), true);
         equal(null == CarrierPanels.legacyKey("carrier_mode"), true);

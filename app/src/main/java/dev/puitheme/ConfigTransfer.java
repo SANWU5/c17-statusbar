@@ -96,7 +96,7 @@ public final class ConfigTransfer {
                             : StatusBarSettings.bool(source, key);
                     break;
                 case NUMBER:
-                    float number = NumericPolicy.setting(key, StatusBarSettings.settingNumber(source, key,
+                    float number = NumericPolicy.finite(StatusBarSettings.settingNumber(source, key,
                             StatusBarSettings.NUMERIC_DEFAULTS.get(key)), StatusBarSettings.NUMERIC_DEFAULTS.get(key));
                     value = number;
                     break;
@@ -190,6 +190,10 @@ public final class ConfigTransfer {
                 validated.put(key, true);
                 continue;
             }
+            if (NotificationBigClockSettings.STACK_ENABLED.equals(key)) {
+                validated.put(key, false);
+                continue;
+            }
             switch (type) {
                 case BOOLEAN:
                     if (!(value instanceof Boolean)) throw invalid("开关设置类型不正确");
@@ -200,11 +204,13 @@ public final class ConfigTransfer {
                     if (Float.isNaN(number) || Float.isInfinite(number)
                             || number == 0f && ((BigDecimal) value).signum() != 0)
                         throw invalid("数值超出可保存范围");
+                    String numericError = SettingsCatalog.numericInputError(key, (BigDecimal) value);
+                    if (numericError != null) throw invalid(numericError);
                     if (QsTileCorners.RADIUS.equals(key) && (number < 0f || number > QsTileCorners.MAX_RADIUS))
-                        throw invalid("圆角半径应为 0 到 80 dp");
-                    float normalized = NumericPolicy.setting(key, number, 0f);
-                    if (Float.compare(number, normalized) != 0 && number != normalized)
-                        throw invalid("数值不符合位置、大小或字重规则");
+                        throw invalid("圆角半径应为 0 到 30 dp");
+                    if (NotificationIconArea.MAX_COUNT.equals(key) && (number < 0f || number != Math.floor(number)))
+                        throw invalid("图标数量应为非负整数，0 表示不显示");
+                    // Persist finite user values verbatim; rendering has separate physical guards.
                     value = number;
                     break;
                 case COLOR:

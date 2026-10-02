@@ -20,6 +20,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Locale;
 import java.util.WeakHashMap;
+import java.util.ArrayList;
+import java.lang.ref.WeakReference;
 import java.util.function.BooleanSupplier;
 
 /** Tracks native text and styling per view; one visible-view scheduler serves all time locations. */
@@ -27,6 +29,9 @@ public final class TextControls {
     public static final int NONE = 0, CLOCK = 1, CARRIER = 2;
     private final Handler handler;
     private final Map<TextView,Entry> views = Collections.synchronizedMap(new WeakHashMap<>());
+    private final Object classificationLock = new Object();
+    private final Map<TextView,Classification> classifications = new WeakHashMap<>();
+    private final Map<View,Map<TextView,Boolean>> classificationDependents = new WeakHashMap<>();
     private final ThreadLocal<Integer> internal = ThreadLocal.withInitial(() -> 0);
     private Context context;
     private boolean interactive = true, pending;
@@ -39,20 +44,38 @@ public final class TextControls {
     private Runnable additionalClockUpdate;
     private final Runnable tick = () -> { pending = false; refresh(false); };
 
+    /** Values never retain their TextView key or any strong parent/ancestor reference. */
+    private static final class Classification {
+        final int id;
+        final WeakReference<ViewParent> parent;
+        final ArrayList<WeakReference<View>> ancestors = new ArrayList<>(8);
+        int kind;
+        boolean dirty, ancestry, shadeClock;
+        String carrierGroup = "";
+        Classification(TextView view) { id = view.getId(); parent = new WeakReference<>(view.getParent()); }
+    }
+
     private static final class Entry {
         int kind, nativeTint;
         float nativeSize, nativeSpacing;
         Typeface nativeFace;
+        String nativeAxes;
         CharSequence nativeText;
         CharSequence nativeDescription;
         long nativeTextVersion, appliedNativeTextVersion = -1;
         boolean textApplied, appliedReplacement, managed;
         String group;
         Entry(TextView view, int kind) {
-            this.kind = kind; nativeTint = view.getCurrentTextColor();
+            this.kind = kind; capture(view);
+        }
+        void capture(TextView view) {
+            nativeTint = view.getCurrentTextColor();
             nativeSize = view.getTextSize(); nativeFace = view.getTypeface();
+            nativeAxes = view.getFontVariationSettings();
             nativeSpacing = view.getLetterSpacing(); nativeText = view.getText();
             nativeDescription = view.getContentDescription();
+            textApplied = appliedReplacement = managed = false;
+            appliedNativeTextVersion = -1;
         }
     }
 
@@ -74,7 +97,7 @@ public final class TextControls {
             x = panelNumber(settings, group, "offset_x", 0, -80, 80);
             y = panelNumber(settings, group, "offset_y", 0, -24, 24);
             scale = panelNumber(settings, group, "scale", 100, 25, 250);
-            weight = Math.round(panelNumber(settings, group, "weight", 600, 100, 900));
+            weight = Math.round(panelNumber(settings, group, "weight", 600, 1, 1000));
             spacing = panelNumber(settings, group, "spacing", 0, -2, 8);
             // Direct callers supplying only old keys keep their old palette. The provider sends
             // explicit panel keys (including migrated colors), so independently saved colors win.
@@ -95,7 +118,7 @@ public final class TextControls {
             x = value(settings, group + "_offset_x", 0, -80, 80);
             y = value(settings, group + "_offset_y", 0, -24, 24);
             scale = value(settings, group + "_scale", 100, 25, 250);
-            weight = Math.round(value(settings, group + "_weight", 600, 100, 900));
+            weight = Math.round(value(settings, group + "_weight", 600, 1, 1000));
             spacing = value(settings, group + "_spacing", 0, -2, 8);
         }
     }
@@ -160,17 +183,17 @@ public final class TextControls {
         if (className.equals("com.android.systemui.statusbar.policy.Clock")) {
             String parent = parentClass.toLowerCase(Locale.ROOT);
             if (parent.contains("qs") || parent.contains("shade") || parent.contains("keyguard")) return NONE;
-            return resourceName.matches("clock|clock_(left|right|center)|status_bar_clock") ? CLOCK : NONE;
+            return oneOf(resourceName, "clock", "clock_left", "clock_right", "clock_center", "status_bar_clock") ? CLOCK : NONE;
         }
         if (className.equals("com.oplus.systemui.qs.widget.OplusSecondCarrierText")) return CARRIER;
         // OplusQSCarrierText is the data-usage field, despite its misleading class name.
         if (className.equals("com.oplus.systemui.qs.widget.OplusQSCarrierText")) return NONE;
         if (className.equals("com.oplus.systemui.statusbar.widget.OplusStatCarrierText")
                 || className.equals("com.android.keyguard.CarrierText")) return CARRIER;
-        if (resourceName.matches("qs_carrier_text|qs_header_carrier_text") && isShadeParent(parentClass)) return CARRIER;
+        if (isShadeCarrierResource(resourceName) && isShadeParent(parentClass)) return CARRIER;
         if (isLockscreenCarrierResource(resourceName) && isLockscreenParent(parentClass)) return CARRIER;
         if (parentClass.equals("com.android.systemui.shade.carrier.ShadeCarrier")
-                && resourceName.matches("carrier_text|carrier_name")) return CARRIER;
+                && (resourceName.equals("carrier_text") || resourceName.equals("carrier_name"))) return CARRIER;
         return NONE;
     }
 
@@ -181,7 +204,14 @@ public final class TextControls {
     }
 
     private static boolean isShadeClockResource(String resourceName) {
-        return resourceName.matches("qs_footer_clock|oplus_qs_clock");
+        return resourceName.equals("qs_footer_clock") || resourceName.equals("oplus_qs_clock");
+    }
+    private static boolean isShadeCarrierResource(String resourceName) {
+        return resourceName.equals("qs_carrier_text") || resourceName.equals("qs_header_carrier_text");
+    }
+    private static boolean oneOf(String value, String... choices) {
+        for (String choice : choices) if (value.equals(choice)) return true;
+        return false;
     }
 
     private static boolean isShadeClock(View view) {
@@ -198,8 +228,8 @@ public final class TextControls {
     }
 
     private static boolean isShadeResource(String resourceName) {
-        return resourceName.matches("qs_clock_container|qs_header|header_container|simple_qs_container|simple_qs_footer"
-                + "|qs_container_area_layout|qs_status_bar_container_layout|qs_panel|quick_qs_panel");
+        return oneOf(resourceName, "qs_clock_container", "qs_header", "header_container", "simple_qs_container", "simple_qs_footer",
+                "qs_container_area_layout", "qs_status_bar_container_layout", "qs_panel", "quick_qs_panel");
     }
 
     private static boolean isLockscreenParent(String className) {
@@ -216,11 +246,11 @@ public final class TextControls {
     }
 
     private static boolean isLockscreenResource(String resourceName) {
-        return resourceName.matches("keyguard_header|keyguard_status_bar_contents|keyguard_status_view|keyguard_status_area");
+        return oneOf(resourceName, "keyguard_header", "keyguard_status_bar_contents", "keyguard_status_view", "keyguard_status_area");
     }
 
     private static boolean isLockscreenCarrierResource(String resourceName) {
-        return resourceName.matches("keyguard_carrier_text|oplus_keyguard_carrier_text|lockscreen_carrier_text|carrier_text|carrier_name");
+        return oneOf(resourceName, "keyguard_carrier_text", "oplus_keyguard_carrier_text", "lockscreen_carrier_text", "carrier_text", "carrier_name");
     }
 
     private static boolean isLockscreenCarrier(View view) {
@@ -230,14 +260,73 @@ public final class TextControls {
 
     public int kind(View view) {
         if (!(view instanceof TextView)) return NONE;
+        return classification((TextView) view).kind;
+    }
+
+    /** Call only after native ID/parent or real header lifecycle mutations, never from draw. */
+    public void classificationChanged(View view) {
+        if (view == null) return;
+        synchronized (classificationLock) {
+            Classification own = classifications.get(view);
+            if (own != null) own.dirty = true;
+            Map<TextView,Boolean> dependents = classificationDependents.get(view);
+            if (dependents != null) for (TextView text : dependents.keySet()) {
+                Classification value = classifications.get(text);
+                if (value != null) value.dirty = true;
+            }
+        }
+    }
+
+    private Classification classification(TextView view) {
+        Classification resolved;
+        synchronized (classificationLock) {
+            Classification previous = classifications.get(view);
+            if (previous != null && !previous.dirty && previous.id == view.getId()
+                    && previous.parent.get() == view.getParent()) return previous;
+            if (previous != null) for (WeakReference<View> reference : previous.ancestors) {
+                View ancestor = reference.get();
+                Map<TextView,Boolean> dependents = ancestor == null ? null : classificationDependents.get(ancestor);
+                if (dependents != null) dependents.remove(view);
+            }
+            resolved = new Classification(view);
+            resolved.kind = resolveKind(view, resolved);
+            if (resolved.kind == CLOCK) resolved.shadeClock = isShadeClockLocation(view);
+            if (resolved.kind == CARRIER) resolved.carrierGroup = resolveCarrierGroup(view);
+            if (resolved.ancestry) {
+                ViewParent parent = view.getParent();
+                for (int depth = 0; parent instanceof View && depth < 16; depth++) {
+                    View ancestor = (View) parent;
+                    resolved.ancestors.add(new WeakReference<>(ancestor));
+                    Map<TextView,Boolean> dependents = classificationDependents.get(ancestor);
+                    if (dependents == null) {
+                        dependents = new WeakHashMap<>(); classificationDependents.put(ancestor, dependents);
+                    }
+                    dependents.put(view, Boolean.TRUE); parent = ancestor.getParent();
+                }
+            }
+            classifications.put(view, resolved);
+        }
+        // No inverse lock ordering: the dependency index lock is released before native restoration.
+        synchronized (views) {
+            Entry entry = views.get(view);
+            if (entry != null) {
+                if (entry.kind == NONE && resolved.kind != NONE) entry.capture(view);
+                entry.kind = resolved.kind; entry.group = selectedGroup(resolved);
+                if (entry.managed) apply(view, entry, System.currentTimeMillis(), true);
+            }
+        }
+        return resolved;
+    }
+
+    private int resolveKind(View view, Classification classification) {
         String name = view.getClass().getName();
         if (namedClass(view.getClass(), "com.oplus.systemui.qs.widget.OplusQSCarrierText")) return NONE;
         if (name.equals("com.oplus.systemui.statusbar.widget.StatClock")) return CLOCK;
         // Real and animation shade clocks belong to one clock family; group() selects
         // status-following or independent shade settings. Carrier replacements stay separate.
         if (isShadeClock(view)) return CLOCK;
-        if (name.equals("com.oplus.systemui.qs.widget.OplusSecondCarrierText")) return CARRIER;
-        if (isLockscreenCarrier(view)) return CARRIER;
+        if (name.equals("com.oplus.systemui.qs.widget.OplusSecondCarrierText")) { classification.ancestry = true; return CARRIER; }
+        if (isLockscreenCarrier(view)) { classification.ancestry = true; return CARRIER; }
         String parent = view.getParent() == null ? "" : view.getParent().getClass().getName();
         String resource = "";
         String resourcePackage = "";
@@ -248,11 +337,13 @@ public final class TextControls {
         catch (Exception ignored) { }
         int result = namedKind(name, resource, parent);
         boolean shadeClock = isShadeClockResource(resource);
+        boolean shadeCarrier = isShadeCarrierResource(resource);
+        boolean lockCarrier = isLockscreenCarrierResource(resource);
+        classification.ancestry = name.equals("com.android.systemui.statusbar.policy.Clock")
+                || "com.android.systemui".equals(resourcePackage) && (shadeClock || shadeCarrier || lockCarrier);
         if (result != NONE && ((result == CLOCK && !shadeClock) || "com.android.systemui".equals(resourcePackage))) return result;
         // Both separated notification and settings headers can inflate ordinary TextViews.
         // Match the SystemUI ID and its header ancestry rather than every carrier-looking text.
-        boolean shadeCarrier = resource.matches("qs_carrier_text|qs_header_carrier_text");
-        boolean lockCarrier = isLockscreenCarrierResource(resource);
         if (!"com.android.systemui".equals(resourcePackage) || (!shadeClock && !shadeCarrier && !lockCarrier)) return NONE;
         ViewParent ancestor = view.getParent();
         for (int depth = 0; ancestor != null && depth < 16; depth++) {
@@ -266,7 +357,7 @@ public final class TextControls {
                         && "com.android.systemui".equals(owner.getResources().getResourcePackageName(owner.getId()))) {
                     String ownerId = owner.getResources().getResourceEntryName(owner.getId());
                     if (shadeClock && (isShadeResource(ownerId)
-                            || ownerId.matches("qs_fake_clock_container|oplus_fake_clock_container|separateqs_fake_status_layout"))) return CLOCK;
+                            || oneOf(ownerId, "qs_fake_clock_container", "oplus_fake_clock_container", "separateqs_fake_status_layout"))) return CLOCK;
                     if ((shadeCarrier && isShadeResource(ownerId)) || (lockCarrier && isLockscreenResource(ownerId))) return CARRIER;
                 }
             } catch (Exception ignored) { }
@@ -277,9 +368,13 @@ public final class TextControls {
 
     /** Current owner, resolved again after header recreation or view reparenting. */
     public String group(View view) {
-        int kind = kind(view);
-        if (kind == CLOCK) return features.enabled("shade_clock") && isShadeClockLocation(view) ? "shade_clock" : "clock";
-        if (kind != CARRIER) return "";
+        return view instanceof TextView ? selectedGroup(classification((TextView) view)) : "";
+    }
+    private String selectedGroup(Classification classification) {
+        if (classification.kind == CLOCK) return features.enabled("shade_clock") && classification.shadeClock ? "shade_clock" : "clock";
+        return classification.kind == CARRIER ? classification.carrierGroup : "";
+    }
+    private static String resolveCarrierGroup(View view) {
         boolean control = false, lockscreen = isLockscreenCarrier(view);
         ViewParent ancestor = view.getParent();
         for (int depth = 0; ancestor != null && depth < 16; depth++) {
@@ -291,8 +386,8 @@ public final class TextControls {
             try {
                 if (owner.getId() != View.NO_ID && "com.android.systemui".equals(owner.getResources().getResourcePackageName(owner.getId()))) {
                     String id = owner.getResources().getResourceEntryName(owner.getId());
-                    if (id.matches("simple_qs_container|simple_qs_footer")) return CarrierPanels.NOTIFICATION;
-                    if (id.matches("qs_status_bar_container_layout|qs_container_area_layout")) control = true;
+                    if (id.equals("simple_qs_container") || id.equals("simple_qs_footer")) return CarrierPanels.NOTIFICATION;
+                    if (id.equals("qs_status_bar_container_layout") || id.equals("qs_container_area_layout")) control = true;
                     if (isLockscreenResource(id)) lockscreen = true;
                 }
             } catch (Exception ignored) { }
@@ -322,14 +417,14 @@ public final class TextControls {
     }
 
     private Entry entry(TextView view) {
+        Classification classification = classification(view);
+        if (classification.kind == NONE) return null;
         synchronized (views) {
             Entry entry = views.get(view);
             if (entry == null) {
-                int kind = kind(view);
-                if (kind == NONE) return null;
-                entry = new Entry(view, kind); views.put(view, entry);
+                entry = new Entry(view, classification.kind); views.put(view, entry);
             }
-            entry.group = group(view);
+            entry.group = selectedGroup(classification);
             return entry;
         }
     }
@@ -346,7 +441,7 @@ public final class TextControls {
     }
 
     /** Recreated header copies may use ordinary TextViews instead of the original widget class. */
-    public void attachTree(View header) { attachTree(header, 0); }
+    public void attachTree(View header) { classificationChanged(header); attachTree(header, 0); }
 
     private void attachTree(View view, int depth) {
         if (view == null || depth > 8) return;
@@ -358,6 +453,7 @@ public final class TextControls {
     }
 
     public void detach(TextView view) {
+        classificationChanged(view);
         // Weak entries survive reattachment, preserving the last real carrier/clock text.
         restart();
     }
@@ -462,6 +558,13 @@ public final class TextControls {
         if (entry != null) entry.nativeFace = typeface;
     }
 
+    /** Called after a real TextView variation setter, with its nested typeface writes scoped out. */
+    public void nativeFontVariation(TextView view) {
+        if (isInternal()) return;
+        Entry entry = entry(view);
+        if (entry != null) { entry.nativeFace = view.getTypeface(); entry.nativeAxes = view.getFontVariationSettings(); }
+    }
+
     public void nativeSpacing(TextView view, float spacing) {
         if (isInternal()) return;
         Entry entry = entry(view);
@@ -502,11 +605,12 @@ public final class TextControls {
             if (Math.abs(view.getTextSize() - size) > .001f) view.setTextSize(TypedValue.COMPLEX_UNIT_PX, size);
             int nativeWeight = entry.nativeFace == null ? 400 : Build.VERSION.SDK_INT >= 28
                     ? entry.nativeFace.getWeight() : entry.nativeFace.isBold() ? 700 : 400;
-            Typeface face = features.enabled(group) && (features.enabled("font") || features.textStyle(group))
-                    ? FontRepository.typeface(entry.nativeFace, features.textStyle(group)
-                            ? (entry.kind == CLOCK ? clock.weight : carrier.weight) : nativeWeight)
-                    : entry.nativeFace;
-            if (view.getTypeface() != face) view.setTypeface(face);
+            boolean textStyle = features.textStyle(group);
+            boolean sourceChanged = features.enabled("font") && !FontRepository.systemMode();
+            if (features.enabled(group) && (sourceChanged || textStyle))
+                FontRepository.apply(view, entry.nativeFace, textStyle
+                        ? (entry.kind == CLOCK ? clock.weight : carrier.weight) : nativeWeight, entry.nativeAxes);
+            else FontWeight.restore(view, entry.nativeFace, entry.nativeAxes);
             float spacing = entry.nativeSpacing + NumericPolicy.pixels(features.textStyle(group)
                     ? (entry.kind == CLOCK ? clock.spacing : carrier.spacing) : 0,
                     view.getResources().getDisplayMetrics().density) / Math.max(1f, size);

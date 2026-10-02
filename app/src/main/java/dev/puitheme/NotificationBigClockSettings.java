@@ -82,7 +82,7 @@ public final class NotificationBigClockSettings {
     static {
         Map<String,Boolean> booleans=new LinkedHashMap<>();
         booleans.put(MASTER,false);booleans.put(GLASS,true);booleans.put(DATE_ENABLED,true);
-        booleans.put(STACK_ENABLED,true);booleans.put(FOOTER_ENABLED,false);
+        booleans.put(STACK_ENABLED,false);booleans.put(FOOTER_ENABLED,false);
         booleans.put(GLASS_BORDER_ENABLED,true);booleans.put(ENTRY_EFFECT_ENABLED,true);
         booleans.put(NOTIFICATION_EDGE_ENABLED,true);
         booleans.put(NOTIFICATION_GAP_ENABLED,true);

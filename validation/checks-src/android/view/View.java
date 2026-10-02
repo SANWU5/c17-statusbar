@@ -4,8 +4,9 @@ import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
 public class View implements ViewParent, Drawable.Callback {
     public static final int VISIBLE=0,INVISIBLE=4,GONE=8;
+    public static final int LAYOUT_DIRECTION_LTR=0,LAYOUT_DIRECTION_RTL=1;
     private int minimumWidth, visibility;
-    private float alpha=1f,translationY,scaleY=1f;
+    private float alpha=1f,translationAlpha=1f,translationY,scaleY=1f;
     public int layoutRequests, invalidations;
     public boolean dirty;
     public ViewParent parent;
@@ -27,6 +28,8 @@ public class View implements ViewParent, Drawable.Callback {
     }
     public final java.util.List<OnAttachStateChangeListener> attachListeners=new java.util.ArrayList<>();
     private final ViewTreeObserver treeObserver = new ViewTreeObserver();
+    private final ViewOverlay overlay = new ViewOverlay(this);
+    public ViewOverlay getOverlay(){return overlay;}
     public void addOnAttachStateChangeListener(OnAttachStateChangeListener listener){if(!attachListeners.contains(listener))attachListeners.add(listener);}
     public void removeOnAttachStateChangeListener(OnAttachStateChangeListener listener){attachListeners.remove(listener);}
     public ViewTreeObserver getViewTreeObserver(){return treeObserver;}
@@ -45,11 +48,14 @@ public class View implements ViewParent, Drawable.Callback {
     public int getWidth() { return 124; }
     public int getHeight() { return 80; }
     public int getTop() {return 0;}
+    public void getLocationOnScreen(int[] output) {output[0]=getLeft();output[1]=getTop();}
     public int getLeft() {return 0;}
     public float getTranslationX() {return 0f;}
     public int getLayoutDirection() {return 0;}
     public float getAlpha() {return alpha;}
     public void setAlpha(float value) {alpha=value;}
+    public float getTransitionAlpha() {return translationAlpha;}
+    public void setTransitionAlpha(float value) {translationAlpha=value;}
     public float getTranslationY() {return translationY;}
     public void setTranslationY(float value) {translationY=value;}
     public float getScaleY() {return scaleY;}
@@ -66,6 +72,9 @@ public class View implements ViewParent, Drawable.Callback {
     public int getPaddingTop() {return 0;}
     public int getPaddingRight() {return 0;}
     public int getPaddingBottom() {return 0;}
+    public int getPaddingStart() {return getLayoutDirection()==LAYOUT_DIRECTION_RTL?getPaddingRight():getPaddingLeft();}
+    public int getPaddingEnd() {return getLayoutDirection()==LAYOUT_DIRECTION_RTL?getPaddingLeft():getPaddingRight();}
+    public void setPaddingRelative(int start,int top,int end,int bottom) { }
     public ViewGroup.LayoutParams getLayoutParams(){return layoutParams;}
     public void setLayoutParams(ViewGroup.LayoutParams params){layoutParams=params;requestLayout();}
     public void setClipBounds(android.graphics.Rect value) {clipBounds=value;}
@@ -85,6 +94,8 @@ public class View implements ViewParent, Drawable.Callback {
     public ViewParent getParent() { return parent; }
     public View getRootView() {return parent instanceof View?((View)parent).getRootView():this;}
     public android.os.IBinder getWindowToken() {return null;}
+    public Display getDisplay() {return null;}
+    public void draw(android.graphics.Canvas canvas) { }
     public Resources getResources() { return resources; }
     public void requestLayout() { layoutRequests++; }
     public void invalidate() { invalidations++; }
@@ -93,4 +104,9 @@ public class View implements ViewParent, Drawable.Callback {
     public void invalidateDrawable(Drawable drawable) { invalidate(); }
     public void scheduleDrawable(Drawable drawable, Runnable task, long when) { }
     public void unscheduleDrawable(Drawable drawable, Runnable task) { }
+    private Drawable background;
+    public Drawable getBackground(){return background;}
+    public void setBackground(Drawable value){background=value;}
+    public android.graphics.Matrix getMatrix(){return new android.graphics.Matrix();}
+    public boolean post(Runnable task){task.run();return true;}
 }

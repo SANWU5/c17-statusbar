@@ -354,7 +354,8 @@ public final class CarrierPanelsCheck {
         settings.putString(CarrierPanels.key(CarrierPanels.CONTROL, "mode"), "text");
         settings.putString(CarrierPanels.key(CarrierPanels.CONTROL, "text"), "控制重新挂载");
         control.configure(settings, palette, alpha); equal(CarrierPanels.NOTIFICATION, control.group(carrier)); equal("通知重新挂载", carrier.getText());
-        quick.parent = null; control.refresh(); equal(CarrierPanels.CONTROL, control.group(carrier)); equal("控制重新挂载", carrier.getText());
+        quick.parent = null; control.classificationChanged(quick); // The real assignParent after-hook.
+        control.refresh(); equal(CarrierPanels.CONTROL, control.group(carrier)); equal("控制重新挂载", carrier.getText());
         carrier.parent = wrapper; control.refresh(); equal(CarrierPanels.LOCKSCREEN, control.group(carrier));
         same(updated, carrier.getText()); same(face, carrier.getTypeface()); near(17, carrier.getTextSize());
         settings.putBoolean(CarrierPanels.key(lock, "enabled"), true); settings.putBoolean("carrier_enabled", false);

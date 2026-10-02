@@ -28,8 +28,10 @@ final class QsDeviceCorners {
         final WeakReference<Object> object;
         final int kind;
         float nativeRadius, writtenRadius;
+        float actualRadius;
         Float nativeWeight, writtenWeight;
-        float[] nativeRadii;
+        Float actualWeight;
+        float[] nativeRadii, actualRadii;
         WeakReference<Object> proxy = new WeakReference<>(null);
         boolean owned, writeComplete;
         Surface(Object object, int kind) { this.object = new WeakReference<>(object); this.kind = kind; }
@@ -73,7 +75,7 @@ final class QsDeviceCorners {
         return null;
     }
 
-    boolean refresh(View card, float dp) throws ReflectiveOperationException {
+    boolean refresh(View card, float dp, Float continuousWeight) throws ReflectiveOperationException {
         if (writing) return !surfaces.isEmpty();
         View body = body(card);
         if (body == null || body.getWidth() <= 0 || body.getHeight() <= 0) {
@@ -131,16 +133,23 @@ final class QsDeviceCorners {
             // Reconcile the visible blur curvature last, after every native provider.
             // Claim the whole transaction first: a provider can partially alter a
             // BlurConfig before throwing, even when its config write has not run.
+            boolean changed = false, providerChanged = false;
             for (Surface surface : current) {
-                surface.owned = true; surface.writeComplete = false;
-                surface.writtenRadius = radius; surface.writtenWeight = surface.nativeWeight;
+                Float weight = surface.kind == 4 || continuousWeight == null ? surface.nativeWeight : continuousWeight;
+                boolean same = matches(surface, radius, weight);
+                surface.owned = true;
+                surface.writtenRadius = radius; surface.writtenWeight = weight;
+                if (!same) { surface.writeComplete = false; if (surface.kind != 5) providerChanged = true; }
             }
             for (int pass = 0; pass < 2; pass++) for (Surface surface : current) {
                 if ((surface.kind == 5) != (pass == 1)) continue;
-                write(surface, radius, surface.nativeWeight, null);
+                if (matches(surface, radius, surface.writtenWeight) && (surface.kind != 5 || !providerChanged)) {
+                    surface.writeComplete = true; continue;
+                }
+                write(surface, radius, surface.writtenWeight, null); changed = true;
             }
             traceCurves(card);
-            body.invalidateOutline(); body.invalidate(); card.invalidateOutline(); card.invalidate();
+            if (changed) { body.invalidateOutline(); body.invalidate(); card.invalidateOutline(); card.invalidate(); }
             trace(card, body, "owned", current.size());
             return true;
         } catch (ReflectiveOperationException | RuntimeException error) {
@@ -207,7 +216,9 @@ final class QsDeviceCorners {
         if (surface.kind == 2) {
             radius = numeric(get(provider, "radius")); weight = numeric(get(provider, "weight"));
         } else if (surface.kind == 5) {
-            radius = numeric(QsTileAppearance.invoke(object, "getCornerRadius")); weight = null;
+            radius = numeric(QsTileAppearance.invoke(object, "getCornerRadius"));
+            Object raw = QsTileAppearance.invoke(object, "getRadiusWeight");
+            weight = raw == null ? null : numeric(raw);
         } else if (surface.kind == 4) {
             GradientDrawable gradient = (GradientDrawable) object;
             radius = gradient.getCornerRadius(); weight = null;
@@ -225,7 +236,9 @@ final class QsDeviceCorners {
         }
         if (!Float.isFinite(radius) || surface.kind != 5 && radius < 0f || weight != null && !Float.isFinite(weight))
             throw new IllegalStateException("Invalid native card surface");
-        float[] actualRadii = surface.kind == 5 ? blurRadii(object) : null;
+        float[] actualRadii = surface.kind == 5 ? blurRadii(object)
+                : surface.kind == 4 ? ((GradientDrawable) object).getCornerRadii() : null;
+        surface.actualRadius = radius; surface.actualWeight = weight; surface.actualRadii = actualRadii;
         if (actualRadii != null) for (float corner : actualRadii) {
             if (!Float.isFinite(corner)) throw new IllegalStateException("Invalid native blur curvature");
         }
@@ -239,22 +252,32 @@ final class QsDeviceCorners {
                 for (int i = 0; i < actualRadii.length; i++) if (actualRadii[i] != surface.writtenRadius)
                     surface.nativeRadii[i] = actualRadii[i];
             }
-            surface.nativeWeight = null;
+            if (!surface.owned || !equal(weight, surface.writtenWeight)) surface.nativeWeight = weight;
             return;
         }
-        if (!surface.owned || radius != surface.writtenRadius || !equal(weight, surface.writtenWeight)) {
-            surface.nativeRadius = radius; surface.nativeWeight = weight;
+        boolean changedRadii = false;
+        if (surface.kind == 4 && actualRadii != null)
+            for (float corner : actualRadii) if (corner != surface.writtenRadius) { changedRadii = true; break; }
+        if (!surface.owned || radius != surface.writtenRadius || changedRadii) {
+            surface.nativeRadius = radius;
             if (surface.kind == 4) {
                 float[] radii = ((GradientDrawable) object).getCornerRadii();
                 surface.nativeRadii = radii == null ? null : radii.clone();
             }
         }
+        if (!surface.owned || !equal(weight, surface.writtenWeight)) surface.nativeWeight = weight;
     }
     private static float numeric(Object object) {
         if (!(object instanceof Number)) throw new IllegalStateException("Missing native shape parameter");
         return ((Number) object).floatValue();
     }
     private static boolean equal(Float one, Float two) { return one == null ? two == null : one.equals(two); }
+    private static boolean matches(Surface surface, float radius, Float weight) {
+        if (surface.actualRadius != radius || !equal(surface.actualWeight, weight)) return false;
+        if ((surface.kind == 5 || surface.kind == 4) && surface.actualRadii != null)
+            for (float corner : surface.actualRadii) if (corner != radius) return false;
+        return true;
+    }
     private static void write(Surface surface, float radius, Float weight, float[] radii) throws ReflectiveOperationException {
         Object object = surface.object.get();
         if (object == null) return;
@@ -266,6 +289,7 @@ final class QsDeviceCorners {
         } else if (surface.kind == 3) QsTileAppearance.invoke(object, "update", radius, weight);
         else if (surface.kind == 5) {
             QsTileAppearance.invoke(object, "setCornerRadius", radius);
+            QsTileAppearance.invoke(object, "setRadiusWeight", weight);
             if (radii != null) {
                 String[] fields = {"leftTopCornerRadius", "rightTopCornerRadius", "rightBottomCornerRadius", "leftBottomCornerRadius"};
                 for (int i = 0; i < fields.length; i++) {

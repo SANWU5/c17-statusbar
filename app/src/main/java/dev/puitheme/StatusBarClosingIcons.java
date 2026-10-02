@@ -172,7 +172,7 @@ public final class StatusBarClosingIcons {
         return true;
     }
 
-    private static float closingOpacity(float fraction) {
+    static float closingOpacity(float fraction) {
         float progress = Math.max(0f, Math.min(1f, fraction / RETURN_FRACTION));
         return 1f - progress * progress * (3f - 2f * progress);
     }

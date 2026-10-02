@@ -33,7 +33,7 @@ public final class ModuleRuntimeStatus {
     public static final String METHOD_QUERY = "query_runtime_status";
     public static final String METHOD_REPORT = "report_runtime_status";
     // Change this whenever distributing a build whose runtime gate must replace an earlier build.
-    public static final String BUILD_TOKEN = "c17-runtime-20261002-inner-tiles-native-drivers-beta1";
+    public static final String BUILD_TOKEN = "c17-runtime-20261002-native-left-gap-code51-release";
     public static final String KEY_NONCE = "nonce";
     public static final String KEY_PID = "pid";
     public static final String KEY_UPTIME = "uptime_ms";

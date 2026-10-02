@@ -6,11 +6,24 @@ package dev.puitheme;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
-/** Bounded decimal input that preserves the decimal rounding boundary before float storage. */
+/** Decimal input with a bounded parser; slider rounding and manual input are separate. */
 public final class NumericInput {
     private static final int MAX_INPUT_LENGTH = 256;
 
     private NumericInput() { }
+
+    static BigDecimal decimal(String input) {
+        if (input == null || input.length() > MAX_INPUT_LENGTH) throw invalid(null);
+        try {
+            BigDecimal raw = new BigDecimal(input.trim());
+            float stored = raw.floatValue();
+            if (!Float.isFinite(stored) || stored == 0f && raw.signum() != 0) throw invalid(null);
+            return raw;
+        } catch (NumberFormatException | ArithmeticException error) { throw invalid(error); }
+    }
+
+    /** Manual entry preserves float precision rather than inheriting a slider's step. */
+    public static float unrounded(String input) { return decimal(input).floatValue(); }
 
     public static float parse(String input, int decimals) {
         if (input == null || input.length() > MAX_INPUT_LENGTH || decimals < 0 || decimals > MAX_INPUT_LENGTH)
@@ -24,7 +37,7 @@ public final class NumericInput {
             float result = raw.setScale(decimals, RoundingMode.HALF_UP).floatValue();
             if (!Float.isFinite(result)) throw invalid(null);
             return result;
-        } catch (ArithmeticException error) {
+        } catch (NumberFormatException | ArithmeticException error) {
             throw invalid(error);
         }
     }

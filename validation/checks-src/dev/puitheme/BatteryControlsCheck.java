@@ -85,7 +85,52 @@ public final class BatteryControlsCheck {
         equal(false,controller.drawContent(battery,new Canvas(),rect));equal(true,controller.drawContent(replacement,new Canvas(),rect));
         meter.drawable=new Bar();controller.sync(meter);equal(View.VISIBLE,outside.getVisibility());equal(true,handler.delayed==null);
         independentColors();
+        typography();
         System.out.println("BatteryControlsCheck passed: "+checks);
+    }
+    private static void typography()throws Exception{
+        Handler handler=new Handler(Looper.getMainLooper());BatteryControls controller=new BatteryControls(handler,Meter.class,Horizontal.class,Charge.class);
+        Meter meter=new Meter(new Context());meter.charge.isVisible=false;
+        Horizontal battery=new Horizontal();meter.drawable=battery;battery.setCallback(meter);controller.sync(meter);
+        meter.getResources().getDisplayMetrics().density=2f;meter.getResources().getDisplayMetrics().scaledDensity=3f;
+        Paint original=battery.percentInPaint;original.setTextSize(12f);original.setTypeface(Typeface.create(Typeface.DEFAULT,400,false));
+        Map<String,Integer> colors=new HashMap<>(StatusBarSettings.COLOR_DEFAULTS);Map<String,Boolean> alpha=new HashMap<>();
+        Bundle options=new Bundle();options.putBoolean("battery_enabled",true);options.putBoolean(StatusBarSettings.BATTERY_CHARGE_INSIDE,false);
+        options.putBoolean("battery_text_color_enabled",false);options.putBoolean("battery_bolt_color_enabled",false);
+        controller.configure(options,colors,alpha);equal(false,controller.drawContent(battery,new Canvas(),new RectF(0,0,50,20)));
+        options.putBoolean(BatteryTextStyle.MASTER,true);options.putFloat(BatteryTextStyle.SIZE,4f);
+        options.putFloat(BatteryTextStyle.X,3f);options.putFloat(BatteryTextStyle.Y,-2f);options.putFloat(BatteryTextStyle.SPACING,.6f);options.putFloat(BatteryTextStyle.WEIGHT,800f);
+        controller.configure(options,colors,alpha);
+        for(int level:new int[]{0,1,10,99,100}){
+            battery.level=level;Canvas canvas=new Canvas();equal(true,controller.drawContent(battery,canvas,new RectF(0,0,50,20)));
+            equal(Integer.toString(level),canvas.text);equal(12f,canvas.textSize);equal(.1f,canvas.textSpacing);equal(800,canvas.textTypeface.getWeight());
+            equal(12f,original.getTextSize());equal(400,original.getTypeface().getWeight());equal(-1,canvas.pathAlpha);equal(canvas.saves,canvas.restores);
+            equal(29f-((int)(canvas.text.length()*12f*.6f))/2f,canvas.textX);equal(12f,canvas.textY);
+        }
+        options.putFloat(BatteryTextStyle.SIZE,20f);controller.configure(options,colors,alpha);Canvas canvas=new Canvas();
+        controller.drawContent(battery,canvas,new RectF(0,0,50,20));equal(60f,canvas.textSize);equal(1,canvas.clips); // User size is not silently reduced to battery height.
+        boolean onPaint=Paint.fontVariationOnPaint;
+        try {
+            for(boolean current:new boolean[]{false,true}) {
+                Paint.fontVariationOnPaint=current;
+                Typeface frozen=new Typeface();frozen.weight=450;frozen.variableWeight=true;frozen.variationWeight=725;
+                original.setTypeface(frozen);original.setFontVariationSettings("'wght' 725");
+                for(int weight:new int[]{100,437,900}) {
+                    options.putFloat(BatteryTextStyle.WEIGHT,weight);controller.configure(options,colors,alpha);
+                    Canvas first=new Canvas();equal(true,controller.drawContent(battery,first,new RectF(0,0,50,20)));
+                    equal((float)weight,first.textEffectiveWeight);equal(60f,first.textSize);equal(36f,first.textY);
+                    equal(725f,original.effectiveWeight());equal(12f,original.getTextSize());
+                    Typeface face=first.textTypeface;int creations=Typeface.variationCreations;
+                    for(int frame=0;frame<50;frame++)controller.drawContent(battery,new Canvas(),new RectF(0,0,50,20));
+                    equal(creations,Typeface.variationCreations);
+                    Canvas last=new Canvas();controller.drawContent(battery,last,new RectF(0,0,50,20));
+                    equal(face,last.textTypeface);equal((float)weight,last.textEffectiveWeight);equal(first.textX,last.textX);
+                }
+            }
+        } finally {Paint.fontVariationOnPaint=onPaint;}
+        options.putBoolean(StatusBarSettings.SAFE_MODE,true);controller.configure(options,colors,alpha);equal(false,controller.drawContent(battery,new Canvas(),new RectF(0,0,50,20)));
+        options.putBoolean(StatusBarSettings.SAFE_MODE,false);controller.configure(options,colors,alpha);controller.detach(meter);
+        equal(false,controller.drawContent(battery,new Canvas(),new RectF(0,0,50,20)));equal(12f,original.getTextSize());
     }
     private static void independentColors() throws Exception {
         Handler handler=new Handler(Looper.getMainLooper());

@@ -71,8 +71,8 @@ public final class QsPanelCornersCheck {
         QsPanelCorners.ShapeScope nested=corners.shape(slider.mClipProgressPath,"addRoundRect",shape.args);
         check(nested.args==shape.args,"nested OEM/Android shape not scaled twice");nested.close();shape.close();
         Object wrapper=new Object();corners.onShapeWrapper(wrapper,slider.mBackgroundPath);
-        Object[] smooth={rect,67.2f,.8f,new Object()};shape=corners.shape(wrapper,"addSmoothRoundRect",smooth);
-        near(57.6f,shape.args[1],"bound native OEM path wrapper curvature");near(.8f,shape.args[2],"legacy smooth weight is not treated as radius");shape.close();
+        Object[] smooth={rect,67.2f,.7f,new Object()};shape=corners.shape(wrapper,"addSmoothRoundRect",smooth);
+        near(57.6f,shape.args[1],"bound native OEM path wrapper curvature");near(.6f,shape.args[2],"legacy smooth weight shares tile continuous template");shape.close();
         Object[] standard={rect,67.2f,67.2f,slider.mBackgroundPaint};
         shape=corners.shape(canvas,"drawRoundRect",standard);near(57.6f,shape.args[1],"native plain roundrect paint identity");shape.close();
         shape=corners.shape(new android.graphics.Canvas(),"drawRoundRect",standard);check(shape.args==standard,"another canvas never rewritten");shape.close();
@@ -119,9 +119,9 @@ public final class QsPanelCornersCheck {
             QsPanelCorners corners=new QsPanelCorners();PluginDrawable plugin=new PluginDrawable();card.body.setBackground(plugin);card.setBlurDrawable(plugin);
             card.setOutlineProvider(plugin.getPathProvider());card.setClipToOutline(true);card.body.setOutlineProvider(card.outline);card.body.setClipToOutline(true);
             card.getResources().getDisplayMetrics().density=2f;Object glass=plugin.glass,shader=plugin.shader;
-            corners.onNativeUpdate(card);corners.configure(settings(true,10f));near(20f,plugin.radius,"device native glass geometry");near(20f,card.outline.radius,"device native nonblur outline geometry");near(1f,plugin.weight,"device native region weight preserved");
+            corners.onNativeUpdate(card);corners.configure(settings(true,10f));near(20f,plugin.radius,"device native glass geometry");near(20f,card.outline.radius,"device native nonblur outline geometry");near(.6f,plugin.weight,"device uses common native continuous template");
             check(card.body.background==plugin&&plugin.glass==glass&&plugin.shader==shader,"device native materials and body retained");check(plugin.alpha==173&&plugin.color==0xff345678,"device paint untouched");check(card.outer!=card.body.background,"outer card untouched");
-            PluginUtils.weight=0f;PluginUtils.radius=57f;plugin.setCornerRadius(57f,0f);card.outline.setSmoothCorner(new com.oplus.deviceplugin.sdk.entity.SmoothRoundCorner(57f,0f));corners.onNativeUpdate(card);near(0f,plugin.weight,"native region/theme updated weight");
+            PluginUtils.weight=0f;PluginUtils.radius=57f;plugin.setCornerRadius(57f,0f);card.outline.setSmoothCorner(new com.oplus.deviceplugin.sdk.entity.SmoothRoundCorner(57f,0f));corners.onNativeUpdate(card);near(.6f,plugin.weight,"native theme refresh keeps uniform custom continuous weight");
             PluginDrawable replacement=new PluginDrawable();replacement.setCornerRadius(57f,0f);card.body.setBackground(replacement);card.setBlurDrawable(replacement);
             corners.onNativeUpdate(card);near(20f,plugin.pathProvider.radius,"old outer outline remains live and uses custom radius after native g replaces background");near(20f,replacement.radius,"new native plugin bound");
             check(card.getOutlineProvider()==plugin.getPathProvider(),"native outer provider reference not replaced by a new clipping layer");
@@ -196,7 +196,7 @@ public final class QsPanelCornersCheck {
         card.foreground.setCornerRadius(11f);card.icon.setCornerRadius(8f);
         corners.configure(settings(true,0f));corners.onNativeUpdate(card);
         near(0f,oldOuter.pathProvider.radius,"zero reaches the actual old outer clipped outline");near(0f,current.radius,"zero reaches current native body glass");near(0f,card.outline.radius,"zero reaches independent native smooth outline");
-        check(oldOuter.weight==null,"native null standard-round weight preserved");near(.7f,current.weight,"current glass weight independent of native smooth outline");near(.4f,card.outline.weight,"independent smooth weight retained");
+        near(.6f,oldOuter.weight,"old outer uses common native continuous template");near(.6f,current.weight,"current glass uses common continuous template");near(.6f,card.outline.weight,"smooth outline agrees with native glass");
         near(11f,card.foreground.getCornerRadius(),"foreground and click decoration not modified");near(8f,card.icon.getCornerRadius(),"device icon drawable not modified");
         check(card.body.layoutRequests==0&&card.layoutRequests==0&&card.body.getClipBounds()==null,"device contents and input layout retained");
         check(card.getOutlineProvider()==oldOuter.getPathProvider()&&card.body.getOutlineProvider()==card.outline,"actual native provider references retained");
@@ -266,7 +266,7 @@ public final class QsPanelCornersCheck {
             visibleCurves(original,proxy,"provider-only old approach leaves native visible blur capsule");
             mix.setCornerRadius(56f,.7f);corners.onNativeUpdate(card);nativeCurves(original,config,"default off leaves independent native blur");
             corners.configure(settings(true,0f));nativeCurves(uniform(0f),config,"zero reaches all five native config fields");visibleCurves(uniform(0f),proxy,"zero actually applies visible blur shape");
-            near(0f,mix.radius,"zero outline agrees with visible blur");near(.7f,mix.weight,"native shape weight unchanged");
+            near(0f,mix.radius,"zero outline agrees with visible blur");near(.6f,mix.weight,"native shape uses common continuous template");
             corners.configure(settings(true,34.5f));nativeCurves(uniform(40f),config,"dp target bounded by actual native body half-height");visibleCurves(uniform(40f),proxy,"bounded target reaches native blur");
             corners.configure(settings(true,80f));visibleCurves(uniform(40f),proxy,"80dp uses native physical bound");
             check(config.material==material&&config.mixColors==colors&&config.lightTemplate==template&&config.blurAmount==35f,"native blur material color light and amount unchanged");
@@ -281,25 +281,170 @@ public final class QsPanelCornersCheck {
     private static void deviceBlurUpdatesAndRollback() throws Exception {
         RectangleDeviceCardView card=new RectangleDeviceCardView();MixColorPluginDrawable mix=bindMix(card);
         ViewBlurProxy proxy=mix.blur().viewBlurProxy;BlurConfig config=proxy.getBlurConfig();float[] original=curves(config);
-        QsDeviceCorners owner=new QsDeviceCorners();owner.refresh(card,0f);
-        config.cornerRadius=71f;config.rightTopCornerRadius=73f;proxy.applyBlurConfig();owner.refresh(card,0f);owner.restore();
+        QsDeviceCorners owner=new QsDeviceCorners();owner.refresh(card,0f,QSConstant.weight);
+        config.cornerRadius=71f;config.rightTopCornerRadius=73f;proxy.applyBlurConfig();owner.refresh(card,0f,QSConstant.weight);owner.restore();
         float[] updated=original.clone();updated[0]=71f;updated[2]=73f;
         nativeCurves(updated,config,"native scalar and single corner update preserve untouched original corners");visibleCurves(updated,proxy,"latest native transition is reapplied on restore");
-        owner.refresh(card,0f);BlurConfig replacement=new BlurConfig();replacement.setCornerRadius(77f);proxy.blurConfig=replacement;proxy.applyBlurConfig();owner.refresh(card,0f);
+        owner.refresh(card,0f,QSConstant.weight);BlurConfig replacement=new BlurConfig();replacement.setCornerRadius(77f);proxy.blurConfig=replacement;proxy.applyBlurConfig();owner.refresh(card,0f,QSConstant.weight);
         nativeCurves(updated,config,"retired config restores its own independent native fields");visibleCurves(uniform(0f),proxy,"replacement config owned after native swap");owner.restore();nativeCurves(uniform(77f),replacement,"replacement config restores its own native curvature");
-        owner.refresh(card,0f);AutoBlurDrawable nextAuto=new AutoBlurDrawable();ViewBlurProxy nextProxy=nextAuto.viewBlurProxy;float[] nextOriginal=curves(nextProxy.getBlurConfig());mix.replaceBlur(nextAuto);owner.refresh(card,0f);
+        owner.refresh(card,0f,QSConstant.weight);AutoBlurDrawable nextAuto=new AutoBlurDrawable();ViewBlurProxy nextProxy=nextAuto.viewBlurProxy;float[] nextOriginal=curves(nextProxy.getBlurConfig());mix.replaceBlur(nextAuto);owner.refresh(card,0f,QSConstant.weight);
         visibleCurves(uniform(77f),proxy,"retired actual blur proxy is restored");visibleCurves(uniform(0f),nextProxy,"new actual proxy receives curvature");owner.restore();visibleCurves(nextOriginal,nextProxy,"replacement proxy restores independent original");
         mix.strokeConfigSideEffects=true;BlurConfig active=nextProxy.getBlurConfig();float[] activeOriginal=curves(active);
-        owner.refresh(card,0f);owner.restore();nativeCurves(activeOriginal,active,"provider stroke side effects cannot overwrite config restoration snapshot");visibleCurves(activeOriginal,nextProxy,"two-pass restoration applies config after provider stroke path");
-        mix.failCalls=1;boolean failed=false;try{owner.refresh(card,0f);}catch(ReflectiveOperationException|RuntimeException expected){failed=true;}
+        owner.refresh(card,0f,QSConstant.weight);owner.restore();nativeCurves(activeOriginal,active,"provider stroke side effects cannot overwrite config restoration snapshot");visibleCurves(activeOriginal,nextProxy,"two-pass restoration applies config after provider stroke path");
+        mix.failCalls=1;boolean failed=false;try{owner.refresh(card,0f,QSConstant.weight);}catch(ReflectiveOperationException|RuntimeException expected){failed=true;}
         check(failed,"partially failing provider setter is reported");near(56f,mix.radius,"partial provider setter restores outline");nativeCurves(activeOriginal,active,"provider failure before config pass restores all five original fields");visibleCurves(activeOriginal,nextProxy,"provider failure restores visible shape after native side effects");
-        mix.strokeConfigSideEffects=false;active.failSetCalls=1;failed=false;try{owner.refresh(card,0f);}catch(ReflectiveOperationException|RuntimeException expected){failed=true;}
+        mix.strokeConfigSideEffects=false;active.failSetCalls=1;failed=false;try{owner.refresh(card,0f,QSConstant.weight);}catch(ReflectiveOperationException|RuntimeException expected){failed=true;}
         check(failed,"partially failing native config setter is reported");nativeCurves(activeOriginal,active,"partial config field write restores full asymmetric original");visibleCurves(activeOriginal,nextProxy,"partial config setter rollback reaches native visible blur");
-        nextProxy.failApplyCalls=1;failed=false;try{owner.refresh(card,0f);}catch(ReflectiveOperationException|RuntimeException expected){failed=true;}
+        nextProxy.failApplyCalls=1;failed=false;try{owner.refresh(card,0f,QSConstant.weight);}catch(ReflectiveOperationException|RuntimeException expected){failed=true;}
         check(failed,"native blur apply failure after visible mutation is reported");nativeCurves(activeOriginal,active,"native apply failure restores original config");visibleCurves(activeOriginal,nextProxy,"native apply failure restores original visible shape");
-        owner.refresh(card,0f);visibleCurves(uniform(0f),nextProxy,"successful callback retries after each failure");owner.restore();
+        owner.refresh(card,0f,QSConstant.weight);visibleCurves(uniform(0f),nextProxy,"successful callback retries after each failure");owner.restore();
         active.cornerRadius=-1f;active.leftTopCornerRadius=-1f;active.rightTopCornerRadius=-1f;active.rightBottomCornerRadius=-1f;active.leftBottomCornerRadius=-1f;nextProxy.applyBlurConfig();
-        owner.refresh(card,0f);owner.restore();nativeCurves(uniform(-1f),active,"native blur sentinel fields restore without conversion");visibleCurves(uniform(-1f),nextProxy,"native sentinel is reapplied to actual blur proxy");
+        owner.refresh(card,0f,QSConstant.weight);owner.restore();nativeCurves(uniform(-1f),active,"native blur sentinel fields restore without conversion");visibleCurves(uniform(-1f),nextProxy,"native sentinel is reapplied to actual blur proxy");
     }
-    public static void main(String[] args) throws Exception {slider();sliderShapes();media();devices();nativeGeometry();deviceSurfaceOwnership();actualPluginBinding();deviceBlurGeometry();deviceBlurUpdatesAndRollback();System.out.println("QsPanelCornersCheck passed: "+checks+" (native slider geometry/final paths/blur, media paths, all device native surfaces and independent BlurConfig, restoration)");}
+    private static void steadySlider() throws Exception {
+        QsPanelCorners corners=new QsPanelCorners();Slider slider=new Slider();
+        slider.getResources().getDisplayMetrics().density=2f;
+        corners.configure(settings(true,12f));android.graphics.Canvas canvas=new android.graphics.Canvas();
+        QsPanelCorners.DrawScope scope=corners.beginDraw(slider,canvas);
+        java.lang.reflect.Field drawing=QsPanelCorners.class.getDeclaredField("drawing");drawing.setAccessible(true);
+        ThreadLocal<?> local=(ThreadLocal<?>)drawing.get(corners);Object originalDrawing=local.get();
+        java.lang.reflect.Field paths=originalDrawing.getClass().getDeclaredField("paths");paths.setAccessible(true);
+        java.lang.reflect.Field paints=originalDrawing.getClass().getDeclaredField("paints");paints.setAccessible(true);
+        java.lang.reflect.Field canvases=originalDrawing.getClass().getDeclaredField("canvases");canvases.setAccessible(true);
+        Object pathMap=paths.get(originalDrawing),paintMap=paints.get(originalDrawing),canvasMap=canvases.get(originalDrawing);
+        scope.close();int writes=slider.radiusUpdates;
+        for(int frame=0;frame<1000;frame++)corners.beginDraw(slider,canvas).close();
+        check(slider.radiusUpdates==writes,"1000 unchanged draws do not resubmit native blur config");
+        scope=corners.beginDraw(slider,canvas);
+        check(local.get()==originalDrawing&&paths.get(local.get())==pathMap&&paints.get(local.get())==paintMap&&canvases.get(local.get())==canvasMap,
+                "unchanged frames reuse identity maps without capturing View strongly");
+        java.lang.reflect.Field owner=originalDrawing.getClass().getDeclaredField("owner");owner.setAccessible(true);
+        check(owner.get(originalDrawing) instanceof java.lang.ref.WeakReference,"owned drawing does not keep its weak View key alive");
+        scope.close();
+        check(((java.util.Map<?,?>)pathMap).isEmpty()&&((java.util.Map<?,?>)paintMap).isEmpty()&&((java.util.Map<?,?>)canvasMap).isEmpty(),"scope closes clear strong native path/paint/canvas references");
+        slider.mCurProgressRadius=61.6f;corners.beginDraw(slider,canvas).close();
+        check(slider.radiusUpdates==++writes,"actual press curve updates native blur immediately");near(26.4f,slider.blurRadius,"press ratio reaches custom blur");
+        slider.mClipProgressRect.right=40;corners.beginDraw(slider,canvas).close();
+        check(slider.radiusUpdates==++writes,"actual Rect resize updates native blur");near(20f,slider.blurRadius,"rect half-width limits blur after resize");
+        slider.mClipProgressRect.left=4;corners.beginDraw(slider,canvas).close();check(slider.radiusUpdates==++writes,"rect position changes update its native config");
+        slider.mBackgroundRoundCornerWeight=.8f;corners.beginDraw(slider,canvas).close();check(slider.radiusUpdates==++writes,"native corner weight remains live");
+        slider.mirrorScaleValue=.9f;corners.beginDraw(slider,canvas).close();check(slider.radiusUpdates==++writes,"native mirror scale remains live");
+        slider.isSupportStroke=true;corners.beginDraw(slider,canvas).close();check(slider.radiusUpdates==++writes,"native stroke support remains live");
+        slider.isDetailToggle=true;corners.beginDraw(slider,canvas).close();check(slider.radiusUpdates==++writes,"native detail mode remains live");
+        slider.baseMixColorDrawable=new android.graphics.drawable.GradientDrawable();corners.beginDraw(slider,canvas).close();
+        check(slider.radiusUpdates==++writes,"material created after first draw receives custom blur");
+        slider.activeMixColorDrawable=new android.graphics.drawable.GradientDrawable();corners.beginDraw(slider,canvas).close();
+        check(slider.radiusUpdates==++writes,"late active material receives custom blur");
+        slider.baseMixColorDrawable=new android.graphics.drawable.GradientDrawable();corners.beginDraw(slider,canvas).close();
+        check(slider.radiusUpdates==++writes,"same geometry replacement material receives custom blur");
+        corners.onNativeUpdate(slider);check(slider.radiusUpdates==++writes,"theme/native update reasserts config on the same material");
+        QsPanelCorners.BlurScope nativeScope=corners.beginBlurUpdate(slider,65f);
+        slider.updateBaseMixColorDrawableRadius(nativeScope.radius);nativeScope.close();writes++;
+        corners.beginDraw(slider,canvas).close();check(slider.radiusUpdates==++writes,"external native radius update dirties blur cache");
+        corners.configure(settings(true,0f));check(slider.radiusUpdates==++writes,"settings immediately update existing blur");near(0f,slider.blurRadius,"zero remains native final-shape override");
+        for(int frame=0;frame<1000;frame++)corners.beginDraw(slider,canvas).close();check(slider.radiusUpdates==writes,"zero steady frames remain deduplicated");
+        corners.configure(settings(false,0f));near(slider.mCurProgressRadius,slider.blurRadius,"off restores latest native radius");writes++;
+        for(int frame=0;frame<1000;frame++)corners.beginDraw(slider,canvas).close();check(slider.radiusUpdates==writes,"disabled draw adds no native setter calls");
+        corners.configure(settings(true,12f));writes++;
+        Bundle safe=settings(true,12f);safe.putBoolean(StatusBarSettings.SAFE_MODE,true);corners.configure(safe);writes++;
+        for(int frame=0;frame<1000;frame++)corners.beginDraw(slider,canvas).close();check(slider.radiusUpdates==writes,"safe draws add no native setter calls");
+        safe.putBoolean(StatusBarSettings.SAFE_MODE,false);corners.configure(safe);writes++;
+        corners.beginDraw(slider,canvas).close();check(slider.radiusUpdates==writes,"safe exit restores custom cache then remains steady");
+        corners.detach(slider);writes++;
+        corners.beginDraw(slider,canvas).close();check(slider.radiusUpdates==++writes,"new owner after detach does not reuse retired blur cache");
+    }
+    /** Same physical radius and dimensionless OEM curve reach every native renderer. */
+    private static void uniformCurves() throws Exception {
+        QSConstant.reset();QSConstant.weight=1.25f;QSConstant.mappedScale=1.5f;
+        QsPanelCorners panels=new QsPanelCorners();QsTileCorners tiles=new QsTileCorners();
+        Slider slider=new Slider();slider.cornerHook=panels;slider.getResources().getDisplayMetrics().density=1.25f;
+        OplusQsBaseMediaPanelView media=new OplusQsBaseMediaPanelView();
+        RectangleDeviceCardView card=new RectangleDeviceCardView();MixColorPluginDrawable mix=bindMix(card);
+        card.resources.getDisplayMetrics().density=1.25f;card.bodyWidth=160;card.bodyHeight=160;
+        media.getResources().getDisplayMetrics().density=1.25f;
+        media.body.getResources().getDisplayMetrics().density=1.25f;
+        com.oplus.systemui.plugins.qs.customize.view.tile.OplusQSResizeableTileViewOneXOne tile=
+                new com.oplus.systemui.plugins.qs.customize.view.tile.OplusQSResizeableTileViewOneXOne();
+        com.oplus.systemui.qs.base.res.drawable.TileTransitionDrawable tileDrawable=
+                new com.oplus.systemui.qs.base.res.drawable.TileTransitionDrawable(new CornerOutlineProvider(56f,.8f));
+        tile.transition=tileDrawable;
+        tile.getResources().getDisplayMetrics().density=1.25f;
+        panels.onNativeUpdate(slider);panels.onNativeUpdate(media);panels.onNativeUpdate(card);tiles.onNativeUpdate(tile);
+        android.graphics.RectF rect=new android.graphics.RectF(0,0,180,500);
+        for(float dp:new float[]{0f,.25f,12f,30f}) {
+            panels.configure(settings(true,dp));tiles.configure(settings(true,dp));
+            float radius=dp*1.25f;
+            near(radius,tileDrawable.getPathProvider().radius,"tile exact physical radius without OEM design scaling");
+            near(radius,media.transition.lightRadius,"media same physical radius");near(radius,mix.radius,"device same physical radius");
+            near(radius,card.outline.radius,"device smooth outline same physical radius");near(radius,slider.blurRadius,"slider native blur same physical radius");
+            near(1.25f,tileDrawable.getPathProvider().weight,"tile canonical OEM weight even at zero/tiny radius");
+            near(1.25f,media.transition.lightWeight,"media material uses same continuous weight");
+            near(1.25f,mix.weight,"device material uses same continuous weight");near(1.25f,card.outline.weight,"device outline uses same continuous weight");
+            near(1.25f,mix.blur().viewBlurProxy.visibleWeight,"device visible blur uses same continuous weight");
+            near(1.25f,slider.visibleBlurWeight,"slider owned setter outside draw uses same continuous weight");
+            QsPanelCorners.DrawScope draw=panels.beginDraw(slider);
+            Object[] args={rect,56f,.7f,new Object()};QsPanelCorners.ShapeScope shape=panels.shape(slider.mBackgroundPath,"addSmoothRoundRect",args);
+            near(radius,shape.args[1],"slider final path uses same physical radius");near(1.25f,shape.args[2],"slider final path uses same continuous weight");
+            shape.close();draw.close();check(!panels.isRewritingBlur(),"native blur scope releases owner after every setter/draw");
+        }
+        int nativeSetters=slider.radiusUpdates,factories=QSConstant.calls;
+        for(int i=0;i<1000;i++)panels.beginDraw(slider).close();
+        check(slider.radiusUpdates==nativeSetters&&QSConstant.calls==factories,"1000 steady draw frames reuse native curve and skip blur submission");
+        QsPanelCorners.DrawScope draw=panels.beginDraw(slider);
+        QsPanelCorners.ShapeScope shape=panels.shape(slider.mBackgroundPath,"addSmoothRoundRect",new Object[]{rect,67.2f,.84f,new Object()});
+        near(45f,shape.args[1],"native press radius ratio remains live");near(1.5f,shape.args[2],"native transient continuous-weight ratio remains live");shape.close();draw.close();
+        slider.mBackgroundRoundCornerWeight=.8f;panels.onNativeUpdate(slider);near(1.25f,slider.visibleBlurWeight,"new native base coefficient still yields common resting curve");
+        draw=panels.beginDraw(slider);shape=panels.shape(slider.mBackgroundPath,"addSmoothRoundRect",new Object[]{rect,56f,.96f,new Object()});
+        near(1.5f,shape.args[2],"transient coefficient follows new native theme baseline");shape.close();draw.close();near(.8f,slider.mBackgroundRoundCornerWeight,"native weight field remains untouched");
+        Object[] newApi={rect,56f,56f,.8f,new Object()};draw=panels.beginDraw(slider);shape=panels.shape(slider.mBackgroundPath,"addSmoothRoundRect",newApi);
+        near(37.5f,shape.args[1],"new OEM two-axis path radius x");near(37.5f,shape.args[2],"new OEM two-axis path radius y");near(1.25f,shape.args[3],"new OEM path weight has distinct argument");shape.close();draw.close();
+        panels.configure(settings(false,30f));near(.8f,slider.visibleBlurWeight,"off restores latest native blur coefficient");near(.4f,mix.blur().viewBlurProxy.visibleWeight,"off restores independent native device BlurConfig weight");
+        panels.configure(settings(true,12f));panels.detach(slider);near(.8f,slider.visibleBlurWeight,"detach restores native slider weight without custom re-entry");
+        QSConstant.reset();
+    }
+    private static void deviceWeightTransactions() throws Exception {
+        QSConstant.reset();RectangleDeviceCardView card=new RectangleDeviceCardView();MixColorPluginDrawable mix=bindMix(card);
+        QsDeviceCorners owner=new QsDeviceCorners();ViewBlurProxy proxy=mix.blur().viewBlurProxy;BlurConfig config=proxy.getBlurConfig();
+        float[] nativeRadius=curves(config);mix.strokeConfigSideEffects=true;
+        owner.refresh(card,12f,QSConstant.weight);near(.6f,config.radiusWeight,"visible blur receives owned common weight");
+        int setters=mix.cornerUpdates,apply=proxy.applied,weightSetters=config.weightUpdates;
+        for(int i=0;i<1000;i++)owner.refresh(card,12f,QSConstant.weight);
+        check(mix.cornerUpdates==setters&&proxy.applied==apply&&config.weightUpdates==weightSetters,"1000 unchanged native callbacks do not rebuild device material or shape");
+        config.radiusWeight=.9f;mix.pathProvider.update(mix.radius,.85f);owner.refresh(card,12f,QSConstant.weight);
+        near(.6f,mix.weight,"live native path update reapplies common static coefficient");near(.6f,proxy.visibleWeight,"live native blur update reapplies common coefficient");
+        owner.restore();near(.85f,mix.weight,"restore preserves latest native weight-only path change");near(56f,mix.radius,"weight-only update never captures module radius as native baseline");
+        near(.9f,proxy.visibleWeight,"restore preserves latest independent native blur coefficient");nativeCurves(nativeRadius,config,"weight-only update preserves native asymmetric radii");
+        config.radiusWeight=null;owner.refresh(card,12f,QSConstant.weight);owner.restore();check(config.radiusWeight==null&&proxy.visibleWeight==null,"native null smooth-weight sentinel restores exactly");
+        mix.strokeConfigSideEffects=false;config.radiusWeight=.35f;config.failWeightCalls=1;boolean failed=false;
+        try{owner.refresh(card,12f,QSConstant.weight);}catch(ReflectiveOperationException|RuntimeException expected){failed=true;}
+        check(failed,"partially failing radiusWeight setter is reported");near(.35f,config.radiusWeight,"failed weight transaction restores native coefficient");near(.35f,proxy.visibleWeight,"failed weight transaction restores applied native material");nativeCurves(nativeRadius,config,"failed weight transaction restores all native corners");
+        owner.refresh(card,12f,QSConstant.weight);owner.restore();
+        android.graphics.drawable.GradientDrawable gradient=new android.graphics.drawable.GradientDrawable();float[] nativeCorners={11f,12f,13f,14f,15f,16f,17f,18f};gradient.setCornerRadii(nativeCorners);
+        card.body.setBackground(gradient);card.setBlurDrawable(null);owner.refresh(card,0f,QSConstant.weight);
+        check(gradient.getCornerRadii()==null&&gradient.getCornerRadius()==0f,"zero custom radius also clears native asymmetric gradient silhouette");owner.restore();
+        check(java.util.Arrays.equals(nativeCorners,gradient.getCornerRadii()),"gradient silhouette returns to exact native asymmetric radii");
+    }
+    private static void spotlightCurve() {
+        QSConstant.reset();QsPanelCorners panels=new QsPanelCorners();RectangleDeviceCardView card=new RectangleDeviceCardView();bindMix(card);
+        com.oplus.systemui.plugins.qs.customize.view.viewholder.EditablePluginViewHolder$realPluginContainer$2$1 wrapper=
+                new com.oplus.systemui.plugins.qs.customize.view.viewholder.EditablePluginViewHolder$realPluginContainer$2$1();wrapper.addView(card);
+        android.graphics.Path path=new android.graphics.Path();
+        com.oplus.posteffect.util.OplusPathAdapterCompatUtils.Adapter adapter=new com.oplus.posteffect.util.OplusPathAdapterCompatUtils.Adapter();
+        android.graphics.RectF rect=new android.graphics.RectF(0,0,124,80);Object[] nativeShape={rect,56f,56f,android.graphics.Path.Direction.CW};
+        panels.configure(settings(true,12f));panels.onNativeUpdate(card);
+        QsPanelCorners.SpotlightScope scope=panels.beginSpotlight(wrapper,path,adapter);
+        QsPanelCorners.ShapeScope shape=panels.shape(path,"addRoundRect",nativeShape);
+        check(shape.handled&&adapter.writes==1,"owned device spotlight is rendered by native continuous adapter instead of circular fallback");
+        near(24f,adapter.radii[0],"spotlight radius matches visible native body");near(.6f,adapter.weight,"spotlight weight matches native glass/outline");
+        check(adapter.rect==rect&&adapter.direction==android.graphics.Path.Direction.CW&&nativeShape[1].equals(56f),"spotlight keeps exact native extent direction and original call args");shape.close();
+        shape=panels.shape(new android.graphics.Path(),"addRoundRect",nativeShape);check(!shape.handled&&shape.args==nativeShape,"another path inside native callback remains untouched");shape.close();scope.close();
+        check(!panels.isDrawingShapes(),"spotlight finally releases its scope");
+        scope=panels.beginSpotlight(wrapper,path,new Object());shape=panels.shape(path,"addRoundRect",nativeShape);
+        check(!shape.handled&&shape.args==nativeShape,"unknown OEM adapter retains the original native drawing path");shape.close();scope.close();
+        panels.configure(settings(false,12f));scope=panels.beginSpotlight(wrapper,path,adapter);shape=panels.shape(path,"addRoundRect",nativeShape);
+        check(!shape.handled&&adapter.writes==1,"off leaves native spotlight untouched");shape.close();scope.close();
+        panels.configure(settings(true,12f));panels.detach(card);scope=panels.beginSpotlight(wrapper,path,adapter);shape=panels.shape(path,"addRoundRect",nativeShape);
+        check(!shape.handled,"retired device owner never rewrites spotlight");shape.close();scope.close();
+    }
+    public static void main(String[] args) throws Exception {slider();sliderShapes();steadySlider();media();devices();nativeGeometry();deviceSurfaceOwnership();actualPluginBinding();deviceBlurGeometry();deviceBlurUpdatesAndRollback();uniformCurves();deviceWeightTransactions();spotlightCurve();System.out.println("QsPanelCornersCheck passed: "+checks+" (uniform native continuous curves, exact physical bounds, dynamic slider paths/blur, native restoration and steady-state submission caching)");}
 }

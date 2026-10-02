@@ -403,7 +403,10 @@ public final class NotificationClockEdge {
             catch (Throwable unavailable) { failure(entry, "Notification edge fade layer unavailable", unavailable); return nativeDraw.draw(canvas); }
             try {
                 Object result = nativeDraw.draw(canvas);
-                try { canvas.drawRect(left, geometry.hardTop, right, geometry.bottom, entry.fade); }
+                // DST_IN must cover the whole layer. An antialiased rectangle at a fractional
+                // boundary retains destination pixels through its partial geometric coverage.
+                // CLAMP already leaves everything below the gradient fully opaque.
+                try { canvas.drawPaint(entry.fade); }
                 catch (Throwable unavailable) { failure(entry, "Notification edge fade unavailable", unavailable); }
                 return result;
             } finally { canvas.restoreToCount(layer); }
@@ -485,7 +488,7 @@ public final class NotificationClockEdge {
                     try {
                         target.drawRenderNode(source);
                         // CLAMP keeps sharp=1 below the band, so the original list stays intact.
-                        target.drawRect(left, top, right, bottom, entry.sharp);
+                        target.drawPaint(entry.sharp);
                         float blurTop = Math.max(top, geometry.captureTop);
                         float blurBottom = Math.min(bottom, geometry.captureTop + geometry.captureHeight);
                         if (blurBottom > blurTop) {
@@ -493,11 +496,13 @@ public final class NotificationClockEdge {
                             try {
                                 target.drawRenderNode(blurred);
                                 // The complementary mask reaches zero before the capture edge.
-                                target.drawRect(left, top, right, bottom, entry.blur);
+                                target.drawPaint(entry.blur);
                             } finally { target.restoreToCount(blur); }
                         }
                         // Fade=1 below the band and 0 above it; no unmasked blur halo escapes.
-                        target.drawRect(left, top, right, bottom, entry.fade);
+                        // Apply alpha to every output pixel, without a second antialiased
+                        // geometry edge that can preserve a thin native glass highlight.
+                        target.drawPaint(entry.fade);
                     } catch (Throwable unavailable) {
                         entry.blurFailed = true; failure(entry, "Notification edge blur composition unavailable", unavailable);
                         target.restoreToCount(outputDepth); target.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);

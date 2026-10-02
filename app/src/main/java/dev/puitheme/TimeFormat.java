@@ -117,7 +117,11 @@ public final class TimeFormat {
 
     /** Footer date patterns plus {text}; inserted text is never interpreted as a date pattern. */
     public static String formatContent(String pattern, String text, long now) {
-        TimeZone zone = TimeZone.getDefault();
+        return formatContent(pattern, text, now, TimeZone.getDefault());
+    }
+
+    /** The clock, date and footer can share one real time-zone snapshot across a minute change. */
+    public static String formatContent(String pattern, String text, long now, TimeZone zone) {
         return parse(pattern, text, now, zone, true).render(now, zone);
     }
 

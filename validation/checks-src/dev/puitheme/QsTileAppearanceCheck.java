@@ -23,6 +23,37 @@ public final class QsTileAppearanceCheck {
     private static void equal(Object expected,Object actual){checks++;if(!Objects.equals(expected,actual))throw new AssertionError(expected+" != "+actual);}
     private static void near(float expected,float actual){checks++;if(Math.abs(expected-actual)>.0002f)throw new AssertionError(expected+" != "+actual);}
     public static final class State {public int state;public String spec;State(int state,String spec){this.state=state;this.spec=spec;}}
+    private static class NativeBase {
+        private int live=1;
+        private int read(){return live;}
+    }
+    private static final class NativeChild extends NativeBase {
+        private String choose(String value){return "text:"+value;}
+        private float choose(float value){return value+1f;}
+        private static int nativeStatic(int value){return value*2;}
+        private void failure(){throw new IllegalStateException("native failure");}
+    }
+    private static void nativeMembers() throws Exception {
+        NativeChild owner=new NativeChild();
+        equal(1,QsTileAppearance.call(owner,"read"));
+        equal(true,QsTileAppearance.setField(owner,"live",8));
+        equal(8,QsTileAppearance.call(owner,"read"));equal(8,QsTileAppearance.field(owner,"live"));
+        equal("text:a",QsTileAppearance.call(owner,"choose","a"));
+        equal(3f,QsTileAppearance.call(owner,"choose",2f));
+        equal(10,QsTileAppearance.invoke(NativeChild.class,"nativeStatic",5));
+        equal(null,QsTileAppearance.call(owner,"choose",new Object()));
+        equal(null,QsTileAppearance.call(owner,"absent"));
+        equal(null,QsTileAppearance.field(owner,"absent"));
+        equal(false,QsTileAppearance.setField(owner,"absent",1));
+        equal(null,QsTileAppearance.call(owner,"failure"));
+        // Reuse metadata while reading changed fields/results, including negative lookups.
+        for(int value:new int[]{2,5,9}) {
+            QsTileAppearance.setField(owner,"live",value);
+            equal(value,QsTileAppearance.call(owner,"read"));
+            equal(value,QsTileAppearance.field(owner,"live"));
+            equal(null,QsTileAppearance.call(owner,"absent"));
+        }
+    }
     public static final class Icon {public Drawable circle;private Drawable getBgDrawable(){return circle;}private Drawable getThemeDrawable(){return circle;}private Drawable getIconBgDrawable(){return circle;}}
     public static final class ResourceView extends View {
         final String name;final Resources resources;
@@ -88,6 +119,7 @@ public final class QsTileAppearanceCheck {
         appearance.detach(tile);
     }
     public static void main(String[] args) throws Throwable {
+        nativeMembers();
         QsTileAppearance a=new QsTileAppearance();OplusQSResizeableTileView tile=new OplusQSResizeableTileView();Canvas c=new Canvas();MixColorTileDrawable bg=attach(a,tile,"wifi",2);
         a.configure(new Bundle());a.drawTile(bg,c,bg::draw);equal(null,bg.seenShader);equal(3,QsTileAppearance.BOOLEANS.size());equal(4,QsTileAppearance.NUMBERS.size());equal(4,QsTileAppearance.COLORS.size());equal(false,QsTileAppearance.BOOLEANS.get(QsTileAppearance.MASTER));
         for(String key:QsTileAppearance.BOOLEANS.keySet())equal(false,key.startsWith("qs_style_"));

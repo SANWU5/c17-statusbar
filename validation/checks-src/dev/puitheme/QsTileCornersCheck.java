@@ -60,7 +60,7 @@ public final class QsTileCornersCheck {
         int calls=QSConstant.calls,setters=first.drawable().setters,updates=first.drawable().pathUpdates;
         for(int i=0;i<100;i++)corners.onNativeUpdate(first);
         equal(calls,QSConstant.calls);equal(setters,first.drawable().setters);equal(updates,first.drawable().pathUpdates);
-        corners.configure(settings(true,48f));near(60f,corners.cornerRadius(first,56f));near(60f,QSConstant.lastPixels);
+        corners.configure(settings(true,48f));near(60f,corners.cornerRadius(first,56f));near(24f*first.getContext().getResources().getDisplayMetrics().density,QSConstant.lastPixels);
         corners.configure(settings(true,0f));near(0f,corners.cornerRadius(first,56f));
         corners.configure(settings(false,24f));nativeState(first,nativeProvider);nativeState(second,nativeProvider);
         equal(nativeProvider,large.transition.getPathProvider());equal(nativeProvider,large.transition.childProvider);
@@ -116,7 +116,7 @@ public final class QsTileCornersCheck {
     }
     private static void policy(){
         near(24f,QsTileCorners.radiusDp(null));near(24f,QsTileCorners.radiusDp("broken"));near(24f,QsTileCorners.radiusDp(Float.NaN));near(24f,QsTileCorners.radiusDp(Float.POSITIVE_INFINITY));
-        near(0f,QsTileCorners.radiusDp(-10));near(80f,QsTileCorners.radiusDp(100));near(17.5f,QsTileCorners.radiusDp("17.5"));
+        near(0f,QsTileCorners.radiusDp(-10));near(30f,QsTileCorners.radiusDp(100));near(17.5f,QsTileCorners.radiusDp("17.5"));
         for(int width:new int[]{20,120,800})for(int height:new int[]{20,120,800})for(float density:new float[]{0.75f,1f,2f,4f})for(float dp:new float[]{0,1,24,48,80,100}){
             float px=QsTileCorners.radiusPixels(dp,density,width,height);
             equal(true,px>=0&&px<=Math.min(width,height)/2f);near(Math.min(QsTileCorners.radiusDp(dp)*density,Math.min(width,height)/2f),px);
@@ -142,28 +142,28 @@ public final class QsTileCornersCheck {
             equal(true,shared!=((TileTransitionDrawable)tile.transition).getPathProvider());
         }
         corners.configure(settings(true,80f));
-        for(OplusQSResizeableTileView tile:tiles)near(160f,corners.cornerRadius(tile,56f));
+        for(OplusQSResizeableTileView tile:tiles)near(60f,corners.cornerRadius(tile,56f));
         Bundle safe=settings(true,80f);safe.putBoolean(StatusBarSettings.SAFE_MODE,true);corners.configure(safe);
         for(OplusQSResizeableTileView tile:tiles){equal(shared,((TileTransitionDrawable)tile.transition).getPathProvider());near(56f,corners.cornerRadius(tile,56f));}
         safe.putBoolean(StatusBarSettings.SAFE_MODE,false);corners.configure(safe);
-        for(OplusQSResizeableTileView tile:tiles){near(160f,corners.cornerRadius(tile,56f));corners.detach(tile);equal(shared,((TileTransitionDrawable)tile.transition).getPathProvider());}
+        for(OplusQSResizeableTileView tile:tiles){near(60f,corners.cornerRadius(tile,56f));corners.detach(tile);equal(shared,((TileTransitionDrawable)tile.transition).getPathProvider());}
         equal(false,QsTileCorners.isTile(new View(new Context())));
     }
     private static String document(String body){return "{\"package\":\""+ConfigTransfer.PACKAGE_NAME+"\",\"schema\":1,\"settings\":{"+body+"}}";}
     private static void migration() throws Exception {
         java.util.Map<String,Object> old=new java.util.HashMap<>();old.put(QsTileCorners.MASTER,false);old.put(QsTileCorners.LEGACY_RADIUS,37f);
-        equal(false,StatusBarSettings.bool(old,QsTileCorners.MASTER));near(37f,StatusBarSettings.settingNumber(old,QsTileCorners.RADIUS,24f));
-        Bundle snapshot=SettingsSnapshot.fromPreferences(old);equal(false,snapshot.get(QsTileCorners.MASTER));near(37f,snapshot.get(QsTileCorners.RADIUS));equal(false,old.get(QsTileCorners.MASTER));
+        equal(false,StatusBarSettings.bool(old,QsTileCorners.MASTER));near(30f,StatusBarSettings.settingNumber(old,QsTileCorners.RADIUS,24f));
+        Bundle snapshot=SettingsSnapshot.fromPreferences(old);equal(false,snapshot.get(QsTileCorners.MASTER));near(30f,snapshot.get(QsTileCorners.RADIUS));equal(false,old.get(QsTileCorners.MASTER));
         ActivationGuardPreferencesCheck.MemoryPreferences prefs=new ActivationGuardPreferencesCheck.MemoryPreferences();prefs.values.putAll(old);prefs.values.put("clock_scale",123f);
-        QsTileCorners.migrate(prefs);equal(false,prefs.values.get(QsTileCorners.MASTER));near(37f,prefs.values.get(QsTileCorners.RADIUS));equal(true,prefs.values.get(QsTileCorners.MIGRATED));near(123f,prefs.values.get("clock_scale"));
+        QsTileCorners.migrate(prefs);equal(false,prefs.values.get(QsTileCorners.MASTER));near(30f,prefs.values.get(QsTileCorners.RADIUS));equal(true,prefs.values.get(QsTileCorners.MIGRATED));near(123f,prefs.values.get("clock_scale"));
         int writes=prefs.writes;prefs.edit().putBoolean(QsTileCorners.MASTER,false).apply();QsTileCorners.migrate(prefs);equal(writes+1,prefs.writes);equal(false,StatusBarSettings.bool(prefs.values,QsTileCorners.MASTER));
-        prefs.edit().remove(QsTileCorners.RADIUS).apply();QsTileCorners.migrate(prefs);equal(false,StatusBarSettings.bool(prefs.values,QsTileCorners.MASTER));near(37f,StatusBarSettings.settingNumber(prefs.values,QsTileCorners.RADIUS,24f));
+        prefs.edit().remove(QsTileCorners.RADIUS).apply();QsTileCorners.migrate(prefs);equal(false,StatusBarSettings.bool(prefs.values,QsTileCorners.MASTER));near(30f,StatusBarSettings.settingNumber(prefs.values,QsTileCorners.RADIUS,24f));
         String exported=ConfigTransfer.exportJson(old);equal(false,exported.contains(QsTileCorners.LEGACY_RADIUS));equal(false,exported.contains(QsTileCorners.MIGRATED));
-        java.util.Map<String,Object> imported=ConfigTransfer.prepare(document("\""+QsTileCorners.MASTER+"\":false,\""+QsTileCorners.LEGACY_RADIUS+"\":37"),true).values();
-        equal(false,imported.get(QsTileCorners.MASTER));near(37f,imported.get(QsTileCorners.RADIUS));equal(false,imported.containsKey(QsTileCorners.LEGACY_RADIUS));
-        imported=ConfigTransfer.prepare(document("\""+QsTileCorners.LEGACY_RADIUS+"\":37,\""+QsTileCorners.RADIUS+"\":80,\""+QsTileCorners.MASTER+"\":false"),true).values();
-        equal(false,imported.get(QsTileCorners.MASTER));near(80f,imported.get(QsTileCorners.RADIUS));
-        for(float bad:new float[]{-1,80.5f,100})try{ConfigTransfer.prepare(document("\""+QsTileCorners.RADIUS+"\":"+bad),true);throw new AssertionError("out-of-range radius accepted");}catch(java.io.IOException expected){checks++;}
+        java.util.Map<String,Object> imported=ConfigTransfer.prepare(document("\""+QsTileCorners.MASTER+"\":false,\""+QsTileCorners.LEGACY_RADIUS+"\":27"),true).values();
+        equal(false,imported.get(QsTileCorners.MASTER));near(27f,imported.get(QsTileCorners.RADIUS));equal(false,imported.containsKey(QsTileCorners.LEGACY_RADIUS));
+        imported=ConfigTransfer.prepare(document("\""+QsTileCorners.LEGACY_RADIUS+"\":37,\""+QsTileCorners.RADIUS+"\":30,\""+QsTileCorners.MASTER+"\":false"),true).values();
+        equal(false,imported.get(QsTileCorners.MASTER));near(30f,imported.get(QsTileCorners.RADIUS));
+        for(float bad:new float[]{-1,30.5f,80,100})try{ConfigTransfer.prepare(document("\""+QsTileCorners.RADIUS+"\":"+bad),true);throw new AssertionError("out-of-range radius accepted");}catch(java.io.IOException expected){checks++;}
         ActivationGuardPreferencesCheck.MemoryPreferences fresh=new ActivationGuardPreferencesCheck.MemoryPreferences();QsTileCorners.migrate(fresh);equal(false,fresh.values.containsKey(QsTileCorners.MASTER));equal(false,StatusBarSettings.bool(fresh.values,QsTileCorners.MASTER));equal(false,fresh.values.containsKey(QsTileCorners.RADIUS));near(24f,StatusBarSettings.settingNumber(fresh.values,QsTileCorners.RADIUS,24f));
         ActivationGuardPreferencesCheck.MemoryPreferences modern=new ActivationGuardPreferencesCheck.MemoryPreferences();modern.values.put(QsTileCorners.RADIUS,80f);modern.values.put(QsTileCorners.MASTER,false);QsTileCorners.migrate(modern);equal(false,modern.values.get(QsTileCorners.MASTER));near(80f,modern.values.get(QsTileCorners.RADIUS));
     }

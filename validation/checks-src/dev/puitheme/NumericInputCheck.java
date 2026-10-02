@@ -51,6 +51,15 @@ public final class NumericInputCheck {
         rejected(" ".repeat(256)+"1",2);rejected("1",-1);rejected("1",Integer.MAX_VALUE);
         equal(1f,NumericInput.parse(" ".repeat(255)+"1",2));
         equal(1f,NumericInput.parse("1",256));
+        equal(12.34567f,NumericInput.unrounded("12.34567"));
+        equal(Float.MIN_VALUE,NumericInput.unrounded("1.4e-45"));
+        for(String input:new String[]{"1e-100","NaN","1e39","-1e-100"}) {
+            checks++;try{NumericInput.unrounded(input);throw new AssertionError("Accepted "+input);}catch(NumberFormatException expected){}
+        }
+        checks++;try{NumericInput.unrounded("12dp");throw new AssertionError("Accepted unit suffix");}
+        catch(NumberFormatException expected){if(!"请输入有效的有限数值".equals(expected.getMessage()))throw new AssertionError(expected.getMessage());}
+        checks++;try{NumericInput.parse("--1",2);throw new AssertionError("Accepted malformed sign");}
+        catch(NumberFormatException expected){if(!"请输入有效的有限数值".equals(expected.getMessage()))throw new AssertionError(expected.getMessage());}
         System.out.println("NumericInputCheck passed: "+checks);
     }
 }

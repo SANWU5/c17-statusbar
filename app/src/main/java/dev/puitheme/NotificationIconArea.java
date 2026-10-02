@@ -30,13 +30,14 @@ public final class NotificationIconArea {
     public static final String TEXT = "notification_icons_text", IMAGE_NAME = "notification_icons_image_name", IMAGE_REVISION = "notification_icons_image_revision";
     public static final String POSITION = "notification_icons_position_enabled", SIZE_ENABLED = "notification_icons_size_enabled", COLOR_ENABLED = "notification_icons_color_enabled";
     public static final String X = "notification_icons_offset_x", Y = "notification_icons_offset_y", SIZE = "notification_icons_size";
+    public static final String COUNT_ENABLED="notification_icons_count_enabled", MAX_COUNT="notification_icons_max_count";
     public static final Map<String, Boolean> BOOLEANS;
     public static final Map<String, Float> NUMBERS;
     public static final Map<String, Integer> COLORS;
     public static final Map<String, String> STRINGS;
     static {
-        Map<String,Boolean> b = new LinkedHashMap<>(); b.put(MASTER,false); b.put(POSITION,true); b.put(SIZE_ENABLED,true); b.put(COLOR_ENABLED,false); BOOLEANS=Collections.unmodifiableMap(b);
-        Map<String,Float> n = new LinkedHashMap<>(); n.put(X,0f); n.put(Y,0f); n.put(SIZE,20f); NUMBERS=Collections.unmodifiableMap(n);
+        Map<String,Boolean> b = new LinkedHashMap<>(); b.put(MASTER,false); b.put(POSITION,true); b.put(SIZE_ENABLED,true); b.put(COLOR_ENABLED,false);b.put(COUNT_ENABLED,false); BOOLEANS=Collections.unmodifiableMap(b);
+        Map<String,Float> n = new LinkedHashMap<>(); n.put(X,0f); n.put(Y,0f); n.put(SIZE,20f);n.put(MAX_COUNT,3f); NUMBERS=Collections.unmodifiableMap(n);
         Map<String,Integer> c = new LinkedHashMap<>(); c.put("notification_icons_color_light",Color.BLACK); c.put("notification_icons_color_dark",Color.WHITE); COLORS=Collections.unmodifiableMap(c);
         Map<String,String> s = new LinkedHashMap<>(); s.put(MODE,"native"); s.put(TEXT,"♥"); s.put(IMAGE_NAME,""); s.put(IMAGE_REVISION,""); STRINGS=Collections.unmodifiableMap(s);
     }
@@ -55,6 +56,10 @@ public final class NotificationIconArea {
     private Class<?> containerClass, iconClass;
     private Method visibleState, notification, blocked, iconHeight, iconScale, tint;
     private Field bundleEntry, decorColor;
+    private Field maxIcons;
+    private Method setMaxIcons,updateState;
+    private final ThreadLocal<Boolean> applyingCount=ThreadLocal.withInitial(() -> false);
+    private boolean countWarning;
 
     public void resolve(ClassLoader loader) throws ReflectiveOperationException {
         containerClass=loader.loadClass("com.android.systemui.statusbar.phone.NotificationIconContainer");
@@ -64,6 +69,11 @@ public final class NotificationIconArea {
         iconScale=iconClass.getMethod("getIconScale");tint=iconClass.getMethod("getStaticDrawableColor");
         try{bundleEntry=iconClass.getDeclaredField("mBundleEntry");bundleEntry.setAccessible(true);}catch(NoSuchFieldException olderAndroid){bundleEntry=null;}
         try{decorColor=iconClass.getDeclaredField("mDecorColor");decorColor.setAccessible(true);}catch(NoSuchFieldException olderAndroid){decorColor=null;}
+        try {
+            maxIcons=containerClass.getDeclaredField("mMaxIcons");maxIcons.setAccessible(true);
+            setMaxIcons=containerClass.getDeclaredMethod("setMaxIconsAmount",Integer.TYPE);setMaxIcons.setAccessible(true);
+            updateState=containerClass.getDeclaredMethod("updateState");updateState.setAccessible(true);
+        } catch(NoSuchFieldException|NoSuchMethodException unsupportedCount) {maxIcons=null;setMaxIcons=null;updateState=null;}
     }
     public void configure(Context context, Bundle options) {
         settings=new Bundle(options);
@@ -90,7 +100,10 @@ public final class NotificationIconArea {
                 main.post(() -> { if(generation!=imageGeneration || ModuleLifecycle.removed())return;bitmap=ready;invalidate(); });
             });
         }
-        for(State state:states.values())state.dirty=true;
+        for(ViewGroup owner:states.keySet().toArray(new ViewGroup[0])) {
+            State state=states.get(owner);if(state==null)continue;
+            applyCount(owner,state,true);state.dirty=true;
+        }
         if(ModuleDiagnostics.enabled())ModuleDiagnostics.info("hooks","Notification icons configured "
                 +(enabled?"active":"disabled")+" mode "+mode(options.getString(MODE))+" tracked "+states.size());
         else probes.clear();
@@ -110,10 +123,14 @@ public final class NotificationIconArea {
         probe(owner,8,"status-bar binder identified host");
     }
     public void changed(View owner) {
+        if(Boolean.TRUE.equals(applyingCount.get()))return;
         ViewParent parent=owner instanceof ViewGroup && containerClass!=null&&containerClass.isInstance(owner)?(ViewGroup)owner:owner.getParent();
         if(!(parent instanceof ViewGroup)||containerClass==null||!containerClass.isInstance(parent))return;
         ViewGroup container=(ViewGroup)parent;
         State state=states.get(container);
+        if(state!=null&&!phoneArea(container)) {
+            restoreCount(container,state,true);forgetRestored(container,state);return;
+        }
         if(state==null){
             if(!phoneArea(container)){probe(container,16,"layout outside status-bar scope");return;}
             // Observe native hosts before the default-off setting is enabled. Their cached render
@@ -121,18 +138,23 @@ public final class NotificationIconArea {
             // a notification add/remove or layout event.
             state=new State();states.put(container,state);
         }
+        applyCount(container,state,true);
         state.dirty=true;
         if(enabled)container.invalidate();
         probe(container,1,"native layout or icon event registered host");
     }
     public Object draw(ViewGroup owner,Canvas canvas,Draw nativeDraw) throws Throwable {
-        if(!active(settings)||containerClass==null||!containerClass.isInstance(owner))return nativeDraw.run();
+        if(!active(settings)||containerClass==null||!containerClass.isInstance(owner)) {
+            State inactive=states.get(owner);if(inactive!=null)restoreCount(owner,inactive,true);
+            return nativeDraw.run();
+        }
         probe(owner,2,"native dispatchDraw intercepted");
         State state=states.get(owner);if(state==null){if(!phoneArea(owner))return nativeDraw.run();state=new State();states.put(owner,state);}
-        if(state.dirty){if(!phoneArea(owner)){states.remove(owner);phoneBindings.remove(owner);probe(owner,16,"draw outside status-bar scope");return nativeDraw.run();}update(owner,state);}
+        if(state.dirty){if(!phoneArea(owner)){restoreCount(owner,state,true);forgetRestored(owner,state);probe(owner,16,"draw outside status-bar scope");return nativeDraw.run();}update(owner,state);}
         String mode=mode(settings.getString(MODE));
         // Missing/invalid imported pixels keep the real icons available.
         if("image".equals(mode)&&bitmap==null)mode="native";
+        if("native".equals(mode)&&countActive()&&safeCount(settings.get(MAX_COUNT),owner.getChildCount())==0)return null;
         if(state.icons.isEmpty()){probe(owner,4,"no eligible native notification children");return nativeDraw.run();}
         if(ModuleDiagnostics.enabled())probe(owner,32,"eligible native notification children "+state.icons.size());
         float density=owner.getResources().getDisplayMetrics().density;
@@ -143,7 +165,7 @@ public final class NotificationIconArea {
         try {
             canvas.translate(x,y);
             if("native".equals(mode)) {
-                float factor=size/Math.max(1f,state.height);
+                float factor=NumericPolicy.scale((double)size/Math.max(1f,state.height),state.height);
                 float pivot=owner.getLayoutDirection()==View.LAYOUT_DIRECTION_RTL?owner.getWidth():0f;
                 canvas.scale(factor,factor,pivot,owner.getHeight()/2f);
                 if(settings.getBoolean(COLOR_ENABLED,false)){
@@ -169,7 +191,7 @@ public final class NotificationIconArea {
                 if(settings.getBoolean(COLOR_ENABLED,false))state.paint.setColorFilter(state.filter(color));
                 try{canvas.drawBitmap(image,null,state.target,state.paint);}finally{state.paint.setColorFilter(null);}
             } else {
-                state.paint.setTextSize(size);String text="heart".equals(mode)?"♥":displayText;
+                state.paint.setTextSize(NumericPolicy.textPixels(size));String text="heart".equals(mode)?"♥":displayText;
                 state.paint.getFontMetrics(state.metrics);
                 canvas.drawText(text,cx,cy-(state.metrics.ascent+state.metrics.descent)/2f,state.paint);
             }
@@ -190,7 +212,91 @@ public final class NotificationIconArea {
     static boolean active(Bundle settings){return settings!=null&&!SafetyMode.enabled(settings)&&!ModuleLifecycle.removed()&&settings.getBoolean(MASTER,false);}
     static String mode(String value){return "heart".equals(value)||"text".equals(value)||"image".equals(value)?value:"native";}
     static String customText(String value){if(value==null||value.trim().isEmpty())return "♥";int count=value.codePointCount(0,value.length());return count>12?value.substring(0,value.offsetByCodePoints(0,12)):value;}
-    static float safeSize(Object value,float density){return NumericPolicy.pixels(Math.max(1f,Math.min(80f,NumericPolicy.finite(value,20f))),density);}
+    static float safeSize(Object value,float density){return NumericPolicy.pixels(Math.max(0f,NumericPolicy.finite(value,20f)),density);}
+    /** Saved integers can be very large; native layout only needs the actual available children. */
+    static int safeCount(Object value,int children) {
+        float count=NumericPolicy.finite(value,NUMBERS.get(MAX_COUNT));
+        return Math.min(Math.max(0,children),Math.max(0,Math.round(count)));
+    }
+    private boolean countActive() {
+        return maxIcons!=null&&active(settings)&&Boolean.TRUE.equals(settings.get(COUNT_ENABLED))
+                &&"native".equals(mode(settings.getString(MODE)));
+    }
+
+    /** Before the exact native setter: preserve its requested value even while ours is applied. */
+    public int nativeMaxIcons(View owner,int requested) {
+        if(Boolean.TRUE.equals(applyingCount.get())||maxIcons==null||!nativeContainer(owner))return requested;
+        ViewGroup container=(ViewGroup)owner;State state=states.get(container);
+        if(!phoneArea(owner)) {
+            if(state!=null){state.countOwned=false;states.remove(container);phoneBindings.remove(container);}
+            return requested;
+        }
+        if(state==null){state=new State();states.put(container,state);}
+        state.nativeMax=requested;state.dirty=true;
+        if(!countActive()){state.countOwned=false;return requested;}
+        state.countOwned=true;state.appliedMax=safeCount(settings.get(MAX_COUNT),container.getChildCount());
+        return state.appliedMax;
+    }
+
+    /** Before native measure/translation calculation; no replacement layout or visibility writes. */
+    public void beforeLayout(View owner) {
+        if(Boolean.TRUE.equals(applyingCount.get())||!nativeContainer(owner)||maxIcons==null)return;
+        ViewGroup container=(ViewGroup)owner;State state=states.get(container);
+        if(!phoneArea(owner)){if(state!=null){restoreCount(container,state,false);forgetRestored(container,state);}return;}
+        if(state==null){state=new State();states.put(container,state);}
+        applyCount(container,state,false);
+    }
+    public boolean nativeContainer(Object owner){return containerClass!=null&&containerClass.isInstance(owner);}
+    public void detach(View owner) {
+        if(!(owner instanceof ViewGroup))return;
+        ViewGroup container=(ViewGroup)owner;State state=states.get(container);
+        if(state!=null)restoreCount(container,state,false);
+        if(state!=null)forgetRestored(container,state);else phoneBindings.remove(container);
+        probes.remove(container);
+    }
+    private void forgetRestored(ViewGroup owner,State state) {
+        // Keep a failed restoration weakly tracked so a later config/native event can retry.
+        if(!state.countOwned)states.remove(owner);
+        phoneBindings.remove(owner);
+    }
+    private void applyCount(ViewGroup owner,State state,boolean refresh) {
+        if(maxIcons==null||Boolean.TRUE.equals(applyingCount.get()))return;
+        if(!countActive()||!phoneArea(owner)){restoreCount(owner,state,refresh);return;}
+        try {
+            int current=maxIcons.getInt(owner);
+            if(!state.countOwned||current!=state.appliedMax)state.nativeMax=current;
+            int wanted=safeCount(settings.get(MAX_COUNT),owner.getChildCount());
+            state.countOwned=true;state.appliedMax=wanted;
+            if(current!=wanted){writeCount(owner,wanted,refresh);state.dirty=true;}
+        } catch(Throwable error) {restoreCount(owner,state,refresh,false);countFailure(error);}
+    }
+    private void restoreCount(ViewGroup owner,State state,boolean refresh) {
+        restoreCount(owner,state,refresh,true);
+    }
+    private void restoreCount(ViewGroup owner,State state,boolean refresh,boolean observeNativeChange) {
+        if(!state.countOwned||maxIcons==null)return;
+        try {
+            int current=maxIcons.getInt(owner);
+            // A direct native resource update wins over our older snapshot.
+            // A failed write is rolled back against the saved baseline, not its partial value.
+            if(observeNativeChange&&current!=state.appliedMax)state.nativeMax=current;
+            try {if(current!=state.nativeMax)writeCount(owner,state.nativeMax,refresh);}
+            finally {if(maxIcons.getInt(owner)==state.nativeMax)state.countOwned=false;state.dirty=true;}
+        } catch(Throwable error){countFailure(error);}
+    }
+    private void writeCount(ViewGroup owner,int wanted,boolean refresh) throws ReflectiveOperationException {
+        boolean previous=applyingCount.get();applyingCount.set(true);
+        try {
+            // Android 17's exact setter only assigns mMaxIcons. Writing that same field
+            // avoids re-entering the external setter hook and permits atomic rollback if
+            // the subsequent native state processor throws.
+            maxIcons.setInt(owner,wanted);
+            if(refresh){updateState.invoke(owner);owner.requestLayout();}
+        } finally {if(previous)applyingCount.set(true);else applyingCount.remove();}
+    }
+    private void countFailure(Throwable error) {
+        if(!countWarning){countWarning=true;ModuleDiagnostics.error("hook","Native notification icon count unavailable; original layout retained",error);}
+    }
     static boolean nativeLight(int color){return Color.red(color)*299+Color.green(color)*587+Color.blue(color)*114<128000;}
     private int customColor(int nativeTint){String key=nativeLight(nativeTint)?"notification_icons_color_light":"notification_icons_color_dark";
         int color=settings.getInt(key,nativeTint);return settings.getBoolean(StatusBarSettings.alphaKey(key),false)?color:(color|0xff000000);}
@@ -232,6 +338,7 @@ public final class NotificationIconArea {
     }
     private static final class State {
         boolean dirty=true;float height;int nativeTint=Color.WHITE;
+        boolean countOwned;int nativeMax,appliedMax;
         final ArrayList<WeakReference<View>> icons=new ArrayList<>();
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
         final Paint.FontMetrics metrics=new Paint.FontMetrics();final RectF target=new RectF();
