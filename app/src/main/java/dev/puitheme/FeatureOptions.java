@@ -10,6 +10,8 @@ import java.util.Map;
 
 /** Immutable feature switches. A group switch gates every effect owned by that group. */
 public final class FeatureOptions {
+    /** Whole-list stacking has an independent opt-in for landscape. */
+    public static final String STACK_LANDSCAPE_ENABLED = "notification_big_clock_stack_landscape_enabled";
     public static final String[] GROUPS = {"speed", "data", "wifi", "label", "clock", "shade_clock", "carrier", "font", "battery", "tiles"};
     public static final Map<String, Boolean> DEFAULTS;
     /** Maps each switch to its owning UI group, in display order. */
@@ -22,6 +24,9 @@ public final class FeatureOptions {
         Map<String, String> groups = new LinkedHashMap<>();
         // New installations leave native behavior intact; explicit saved switches still win.
         for (String group : GROUPS) add(defaults, groups, group, masterKey(group), false);
+        defaults.put(STACK_LANDSCAPE_ENABLED, false);
+        defaults.put(NativeDataActivity.MASTER, false);
+        defaults.put(NativeDataActivity.COLOR_ENABLED, false);
         for (String group : GROUPS) {
             if ("font".equals(group) || "tiles".equals(group)) continue;
             add(defaults, groups, group, group + "_position_enabled", true);
@@ -33,8 +38,9 @@ public final class FeatureOptions {
         add(defaults, groups, "speed", "speed_lines_enabled", true);
         add(defaults, groups, "data", "data_icon_enabled", true);
         add(defaults, groups, "data", "data_badge_hidden", true);
-        // Retained for old imports/runtime transport; no longer a user-editable switch.
+        // Legacy transport state is derived from the new independent native-arrow switch.
         defaults.put(StatusBarSettings.DATA_ACTIVITY_HIDDEN, true);
+        // Deprecated transport key retained for complete old snapshots, without runtime gating.
         add(defaults, groups, "data", "data_single_enabled", true);
         add(defaults, groups, "data", DataBatterySpacing.ENABLED, false);
         add(defaults, groups, "wifi", "wifi_icon_enabled", true);
@@ -101,7 +107,7 @@ public final class FeatureOptions {
     /** Raw switch state; use effective() when a switch belongs to a group. */
     public boolean isEnabled(String key) { return Boolean.TRUE.equals(values.get(key)); }
     public boolean effective(String group, String key) {
-        if (StatusBarSettings.DATA_ACTIVITY_HIDDEN.equals(key)) return !safeMode;
+        if (StatusBarSettings.DATA_ACTIVITY_HIDDEN.equals(key)) return !safeMode && isEnabled(key);
         return enabled(group) && isEnabled(key);
     }
     public boolean safeMode() { return safeMode; }
@@ -111,5 +117,9 @@ public final class FeatureOptions {
     public boolean textStyle(String group) { return effective(group, group + "_text_style_enabled"); }
     /** Hiding owns only the label; disabling its group restores the native label behavior. */
     public boolean hideNetworkLabel() { return effective("label", StatusBarSettings.LABEL_HIDDEN); }
+    public boolean hideNativeNetworkBadge() { return effective("data", "data_badge_hidden"); }
+    public boolean singleSignal(String layout) {
+        return effective("data", "data_icon_enabled") && "single".equals(layout);
+    }
     public Map<String, Boolean> values() { return values; }
 }

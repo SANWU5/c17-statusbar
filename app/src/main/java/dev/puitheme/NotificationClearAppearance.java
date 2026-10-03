@@ -4,6 +4,7 @@
 package dev.puitheme;
 
 import android.content.res.Configuration;
+import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.ColorFilter;
 import android.graphics.Paint;
@@ -39,19 +40,42 @@ public final class NotificationClearAppearance {
     public static final String GRADIENT_COLOR_DARK="notification_clear_gradient_color_dark";
     public static final String OPACITY="notification_clear_opacity";
     public static final String GRADIENT_ANGLE="notification_clear_gradient_angle";
+    public static final String LANDSCAPE_MASTER="notification_clear_landscape_custom_enabled";
+    public static final String LANDSCAPE_GRADIENT_ENABLED="notification_clear_landscape_gradient_enabled";
+    public static final String LANDSCAPE_COLOR_LIGHT="notification_clear_landscape_color_light";
+    public static final String LANDSCAPE_COLOR_DARK="notification_clear_landscape_color_dark";
+    public static final String LANDSCAPE_GRADIENT_COLOR_LIGHT="notification_clear_landscape_gradient_color_light";
+    public static final String LANDSCAPE_GRADIENT_COLOR_DARK="notification_clear_landscape_gradient_color_dark";
+    public static final String LANDSCAPE_OPACITY="notification_clear_landscape_opacity";
+    public static final String LANDSCAPE_GRADIENT_ANGLE="notification_clear_landscape_gradient_angle";
+    private static final String MIGRATED="notification_clear_landscape_migrated_v62";
+    private static final String FRESH="notification_clear_landscape_fresh_v62";
+    public static final Map<String,String> LANDSCAPE_LEGACY;
     public static final Map<String,Boolean> BOOLEANS;
     public static final Map<String,Float> NUMBERS;
     public static final Map<String,Integer> COLORS;
     static {
         Map<String,Boolean> flags=new LinkedHashMap<>();flags.put(MASTER,false);flags.put(GRADIENT_ENABLED,false);
+        flags.put(LANDSCAPE_MASTER,false);flags.put(LANDSCAPE_GRADIENT_ENABLED,false);
         flags.put(NotificationClearMotion.MOTION_ENABLED,false);
         Map<String,Float> numbers=new LinkedHashMap<>();numbers.put(OPACITY,100f);numbers.put(GRADIENT_ANGLE,90f);
+        numbers.put(LANDSCAPE_OPACITY,100f);numbers.put(LANDSCAPE_GRADIENT_ANGLE,90f);
         numbers.put(NotificationClearMotion.SAFE_DISTANCE,18f);numbers.put(NotificationClearMotion.ENTRY_TRAVEL,32f);
         numbers.put(NotificationClearMotion.OFFSET_Y,0f);
         Map<String,Integer> colors=new LinkedHashMap<>();
         colors.put(COLOR_LIGHT,0xffffffff);colors.put(COLOR_DARK,0xffffffff);
         colors.put(GRADIENT_COLOR_LIGHT,0xffffffff);colors.put(GRADIENT_COLOR_DARK,0xffffffff);
+        colors.put(LANDSCAPE_COLOR_LIGHT,0xffffffff);colors.put(LANDSCAPE_COLOR_DARK,0xffffffff);
+        colors.put(LANDSCAPE_GRADIENT_COLOR_LIGHT,0xffffffff);colors.put(LANDSCAPE_GRADIENT_COLOR_DARK,0xffffffff);
         BOOLEANS=Collections.unmodifiableMap(flags);NUMBERS=Collections.unmodifiableMap(numbers);COLORS=Collections.unmodifiableMap(colors);
+        Map<String,String> legacy=new LinkedHashMap<>();
+        legacy.put(LANDSCAPE_MASTER,MASTER);legacy.put(LANDSCAPE_GRADIENT_ENABLED,GRADIENT_ENABLED);
+        legacy.put(LANDSCAPE_OPACITY,OPACITY);legacy.put(LANDSCAPE_GRADIENT_ANGLE,GRADIENT_ANGLE);
+        for(String[] pair:new String[][]{{LANDSCAPE_COLOR_LIGHT,COLOR_LIGHT},{LANDSCAPE_COLOR_DARK,COLOR_DARK},
+                {LANDSCAPE_GRADIENT_COLOR_LIGHT,GRADIENT_COLOR_LIGHT},{LANDSCAPE_GRADIENT_COLOR_DARK,GRADIENT_COLOR_DARK}}){
+            legacy.put(pair[0],pair[1]);legacy.put(pair[0]+"_custom_alpha",pair[1]+"_custom_alpha");
+        }
+        LANDSCAPE_LEGACY=Collections.unmodifiableMap(legacy);
     }
     private static final String AUTO_BLUR="com.oplusos.systemui.common.blurability.drawable.AutoBlurDrawable";
     private static final String MASK_BLUR="com.oplusos.systemui.common.blurability.drawable.MaskBlurDrawable";
@@ -59,6 +83,7 @@ public final class NotificationClearAppearance {
     private static final String WALLPAPER_BLUR="com.oplusos.systemui.common.blurability.wallpaper.BlendWallpaperBlurDrawable";
     private static final String MULTI_CONFIG="com.oplusos.systemui.common.blurability.BlurMixConfig$BlurMixMultiWithShader";
     private final Map<View,WeakReference<Object>> buttons=Collections.synchronizedMap(new WeakHashMap<>());
+    private final Map<View,Integer> scenes=Collections.synchronizedMap(new WeakHashMap<>());
     private final Map<Drawable,WeakReference<View>> backgrounds=Collections.synchronizedMap(new WeakHashMap<>());
     private final Map<Drawable,WeakReference<View>> engines=Collections.synchronizedMap(new WeakHashMap<>());
     private final Map<Drawable,WeakReference<Drawable>> engineSources=Collections.synchronizedMap(new WeakHashMap<>());
@@ -68,13 +93,17 @@ public final class NotificationClearAppearance {
     private final Set<String> traceStages=Collections.synchronizedSet(new HashSet<>());
     private final ThreadLocal<Set<Paint>> drawingPaints=new ThreadLocal<>();
     private final ThreadLocal<Set<Drawable>> drawingEngines=new ThreadLocal<>();
-    private volatile boolean enabled;
+    private volatile boolean enabled,landscapeEnabled;
     private volatile QsTileAppearance.Style light=new QsTileAppearance.Style(-1,-1,100f,90f,false),dark=light;
+    private volatile QsTileAppearance.Style landscapeLight=light,landscapeDark=light;
     private boolean loggedError;
 
     public void configure(Bundle settings) {
-        light=readStyle(settings,false);dark=readStyle(settings,true);
-        enabled=settings.getBoolean(MASTER,false);loggedError=false;traceStages.clear();
+        light=readStyle(settings,false,false);dark=readStyle(settings,true,false);
+        landscapeLight=readStyle(settings,false,true);landscapeDark=readStyle(settings,true,true);
+        enabled=settings!=null&&!SafetyMode.enabled(settings)&&settings.getBoolean(MASTER,false);
+        landscapeEnabled=settings!=null&&!SafetyMode.enabled(settings)&&settings.getBoolean(LANDSCAPE_MASTER,false);
+        loggedError=false;traceStages.clear();
         synchronized(backgrounds) { for(Drawable background:new ArrayList<>(backgrounds.keySet()))background.invalidateSelf(); }
         List<Drawable> refresh;
         synchronized(engines) { refresh=new ArrayList<>(engines.keySet()); }
@@ -105,11 +134,12 @@ public final class NotificationClearAppearance {
             if(background!=null)backgrounds.put(background,new WeakReference<>(button));
         }
         if(changed)retireEngines(button,null);
-        if(enabled)trace("background:"+(background==null?"absent":background.getClass().getName()),
+        if(enabled(button))trace("background:"+(background==null?"absent":background.getClass().getName()),
                 "clear background "+(background==null?"absent":background.getClass().getName()));
     }
     public void forget(View button) {
         buttons.remove(button);
+        scenes.remove(button);
         synchronized(backgrounds) { backgrounds.entrySet().removeIf(item->item.getValue().get()==null||item.getValue().get()==button); }
         retireEngines(button,null);
     }
@@ -117,7 +147,7 @@ public final class NotificationClearAppearance {
     public void drawButton(View button,Canvas canvas,DrawAction nativeDraw) throws Throwable {
         if(!QsTileAppearance.type(button,BUTTON_CLASS)){nativeDraw.draw(canvas);return;}
         bind(button);
-        if(!enabled){nativeDraw.draw(canvas);return;}
+        if(!enabled(button)){nativeDraw.draw(canvas);return;}
         List<Paint> paints=new ArrayList<>();List<Drawable> tints=new ArrayList<>();
         collectStaticFills(button.getBackground(),paints,tints,0,new IdentityHashMap<>());
         withPaints(paints,tints,style(button),button.getBackground()==null?null:button.getBackground().getBounds(),canvas,nativeDraw);
@@ -126,7 +156,7 @@ public final class NotificationClearAppearance {
     public void drawBlur(Drawable background,Canvas canvas,DrawAction nativeDraw) throws Throwable {
         View button=owner(backgrounds,background);
         boolean mask=QsTileAppearance.type(background,MASK_BLUR);
-        if(!enabled||button==null||(!mask&&!QsTileAppearance.type(background,AUTO_BLUR))||button.getBackground()!=background){nativeDraw.draw(canvas);return;}
+        if(!enabled(button)||button==null||(!mask&&!QsTileAppearance.type(background,AUTO_BLUR))||button.getBackground()!=background){nativeDraw.draw(canvas);return;}
         Object proxy=QsTileAppearance.call(background,"getViewBlurProxy");
         if(proxy==null)proxy=QsTileAppearance.field(background,"viewBlurProxy");
         Object fallback=QsTileAppearance.field(background,"defaultDrawable");
@@ -162,7 +192,7 @@ public final class NotificationClearAppearance {
     public void drawGlassContent(Drawable engine,Canvas canvas,DrawAction nativeDraw) throws Throwable {
         View button=owner(engines,engine);
         WeakReference<Drawable> sourceRef=engineSources.get(engine);Drawable source=sourceRef==null?null:sourceRef.get();
-        if(!enabled||button==null||source==null||button.getBackground()!=source||owner(backgrounds,source)!=button||Build.VERSION.SDK_INT<33){nativeDraw.draw(canvas);return;}
+        if(!enabled(button)||button==null||source==null||button.getBackground()!=source||owner(backgrounds,source)!=button||Build.VERSION.SDK_INT<33){nativeDraw.draw(canvas);return;}
         Set<Drawable> active=drawingEngines.get();
         if(active==null){active=Collections.newSetFromMap(new IdentityHashMap<>());drawingEngines.set(active);}
         if(!active.add(engine)){nativeDraw.draw(canvas);return;}
@@ -320,13 +350,71 @@ public final class NotificationClearAppearance {
         WeakReference<Object> ref=buttons.get(button);Object manager=ref==null?null:ref.get();
         Object night=QsTileAppearance.field(manager,"isNightMode");
         boolean dark=night instanceof Boolean?(Boolean)night:(button.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;
-        return dark?this.dark:light;
+        return landscape(button)?dark?landscapeDark:landscapeLight:dark?this.dark:light;
     }
-    private static QsTileAppearance.Style readStyle(Bundle settings,boolean dark) {
+    private static boolean landscape(View button) {
+        return button!=null&&button.getResources().getConfiguration().orientation==Configuration.ORIENTATION_LANDSCAPE;
+    }
+    private boolean enabled(View button) {
+        if(button==null)return false;
+        int scene=landscape(button)?Configuration.ORIENTATION_LANDSCAPE:Configuration.ORIENTATION_PORTRAIT;
+        Integer previous=scenes.put(button,scene);
+        if(previous!=null&&previous!=scene){
+            List<Drawable> refresh=new ArrayList<>();
+            synchronized(engines){for(Map.Entry<Drawable,WeakReference<View>> item:engines.entrySet())
+                if(item.getValue().get()==button)refresh.add(item.getKey());}
+            for(Drawable engine:refresh)dirty(engine);
+        }
+        return scene==Configuration.ORIENTATION_LANDSCAPE?landscapeEnabled:enabled;
+    }
+    private static QsTileAppearance.Style readStyle(Bundle settings,boolean dark,boolean landscape) {
+        if(settings==null)settings=new Bundle();
         String colorKey=dark?COLOR_DARK:COLOR_LIGHT,secondKey=dark?GRADIENT_COLOR_DARK:GRADIENT_COLOR_LIGHT;
+        if(landscape){colorKey=landscapeKey(colorKey);secondKey=landscapeKey(secondKey);}
         return new QsTileAppearance.Style(effectiveColor(settings,colorKey),effectiveColor(settings,secondKey),
-                Math.max(0f,Math.min(100f,NumericPolicy.finite(settings.get(OPACITY),100f))),
-                NumericPolicy.finite(settings.get(GRADIENT_ANGLE),90f)%360f,settings.getBoolean(GRADIENT_ENABLED,false));
+                Math.max(0f,Math.min(100f,NumericPolicy.finite(settings.get(landscape?LANDSCAPE_OPACITY:OPACITY),100f))),
+                NumericPolicy.finite(settings.get(landscape?LANDSCAPE_GRADIENT_ANGLE:GRADIENT_ANGLE),90f)%360f,
+                settings.getBoolean(landscape?LANDSCAPE_GRADIENT_ENABLED:GRADIENT_ENABLED,false));
+    }
+    private static String landscapeKey(String portrait){
+        for(Map.Entry<String,String> item:LANDSCAPE_LEGACY.entrySet())if(item.getValue().equals(portrait))return item.getKey();
+        return portrait;
+    }
+    public static String legacyKey(String key){return LANDSCAPE_LEGACY.get(key);}
+    /** Complete original appearance, including intentional ARGB and both gradient endpoints. */
+    static Map<String,Object> inheritedLandscape(Map<String,?> values){
+        Map<String,Object> result=new LinkedHashMap<>();
+        for(Map.Entry<String,String> item:LANDSCAPE_LEGACY.entrySet()){
+            String key=item.getKey(),old=item.getValue();Object value;
+            if(COLORS.containsKey(key))value=StatusBarSettings.color(values,old);
+            else if(NUMBERS.containsKey(key))value=StatusBarSettings.number(values,old,NUMBERS.get(key));
+            else if(key.endsWith("_custom_alpha"))value=StatusBarSettings.customAlpha(values,old.substring(0,old.length()-13));
+            else value=StatusBarSettings.bool(values,old);
+            result.put(key,value);
+        }
+        return result;
+    }
+    /** Raw application preferences are sparse, so seed the complete scene before edits.
+     * Empty fresh installs only mark separate metadata; they must remain recoverable/empty. */
+    static boolean migrate(SharedPreferences preferences,SharedPreferences metadata,boolean unlocked){
+        if(Boolean.TRUE.equals(PreferenceWrites.values(metadata).get(MIGRATED)))return true;
+        Map<String,?> values=PreferenceWrites.values(preferences);
+        if(values.isEmpty()){
+            if(!unlocked||Boolean.TRUE.equals(PreferenceWrites.values(metadata).get(FRESH)))return false;
+            Map<String,Object> fresh=Collections.singletonMap(FRESH,true);
+            return PreferenceWrites.commit(metadata,metadata.edit().putBoolean(FRESH,true),fresh,false);
+        }
+        if(SettingsSnapshot.fromPreferences(values)==null)return false;
+        boolean fresh=Boolean.TRUE.equals(PreferenceWrites.values(metadata).get(FRESH));
+        Map<String,Object> additions=inheritedLandscape(fresh?Collections.emptyMap():values);
+        additions.keySet().removeIf(values::containsKey);
+        if(!additions.isEmpty()){
+            SharedPreferences.Editor editor=preferences.edit();
+            for(Map.Entry<String,Object> item:additions.entrySet())StatusBarSettings.copyPreference(editor,item.getKey(),item.getValue());
+            if(!PreferenceWrites.commit(preferences,editor,additions,false))return false;
+        }
+        Map<String,Object> completed=Collections.singletonMap(MIGRATED,true);
+        return PreferenceWrites.commit(metadata,metadata.edit().putBoolean(MIGRATED,true),completed,false);
     }
     private static int effectiveColor(Bundle values,String key) {
         Object value=values.get(key);int color=value instanceof Number?((Number)value).intValue():0xffffffff;

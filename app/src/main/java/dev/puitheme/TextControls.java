@@ -58,6 +58,7 @@ public final class TextControls {
     private static final class Entry {
         int kind, nativeTint;
         float nativeSize, nativeSpacing;
+        float diagnosticNativeSize = Float.NaN, diagnosticAppliedSize = Float.NaN, diagnosticDensity = Float.NaN;
         Typeface nativeFace;
         String nativeAxes;
         CharSequence nativeText;
@@ -67,6 +68,12 @@ public final class TextControls {
         String group;
         Entry(TextView view, int kind) {
             this.kind = kind; capture(view);
+        }
+        void captureStyle(TextView view) {
+            float size = view.getTextSize();
+            if (size > 0f && !Float.isNaN(size) && !Float.isInfinite(size)) nativeSize = size;
+            nativeTint = view.getCurrentTextColor(); nativeFace = view.getTypeface();
+            nativeAxes = view.getFontVariationSettings(); nativeSpacing = view.getLetterSpacing();
         }
         void capture(TextView view) {
             nativeTint = view.getCurrentTextColor();
@@ -437,7 +444,7 @@ public final class TextControls {
             if (power != null) interactive = power.isInteractive();
         }
         Entry entry = entry(view);
-        if (entry != null) { apply(view, entry, System.currentTimeMillis()); schedule(); }
+        if (entry != null && !isInternal()) { apply(view, entry, System.currentTimeMillis()); schedule(); }
     }
 
     /** Recreated header copies may use ordinary TextViews instead of the original widget class. */
@@ -489,12 +496,14 @@ public final class TextControls {
     }
 
     public void beforeMeasure(TextView view) {
+        if (isInternal()) return;
         Entry entry = entry(view);
         if (entry != null) applyStyle(view, entry);
     }
 
     /** Vendor width probes write the native clock size into Paint; restore style and width together. */
     public float restoreClockWidth(TextView view, float nativeWidth, float measuredSize) {
+        if (isInternal()) return nativeWidth;
         if (!clockControlsEnabled(view)) return nativeWidth;
         beforeMeasure(view);
         double ratio = measuredSize > 0f && !Float.isNaN(measuredSize) && !Float.isInfinite(measuredSize)
@@ -571,6 +580,50 @@ public final class TextControls {
         if (entry != null && !Float.isNaN(spacing) && !Float.isInfinite(spacing)) entry.nativeSpacing = spacing;
     }
 
+    /** OEM config/auto-fit code must read native pixels, never our already scaled Paint. */
+    public NativeStyleScope beginNativeStyle(TextView view) {
+        if (isInternal()) return null;
+        Entry entry = entry(view);
+        if (entry == null || !entry.managed && !features.enabled(group(entry))) return null;
+        enter();
+        try {
+            view.setTextSize(TypedValue.COMPLEX_UNIT_PX, entry.nativeSize);
+            FontWeight.restore(view, entry.nativeFace, entry.nativeAxes);
+            view.setLetterSpacing(entry.nativeSpacing);
+            view.setTextColor(entry.nativeTint);
+            return new NativeStyleScope(view, entry);
+        } catch (Throwable failure) {
+            exit(); throw failure;
+        }
+    }
+
+    public final class NativeStyleScope implements AutoCloseable {
+        private final TextView view;
+        private final Entry entry;
+        private final CharSequence previousText, previousDescription;
+        private boolean closed;
+        private NativeStyleScope(TextView view, Entry entry) {
+            this.view = view; this.entry = entry;
+            previousText = view.getText(); previousDescription = view.getContentDescription();
+        }
+        @Override public void close() {
+            if (closed) return;
+            closed = true;
+            try {
+                entry.captureStyle(view);
+                if (!sameCharacters(previousText, view.getText())) {
+                    entry.nativeText = view.getText(); entry.nativeTextVersion++;
+                }
+                if (!sameCharacters(previousDescription, view.getContentDescription()))
+                    entry.nativeDescription = view.getContentDescription();
+            }
+            finally { exit(); }
+            apply(view, entry, System.currentTimeMillis(), false);
+            if (ModuleDiagnostics.enabled()) ModuleDiagnostics.info("font",
+                    "Native text style restored before OEM configuration; applied once after callback");
+        }
+    }
+
     private CharSequence replacement(Entry entry, long now) {
         ClockStyle clock = clockStyle(entry.group);
         if (entry.kind == CLOCK && clock.enabled) return TimeFormat.format(clock.pattern, now);
@@ -583,6 +636,7 @@ public final class TextControls {
     }
 
     public void beforeDraw(TextView view, Canvas canvas) {
+        if (isInternal()) return;
         Entry entry = entry(view);
         if (entry == null) return;
         applyStyle(view, entry);
@@ -594,6 +648,7 @@ public final class TextControls {
     }
 
     private void applyStyle(TextView view, Entry entry) {
+        if (isInternal()) return;
         if (!features.enabled(group(entry)) && !entry.managed) return;
         if (features.enabled(group(entry))) entry.managed = true;
         enter();
@@ -617,6 +672,17 @@ public final class TextControls {
             if (Math.abs(view.getLetterSpacing() - spacing) > .0001f) view.setLetterSpacing(spacing);
             int tint = features.color(group) ? IconAppearance.color(entry.kind == CLOCK ? group : carrier.colorGroup, entry.nativeTint, colors, alpha) : entry.nativeTint;
             if (view.getCurrentTextColor() != tint) view.setTextColor(tint);
+            if (ModuleDiagnostics.enabled()) {
+                float density = view.getResources().getDisplayMetrics().density;
+                if (entry.diagnosticNativeSize != entry.nativeSize || entry.diagnosticAppliedSize != size
+                        || entry.diagnosticDensity != density) {
+                    entry.diagnosticNativeSize = entry.nativeSize; entry.diagnosticAppliedSize = size;
+                    entry.diagnosticDensity = density;
+                    ModuleDiagnostics.info("font", "Text metrics " + group + "; native pixels " + entry.nativeSize
+                            + "; applied pixels " + size + "; density " + density
+                            + "; scaled density " + view.getResources().getDisplayMetrics().scaledDensity);
+                }
+            }
         } finally { exit(); }
     }
 
@@ -665,6 +731,7 @@ public final class TextControls {
     }
 
     private void refresh(boolean redrawUnchanged) {
+        if (isInternal()) return;
         cancel();
         long now = System.currentTimeMillis();
         synchronized (views) {

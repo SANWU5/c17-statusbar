@@ -33,7 +33,8 @@ public final class NumericPolicy {
 
     /** Positions and spacing may move in either direction. */
     public static boolean signed(String key) {
-        return key != null && (key.endsWith("offset_x") || key.endsWith("offset_y")
+        return key != null && (NativeStatusIcons.X.equals(key) || NativeStatusIcons.Y.equals(key)
+                || key.endsWith("offset_x") || key.endsWith("offset_y")
                 || key.endsWith("_spacing") || key.endsWith("_line_gap"));
     }
 

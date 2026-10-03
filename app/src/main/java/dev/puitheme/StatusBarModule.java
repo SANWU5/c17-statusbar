@@ -49,7 +49,9 @@ import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Executable;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -97,6 +99,12 @@ public final class StatusBarModule extends XposedModule {
     private static volatile boolean receiverRegistered;
     private static boolean refreshPending;
     private static volatile boolean settingsObserverRegistered;
+    private static SettingsStartupLoader settingsStartup;
+    private static SettingsFrameworkReader frameworkSettings;
+    private static volatile boolean preferSettingsProvider;
+    private static final Runnable FRAMEWORK_SETTINGS_CHANGED=()->{
+        if(settingsStartup!=null&&!ModuleLifecycle.removed())settingsStartup.signal(false);
+    };
     private static volatile StatusBarModule frameworkLogger;
     private static volatile float wifiOffsetXdp = 0;
     private static volatile float wifiOffsetYdp = 0;
@@ -140,21 +148,31 @@ public final class StatusBarModule extends XposedModule {
     private static DataRadioCallback dataRadioCallback;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final TextControls TEXT = new TextControls(MAIN);
+    private static final LockscreenControls LOCKSCREEN = new LockscreenControls();
     private static final TilePageEffects TILE_EFFECTS = new TilePageEffects();
     private static final QsTileAppearance QS_APPEARANCE = new QsTileAppearance();
     private static final QsTileCorners QS_CORNERS = new QsTileCorners();
     private static final QsTileIconSize QS_ICON_SIZE = new QsTileIconSize();
     private static final QsPanelCorners QS_PANEL_CORNERS = new QsPanelCorners();
     private static final QsMediaAppearance QS_MEDIA = new QsMediaAppearance();
+    private static final C17HighlightRemoval C17_HIGHLIGHTS = new C17HighlightRemoval();
+    private static final Set<ClassLoader> HIGHLIGHT_LOADERS = Collections.newSetFromMap(new WeakHashMap<ClassLoader, Boolean>());
     private static final NotificationBigClock BIG_CLOCK = new NotificationBigClock();
     private static final NotificationClearAppearance CLEAR_APPEARANCE = new NotificationClearAppearance();
     private static final NotificationClearMotion CLEAR_MOTION = new NotificationClearMotion();
     private static final NotificationIconArea NOTIFICATION_ICONS = new NotificationIconArea();
+    private static final NativeStatusIcons STATUS_HINTS = new NativeStatusIcons();
+    private static final NativeNetworkBadgeControls NATIVE_BADGE = new NativeNetworkBadgeControls();
+    private static final NativeDataActivity DATA_ACTIVITY = new NativeDataActivity();
+    private static final SingleNetworkLabelControls SINGLE_LABEL = new SingleNetworkLabelControls();
+    private static final NotificationNativeStack NATIVE_STACK = new NotificationNativeStack();
+    private static final NetworkSpeedControls NETWORK_SPEED = new NetworkSpeedControls();
     private static volatile boolean bigClockEnabled;
     private static volatile NativeBackdropMotion notificationBackdropMotion;
     private static boolean tileDispatchLogged, tileScrollLogged, tileStateLogged;
     private static final NetworkBadgeControls BADGES = new NetworkBadgeControls(MAIN);
     private static final DataBatterySpacing DATA_BATTERY_SPACING = new DataBatterySpacing(MAIN);
+    private static final NetworkIconOrder NETWORK_ORDER = new NetworkIconOrder();
     private static final Map<View,String> OVERFLOW_OWNERS=Collections.synchronizedMap(new WeakHashMap<>());
     private static volatile BatteryControls BATTERY;
     private static final Map<View, Slot> SLOTS = Collections.synchronizedMap(new WeakHashMap());
@@ -162,7 +180,7 @@ public final class StatusBarModule extends XposedModule {
     private static final Object REFRESH_LOCK = new Object();
     private static final Object SYSTEMUI_HOOK_LOCK = new Object();
     private enum HookGroup {
-        CONTEXT, MODEL, DRAWABLE, BADGE, WIFI, SPEED, COMPOSE, TEXT, BATTERY, DATA_SPACING, TILES, QS_APPEARANCE, QS_CORNERS, QS_ICON_SIZE, QS_PANEL_CORNERS, QS_MEDIA, BIG_CLOCK, NOTIFICATION_CLEAR, NOTIFICATION_ICONS
+        CONTEXT, MODEL, DRAWABLE, BADGE, WIFI, SPEED, COMPOSE, NETWORK_ORDER, STATUS_HINTS, TEXT, BATTERY, DATA_SPACING, TILES, QS_APPEARANCE, QS_CORNERS, QS_ICON_SIZE, QS_PANEL_CORNERS, QS_MEDIA, BIG_CLOCK, NOTIFICATION_CLEAR, NOTIFICATION_ICONS, C17_HIGHLIGHTS
     }
     private static final Set<HookGroup> COMPLETED_HOOK_GROUPS = EnumSet.noneOf(HookGroup.class);
     private static final Map<HookGroup, Set<Executable>> INSTALLED_HOOKS = new EnumMap<>(HookGroup.class);
@@ -446,6 +464,7 @@ public final class StatusBarModule extends XposedModule {
                 return;
             }
             moduleLog(Log.INFO, TAG, "Installing unfinished SystemUI hook groups at " + phase);
+            installC17HighlightRemoval(classLoader);
             try {
                 if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.CONTEXT) && installSystemUiContextHook(classLoader)) {
                     COMPLETED_HOOK_GROUPS.add(HookGroup.CONTEXT);
@@ -467,6 +486,12 @@ public final class StatusBarModule extends XposedModule {
                 }
                 if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.COMPOSE) && installComposeSupport(classLoader)) {
                     COMPLETED_HOOK_GROUPS.add(HookGroup.COMPOSE);
+                }
+                if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.NETWORK_ORDER) && installNetworkIconOrder(classLoader)) {
+                    COMPLETED_HOOK_GROUPS.add(HookGroup.NETWORK_ORDER);
+                }
+                if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.STATUS_HINTS) && installNativeStatusIcons(classLoader)) {
+                    COMPLETED_HOOK_GROUPS.add(HookGroup.STATUS_HINTS);
                 }
                 if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.TEXT) && installTextControls(classLoader)) {
                     COMPLETED_HOOK_GROUPS.add(HookGroup.TEXT);
@@ -533,9 +558,13 @@ public final class StatusBarModule extends XposedModule {
     /** Keep native bindings/current values alive; drawing and resource replacement remain bypassed. */
     private static boolean observesInSafeMode(HookGroup group, Executable executable) {
         if (group == HookGroup.CONTEXT || group == HookGroup.MODEL) return true;
+        String ownerName = executable.getDeclaringClass().getName();
+        boolean lockscreenOwner = group == HookGroup.TEXT && (ownerName.equals(LockscreenControls.SINGLE)
+                || ownerName.equals(LockscreenControls.DUAL) || ownerName.equals(LockscreenControls.RED)
+                || ownerName.equals(LockscreenControls.CUSTOM) || ownerName.equals(LockscreenControls.LOCK));
         // Only the Wi-Fi constructor installs a native owner/state binding. Painter/resource
         // constructors can replace drawing and must continue straight into their native code.
-        if (!(executable instanceof Method)) return group == HookGroup.WIFI;
+        if (!(executable instanceof Method)) return group == HookGroup.WIFI || lockscreenOwner;
         Method method = (Method) executable;
         for (Class<?> parameter : method.getParameterTypes()) if (Canvas.class.isAssignableFrom(parameter)) return false;
         String name = method.getName();
@@ -553,7 +582,8 @@ public final class StatusBarModule extends XposedModule {
             case TEXT:
                 // Each native setter records its original value; runtime masters are off,
                 // so the corresponding TEXT method returns that same native value.
-                return name.matches("setText|setContentDescription|setTextColor|setTextSize|setTypeface|setFontVariationSettings|setLetterSpacing|setTextWithAnima|updateTextSize\\$1|setId|assignParent");
+                return name.matches("setText|setContentDescription|setTextColor|setTextSize|setTypeface|setFontVariationSettings|setLetterSpacing|setTextWithAnima|updateTextSize\\$1|setId|assignParent")
+                        || lockscreenOwner && name.matches("updateDate|updateTime|refresh|refreshDate|updateIcon|updateColorAndBackgroundVisibility");
             case SPEED:
                 return name.equals("setIconTint");
             case WIFI:
@@ -562,6 +592,15 @@ public final class StatusBarModule extends XposedModule {
                 return name.matches("setColors|setBatteryCharge|setBatteryStyleDrawable|bind\\$updateChargingView|bind\\$updateBatteryContentView|bind\\$updateBatteryIconStyle");
             case DATA_SPACING:
                 return name.matches("onMeasure|onViewAdded|onViewRemoved|setLayoutParams|getNetworkTypeTextInfo|NetworkTypeText.*");
+            case NETWORK_ORDER:
+                return name.matches("onMeasure|updateStates|onViewAdded|onViewRemoved|setModifier|SignalIcon.*|.*NetworkTypeText.*");
+            case COMPOSE:
+                // Native restart groups may hold our badge parameters. Safe mode must return
+                // their original values rather than bypassing the restoration observer.
+                return name.matches(".*NetworkTypeText.*|StackedMobileText-.*|getStrategy")
+                        || name.equals("Image") && method.getDeclaringClass().getName().equals("androidx.compose.foundation.ImageKt")
+                        || name.equals("paint$default") && method.getDeclaringClass().getName().equals("androidx.compose.ui.draw.PainterModifierKt")
+                        || name.equals("invoke") && method.getDeclaringClass().getName().endsWith("OplusStackedMobileIconLayoutStrategyKt$$ExternalSyntheticLambda2");
             case BIG_CLOCK:
                 // Preserve actual spring progress, source/header binding, scroll and native
                 // padding snapshots even on a boot that started with safe mode enabled.
@@ -572,7 +611,7 @@ public final class StatusBarModule extends XposedModule {
                         + "|onViewAttached|onViewDetached|onDestroy|onTrackingStarted\\$1|onTrackingStopped\\$1|expandQSPanelWithoutAnimate|collapseQSPanelWithoutAnimate"
                         + "|updateStatusBarTopMargin|setStatusBarAlpha|updateElementLoc\\$1|onSystemIconScaleChanged|resetState|updateLeftAreaState"
                         + "|onPageScrolled|onScrollStateChanged|setFakeTransitionAlpha|setAlpha|setVisibility|setTranslationY|setTransitionAlpha"
-                        + "|setOwnScrollY|updateOverDistance|resetOverDistance|setIntrinsicPadding|updateTopPadding|setRawFraction|setBlurFraction|updateClock");
+                        + "|setOwnScrollY|updateOverDistance|resetOverDistance|setIntrinsicPadding|updateTopPadding|setRawFraction|setBlurFraction|updateClock|onMeasure");
             case QS_APPEARANCE:
                 return name.matches("onStateChanged|setStateImmediately|onThemeApplied|onQsColorStateChanged|onDrawableUpdate|g");
             case QS_CORNERS:
@@ -777,6 +816,7 @@ public final class StatusBarModule extends XposedModule {
                 Object result = chain.proceed();
                 nativeAccess.scroll((View) chain.getThisObject());
                 BIG_CLOCK.onConfigurationChanged();
+                NATIVE_STACK.configurationChanged();
                 return result;
             });
             Class<?> fake = loader.loadClass("com.oplus.systemui.separate.OplusSimpleQSFakeController");
@@ -1235,199 +1275,141 @@ public final class StatusBarModule extends XposedModule {
 
     /** Optional notification projection hooks must never disable the clock on a different OS build. */
     private void installNotificationStackHooks(ClassLoader loader, Class<?> stack) {
-        installNotificationFooterMarginHook(stack);
-        installNotificationTailOutlineHooks(loader);
-        installNotificationTailContentHook(loader);
-        installNotificationTailWidthHooks(loader);
-        int targetHooks = 0, calculationHooks = 0;
+        BIG_CLOCK.setClearMotion(CLEAR_MOTION);
+        installNotificationStackTapHook(loader, stack);
+        installNotificationGroupHooks(loader);
+        installNativeNotificationRuler(loader);
         try {
-            for (Method event : stack.getDeclaredMethods()) {
-                String name = event.getName();
-                if (event.getParameterTypes().length != 0) continue;
-                boolean targets = name.matches("applyCurrentState(?:\\$[0-9]+)?|startAnimationToState(?:\\$[0-9]+)?");
-                boolean calculates = name.matches("updateChildren(?:\\$[0-9]+)?|updateViewStates");
-                if (!targets && !calculates) continue;
-                try {
-                    deoptimize(event);
-                    if (targets) {
-                        installHook(HookGroup.BIG_CLOCK, event, chain -> {
-                            View view = (View) chain.getThisObject();
-                            if (!bigClockEnabled) {
-                                Object result = chain.proceed();
-                                CLEAR_MOTION.onScrollChanged(view);
-                                return result;
-                            }
-                            BIG_CLOCK.onStackApplicationStarting(view);
-                            try {
-                                BIG_CLOCK.onStackLayoutUpdated(view);
-                                return chain.proceed();
-                            } finally { BIG_CLOCK.onStackApplicationFinished(view); CLEAR_MOTION.onScrollChanged(view); }
-                        });
-                        targetHooks++;
-                    } else {
-                        installHook(HookGroup.BIG_CLOCK, event, chain -> {
-                            View view = (View) chain.getThisObject();
-                            BIG_CLOCK.onStackLayoutStarting(view);
-                            try {
-                                Object result = chain.proceed();
-                                if (bigClockEnabled) BIG_CLOCK.onStackLayoutUpdated(view);
-                                return result;
-                            } finally { BIG_CLOCK.onStackLayoutFinished(view); CLEAR_MOTION.onScrollChanged(view); }
-                        });
-                        calculationHooks++;
-                    }
-                } catch (Throwable unavailable) {
-                    moduleLog(Log.WARN, TAG, "Optional native notification stack target hook unavailable", unavailable);
-                }
-            }
-            // Some native updates apply or animate a single row outside applyCurrentState.
-            for (String name : new String[]{"com.android.systemui.statusbar.notification.stack.ViewState",
-                    "com.android.systemui.statusbar.notification.stack.ExpandableViewState"}) {
-                try {
-                    Class<?> state = loader.loadClass(name);
-                    for (Method event : state.getDeclaredMethods()) {
-                        Class<?>[] parameters = event.getParameterTypes();
-                        if (!event.getName().matches("applyToView|animateTo") || parameters.length == 0
-                                || !View.class.isAssignableFrom(parameters[0])) continue;
-                        deoptimize(event);
-                        installHook(HookGroup.BIG_CLOCK, event, chain -> {
-                            View host = notificationStackAncestor((View) chain.getArg(0));
-                            if (host == null) return chain.proceed();
-                            if (!bigClockEnabled) {
-                                Object result = chain.proceed();
-                                CLEAR_MOTION.onScrollChanged(host);
-                                return result;
-                            }
-                            BIG_CLOCK.onStackApplicationStarting(host);
-                            try {
-                                BIG_CLOCK.onStackLayoutUpdated(host);
-                                return chain.proceed();
-                            } finally { BIG_CLOCK.onStackApplicationFinished(host); CLEAR_MOTION.onScrollChanged(host); }
-                        });
-                    }
-                } catch (Throwable unavailable) {
-                    moduleLog(Log.WARN, TAG, "Optional per-row native notification state hooks unavailable", unavailable);
-                }
-            }
-            Method detached = optionalMethod(stack, "onDetachedFromWindow");
-            if (detached != null) try {
-                deoptimize(detached);
-                installHook(HookGroup.BIG_CLOCK, detached, chain -> {
-                    Object result = chain.proceed();
-                    View view = (View) chain.getThisObject();
-                    if (notificationStackAncestor(view) == view) BIG_CLOCK.onStackDetached(view);
-                    return result;
-                });
-            } catch (Throwable unavailable) {
-                moduleLog(Log.WARN, TAG, "Optional notification stack detach hook unavailable", unavailable);
-            }
+            Method measure = stack.getDeclaredMethod("onMeasure", Integer.TYPE, Integer.TYPE);
+            Method layout = stack.getDeclaredMethod("onLayout", Boolean.TYPE, Integer.TYPE, Integer.TYPE, Integer.TYPE, Integer.TYPE);
+            deoptimize(measure); deoptimize(layout);
+            installHook(HookGroup.BIG_CLOCK, measure, chain -> chain.proceed(new Object[]{
+                    BIG_CLOCK.notificationWidthSpec((View) chain.getThisObject(), (Integer) chain.getArg(0)), chain.getArg(1)}));
+            installHook(HookGroup.BIG_CLOCK, layout, chain -> {
+                Object result = chain.proceed();
+                View host = (View) chain.getThisObject();
+                BIG_CLOCK.onNotificationLayout(host); CLEAR_MOTION.onScrollChanged(host);
+                return result;
+            });
         } catch (Throwable unavailable) {
-            moduleLog(Log.WARN, TAG, "Native notification stacking unavailable; clock remains enabled", unavailable);
+            moduleLog(Log.WARN, TAG, "Optional native landscape notification layout hook unavailable", unavailable);
         }
-        NotificationBigClockStack.setNativeHooksAvailable(targetHooks > 0 && calculationHooks > 0);
-        moduleLog(Log.INFO, TAG, "Optional notification stack projection hooks " + targetHooks + "/" + calculationHooks
-                + "; nested layout cycle cache enabled");
+        installNotificationFooterMarginHook(stack);
+        // Native rulers own target geometry. These AFTER callbacks only refresh our clock/footer.
+        for (Method event : stack.getDeclaredMethods()) {
+            if (event.getParameterCount() != 0 || !event.getName().matches(
+                    "applyCurrentState(?:\\$[0-9]+)?|startAnimationToState(?:\\$[0-9]+)?|updateChildren(?:\\$[0-9]+)?")) continue;
+            deoptimize(event);
+            installHook(HookGroup.BIG_CLOCK, event, chain -> {
+                View host=(View)chain.getThisObject();Object result=chain.proceed();
+                BIG_CLOCK.onStackLayoutUpdated(host); CLEAR_MOTION.onScrollChanged(host);
+                return result;
+            });
+        }
+        Method detached = optionalMethod(stack, "onDetachedFromWindow");
+        if (detached != null) {
+            deoptimize(detached);
+            installHook(HookGroup.BIG_CLOCK, detached, chain -> {
+                Object result = chain.proceed(); BIG_CLOCK.onStackDetached((View) chain.getThisObject()); return result;
+            });
+        }
     }
 
-    /** Rounded tail paths must be computed from the whole native card before its visible window clips. */
-    private void installNotificationTailOutlineHooks(ClassLoader loader) {
-        Class<?> outline;
-        try {
-            outline = loader.loadClass("com.android.systemui.statusbar.notification.row.ExpandableOutlineView");
-            Method path = outline.getDeclaredMethod("getClipPath", Boolean.TYPE);
-            deoptimize(path);
-            // SystemUI's precompiled callers can retain an inlined clip calculation even
-            // when the callee is hooked. Deoptimize only the two standard drawing callers.
-            deoptimize(outline.getDeclaredMethod("drawChild", Canvas.class, View.class, Long.TYPE));
-            try {
-                Class<?> provider = loader.loadClass("com.android.systemui.statusbar.notification.row.ExpandableOutlineView$1");
-                deoptimize(provider.getDeclaredMethod("getOutline", View.class, android.graphics.Outline.class));
-            } catch (Throwable unavailable) {
-                moduleLog(Log.WARN, TAG, "Optional native notification outline provider deoptimization unavailable", unavailable);
-            }
-            installHook(HookGroup.BIG_CLOCK, path, chain -> !bigClockEnabled ? chain.proceed()
-                    : BIG_CLOCK.withNativeTailOutline((View) chain.getThisObject(), () -> chain.proceed()));
-        } catch (Throwable unavailable) {
-            moduleLog(Log.WARN, TAG, "Optional native notification tail outline unavailable", unavailable);
+    /** Native shade calculation is the sole owner of notification stack scale and clipping. */
+    private void installNativeNotificationRuler(ClassLoader loader) {
+        if (!NATIVE_STACK.resolve(loader)) {
+            ModuleDiagnostics.info("native-stack", "Verified shade ruler unavailable; native geometry retained");
             return;
         }
         try {
-            Class<?> glass = loader.loadClass("com.oplus.systemui.statusbar.notification.row.OplusExpandableOutlineViewExImpl");
-            Method spotlight = glass.getDeclaredMethod("getSpotLightClipSpec", outline);
-            deoptimize(spotlight);
+            Method update=NATIVE_STACK.updateMethod(), current=NATIVE_STACK.currentMethod(), apply=NATIVE_STACK.applyMethod();
+            deoptimize(update); deoptimize(current); deoptimize(apply);
+            // The real ruler calls both tiny hooked getters; undo their cached inline bodies.
+            Method rulerUpdate=loader.loadClass(NotificationNativeStack.SHADE_RULER).getDeclaredMethod(
+                    "updateStackedState",java.util.List.class,loader.loadClass(NotificationNativeStack.AMBIENT),Float.TYPE);
+            deoptimize(rulerUpdate);
+            for(Method bridge:loader.loadClass(NotificationNativeStack.SHADE_RULER).getDeclaredMethods())
+                if(bridge.getName().equals("access$onConfigChanged"))deoptimize(bridge);
+            installHook(HookGroup.BIG_CLOCK,update,chain -> NATIVE_STACK.withNativeUpdate(
+                    chain.getThisObject(),chain.getArg(1),()->chain.proceed()));
+            installHook(HookGroup.BIG_CLOCK,current,chain -> NATIVE_STACK.currentStacked(
+                    chain.getThisObject(),(Boolean)chain.proceed()));
+            installHook(HookGroup.BIG_CLOCK,apply,chain -> chain.proceed(new Object[]{chain.getArg(0),
+                    NATIVE_STACK.bottomBorder(chain.getThisObject(),(java.util.List<?>)chain.getArg(0),(Float)chain.getArg(1))}));
             try {
-                Class<?> provider = loader.loadClass("com.oplus.systemui.statusbar.notification.row.OplusActivatableNotificationViewExImpl$drawNotificationSpotLightIfInstalled$1");
-                deoptimize(provider.getDeclaredMethod("getClipSpec"));
-            } catch (Throwable unavailable) {
-                moduleLog(Log.WARN, TAG, "Optional native notification highlight provider deoptimization unavailable", unavailable);
-            }
-            installHook(HookGroup.BIG_CLOCK, spotlight, chain -> !bigClockEnabled ? chain.proceed()
-                    : BIG_CLOCK.withNativeTailOutline((View) chain.getArg(0), () -> chain.proceed()));
+                Method groupStackState=loader.loadClass("com.oplus.systemui.statusbar.notification.stack.NotificationChildrenContainerExtImp").getDeclaredMethod("isStackState");
+                deoptimize(groupStackState);
+                deoptimize(loader.loadClass("com.android.systemui.statusbar.notification.stack.NotificationChildrenContainer").getDeclaredMethod("updateChildrenClipping"));
+                for(Method method:loader.loadClass(NotificationNativeStack.EXTENSION).getDeclaredMethods())
+                    if(method.getName().equals("isStackedNotification$1"))deoptimize(method);
+            }catch(ReflectiveOperationException absent){/* Optional native callers differ across ROMs. */}
+            NATIVE_STACK.hooksReady(true);
         } catch (Throwable unavailable) {
-            moduleLog(Log.WARN, TAG, "Optional native notification tail highlight outline unavailable", unavailable);
+            NATIVE_STACK.hooksReady(false);
+            NATIVE_STACK.configure(null);
+            ModuleDiagnostics.error("native-stack", "Native ruler hooks unavailable; original geometry retained", unavailable);
         }
     }
 
-    /** Folded tails retain native glass; only their owned text/icon content fades. */
-    private void installNotificationTailContentHook(ClassLoader loader) {
-        for (String name : new String[]{"com.android.systemui.statusbar.notification.row.NotificationContentView",
-                "com.oplus.systemui.notification.row.oplusgroup.OplusNotificationChildrenContainer"}) {
-            try {
-                Class<?> content = loader.loadClass(name);
-                Method draw = content.getDeclaredMethod("dispatchDraw", Canvas.class);
-                deoptimize(draw);
-                installHook(HookGroup.BIG_CLOCK, draw, chain -> !bigClockEnabled ? chain.proceed()
-                        : BIG_CLOCK.withNativeTailContent((View) chain.getThisObject(),
-                                (Canvas) chain.getArg(0), () -> chain.proceed()));
-                moduleLog(Log.INFO, TAG, "Native notification tail content draw connected: " + name);
-            } catch (Throwable unavailable) {
-                moduleLog(Log.WARN, TAG, "Optional native notification tail content draw unavailable: " + name, unavailable);
+    /** Native per-app groups own their layout and animations, independently of either clock. */
+    private void installNotificationGroupHooks(ClassLoader loader) {
+        try {
+            Class<?> children = loader.loadClass("com.android.systemui.statusbar.notification.stack.NotificationChildrenContainer");
+            Method measure=children.getDeclaredMethod("onMeasure",Integer.TYPE,Integer.TYPE);deoptimize(measure);
+            installHook(HookGroup.BIG_CLOCK,measure,chain->{
+                BIG_CLOCK.prepareGroupMeasure((View)chain.getThisObject());return chain.proceed();
+            });
+            for (Method event : children.getDeclaredMethods()) {
+                if (event.getName().matches("updateState|applyState|startAnimationToState")) {
+                    deoptimize(event);
+                    installHook(HookGroup.BIG_CLOCK, event, chain -> {
+                        BIG_CLOCK.prepareGroup((View) chain.getThisObject(), event.getName().equals("updateState"));
+                        return chain.proceed();
+                    });
+                } else if (event.getName().equals("getMaxAllowedVisibleChildren") && event.getReturnType() == Integer.TYPE) {
+                    deoptimize(event);
+                    installHook(HookGroup.BIG_CLOCK, event, chain -> BIG_CLOCK.nativeGroupVisibleCount(
+                            (View) chain.getThisObject(), (Integer) chain.proceed()));
+                }
             }
+            Method detached = View.class.getDeclaredMethod("onDetachedFromWindow");
+            installHook(HookGroup.BIG_CLOCK, detached, chain -> {
+                if (children.isInstance(chain.getThisObject())) BIG_CLOCK.detachGroup((View) chain.getThisObject());
+                return chain.proceed();
+            });
+        } catch (Throwable unavailable) {
+            moduleLog(Log.WARN, TAG, "Optional native same-kind notification grouping unavailable", unavailable);
         }
     }
 
-    /** Target and spring width stay scoped to the exact rows owned by our three tail layers. */
-    private void installNotificationTailWidthHooks(ClassLoader loader) {
-        boolean targetHook = false, rowHook = false;
+    /** Replace just the final UP of a confirmed tap with native CANCEL, then expand the stack. */
+    private void installNotificationStackTapHook(ClassLoader loader, Class<?> stack) {
         try {
-            Class<?> type = loader.loadClass("com.oplus.systemui.statusbar.notification.stack.OplusExpandableViewStateExImpl");
-            Method width = type.getDeclaredMethod("getClipWidth");
-            if (width.getReturnType() != Integer.TYPE)
-                throw new NoSuchMethodException("Unexpected native target clip width type");
-            deoptimize(width);
-            deoptimize(type.getDeclaredMethod("beforeApplyToView", View.class));
-            deoptimize(type.getDeclaredMethod("beforeAnimateTo", View.class,
-                    loader.loadClass("com.android.systemui.statusbar.notification.stack.AnimationProperties")));
-            installHook(HookGroup.BIG_CLOCK, width, chain -> {
-                Object value = chain.proceed();
-                return bigClockEnabled ? BIG_CLOCK.nativeTailTargetClipWidth(chain.getThisObject(), (Integer) value) : value;
+            Class<?> row = loader.loadClass("com.android.systemui.statusbar.notification.row.ExpandableNotificationRow");
+            NotificationCardTouchBoundary boundary = new NotificationCardTouchBoundary(stack, row);
+            Method dispatch = optionalMethod(stack, "dispatchTouchEvent", android.view.MotionEvent.class);
+            if (dispatch == null) throw new NoSuchMethodException("Native stack touch dispatch");
+            deoptimize(dispatch);
+            installHook(HookGroup.BIG_CLOCK, dispatch, chain -> {
+                if (!stack.isInstance(chain.getThisObject())) return chain.proceed();
+                boolean expand;
+                try {
+                    expand = BIG_CLOCK.foldedNotificationTap((View) chain.getThisObject(),
+                            (android.view.MotionEvent) chain.getArg(0), boundary);
+                } catch (ReflectiveOperationException | RuntimeException unavailable) { return chain.proceed(); }
+                if (!expand) return chain.proceed();
+                android.view.MotionEvent cancel = android.view.MotionEvent.obtain((android.view.MotionEvent) chain.getArg(0));
+                try {
+                    cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);
+                    chain.proceed(new Object[]{cancel});
+                } finally { cancel.recycle(); }
+                BIG_CLOCK.expandNotifications();
+                return true;
             });
-            targetHook = true;
+            moduleLog(Log.INFO, TAG, "Native notification stack tap expansion connected");
         } catch (Throwable unavailable) {
-            moduleLog(Log.WARN, TAG, "Optional native notification target width unavailable", unavailable);
+            moduleLog(Log.WARN, TAG, "Optional notification stack tap expansion unavailable", unavailable);
         }
-        try {
-            Class<?> type = loader.loadClass("com.oplus.systemui.statusbar.notification.row.OplusExpandableViewExImpl");
-            Method width = type.getDeclaredMethod("setClipWidth", Integer.TYPE);
-            Method readWidth = type.getDeclaredMethod("getClipWidth");
-            readWidth.setAccessible(true);
-            deoptimize(width);
-            Class<?> property = loader.loadClass("com.oplus.systemui.statusbar.notification.stack.OplusExpandableViewStateExImpl$Companion$CLIP_WIDTH_PROPERTY$1");
-            deoptimize(property.getDeclaredMethod("accept", Object.class, Object.class));
-            installHook(HookGroup.BIG_CLOCK, width, chain -> {
-                if (!bigClockEnabled) return chain.proceed();
-                Object owner = chain.getThisObject();
-                int previous = (Integer) readWidth.invoke(owner);
-                Object result = chain.proceed(new Object[]{BIG_CLOCK.nativeTailRowClipWidth(owner, (Integer) chain.getArg(0))});
-                if (previous != (Integer) readWidth.invoke(owner)) BIG_CLOCK.onNativeTailWidthChanged(owner);
-                return result;
-            });
-            rowHook = true;
-        } catch (Throwable unavailable) {
-            moduleLog(Log.WARN, TAG, "Optional native notification row width unavailable", unavailable);
-        }
-        NotificationBigClockStack.setNativeWidthHooksAvailable(targetHook && rowHook);
-        moduleLog(Log.INFO, TAG, "Optional native notification tail widths " + targetHook + "/" + rowHook);
     }
 
     /** The native margin bounds both the shelf and notification touch; absence hides optional text. */
@@ -1760,7 +1742,7 @@ public final class StatusBarModule extends XposedModule {
             Object controller = access.lastController.get();
             if (controller == null || access.barState.getInt(controller) != 0) { release(); return false; }
             View host = (View) access.panelView.get(controller);
-            if (host == null || host.getResources().getConfiguration().orientation
+            if (host == null || !BIG_CLOCK.clockLayoutEnabled(host) || host.getResources().getConfiguration().orientation
                     != android.content.res.Configuration.ORIENTATION_PORTRAIT) { release(); return false; }
             Object panelAnimation = access.panelAnimation.get(controller);
             Object current = panelAnimation == null ? null : access.panelExpandedFraction.invoke(panelAnimation);
@@ -2133,6 +2115,131 @@ public final class StatusBarModule extends XposedModule {
         }
     }
 
+    private static boolean isHighlightSurface(View view) {
+        return C17_HIGHLIGHTS.isSurface(view);
+    }
+
+    /** Exact optical shader/draw contracts from the connected ColorOS 17 build. */
+    private void installC17HighlightRemoval(ClassLoader loader) {
+        synchronized (SYSTEMUI_HOOK_LOCK) { if (!HIGHLIGHT_LOADERS.add(loader)) return; }
+        try {
+            Method uniform = android.graphics.RuntimeShader.class.getDeclaredMethod("setFloatUniform", String.class, float[].class);
+            deoptimize(uniform);
+            installHook(HookGroup.C17_HIGHLIGHTS, uniform, chain -> C17_HIGHLIGHTS.writeUniform(
+                    (android.graphics.RuntimeShader) chain.getThisObject(), (String) chain.getArg(0), (float[]) chain.getArg(1),
+                    values -> chain.proceed(new Object[]{chain.getArg(0), values})));
+            Class<?> base = loader.loadClass("com.oplus.posteffect.drawable.BaseDrawable");
+            Method draw = base.getDeclaredMethod("draw", Canvas.class); deoptimize(draw);
+            installHook(HookGroup.C17_HIGHLIGHTS, draw, chain -> {
+                C17_HIGHLIGHTS.bindDrawable((Drawable) chain.getThisObject()); return chain.proceed();
+            });
+            for (String caller : new String[]{"com.oplus.posteffect.drawable.BaseDrawable",
+                    "com.oplusos.systemui.common.blurability.platformblur.PlatformBlurDrawable"}) try {
+                for (Method method : loader.loadClass(caller).getDeclaredMethods())
+                    if (method.getName().matches("draw|access\\$drawContent|preDrawContent|applyDrawableShader")) deoptimize(method);
+            } catch (ClassNotFoundException unavailable) { }
+            for (String caller : new String[]{"com.oplus.posteffect.params.GradientStrokeLineParamsKt",
+                    "com.oplus.posteffect.params.OpticsParamsKt", "com.oplus.posteffect.params.InnerShadowParamsKt",
+                    "com.oplus.posteffect.agsl.effects.GradientStrokeEffect", "com.oplus.posteffect.agsl.effects.InnerShadowEffect",
+                    "com.oplus.posteffect.agsl.effects.OpticsEffect", "com.oplus.posteffect.agsl.DrawableShader"}) try {
+                for (Method method : loader.loadClass(caller).getDeclaredMethods())
+                    if (method.getName().matches("setGradientStrokeLineUniform|setOpticsUniform|setInnerShadowUniform|pushUniforms|updateShaderBlendParams")) deoptimize(method);
+            } catch (ClassNotFoundException unavailable) { }
+            Method detached = View.class.getDeclaredMethod("onDetachedFromWindow");
+            installHook(HookGroup.C17_HIGHLIGHTS, detached, chain -> {
+                Object result = chain.proceed(); View host = (View) chain.getThisObject();
+                if (isHighlightSurface(host)) C17_HIGHLIGHTS.detach(host);
+                return result;
+            });
+            COMPLETED_HOOK_GROUPS.add(HookGroup.C17_HIGHLIGHTS);
+        } catch (Throwable unavailable) { moduleLog(Log.WARN, TAG, "Optional C17 optical shader contract unavailable", unavailable); }
+        try {
+            Class<?> background = loader.loadClass("com.android.systemui.statusbar.notification.row.NotificationBackgroundView");
+            Method draw = background.getDeclaredMethod("draw", Canvas.class, Drawable.class); deoptimize(draw);
+            installHook(HookGroup.C17_HIGHLIGHTS, draw, chain -> {
+                return C17_HIGHLIGHTS.drawNotificationBackground((View)chain.getThisObject(),(Canvas)chain.getArg(0),
+                        canvas -> chain.proceed(new Object[]{canvas,chain.getArg(1)}));
+            });
+        } catch (Throwable unavailable) { moduleLog(Log.WARN, TAG, "Optional C17 notification material scope unavailable", unavailable); }
+        try {
+            Class<?> extension=loader.loadClass("com.oplus.systemui.statusbar.notification.row.NotificationBackgroundViewExtImp");
+            Method draw=extension.getDeclaredMethod("draw",Canvas.class,Drawable.class);deoptimize(draw);
+            installHook(HookGroup.C17_HIGHLIGHTS,draw,chain -> C17_HIGHLIGHTS.drawNotificationBackgroundExtension(
+                    chain.getThisObject(),(Canvas)chain.getArg(0),canvas -> chain.proceed(new Object[]{canvas,chain.getArg(1)})));
+            Method drawIcon=extension.getDeclaredMethod("drawIcon",Canvas.class);deoptimize(drawIcon);
+            installHook(HookGroup.C17_HIGHLIGHTS,drawIcon,chain ->
+                    C17_HIGHLIGHTS.deferNotificationIcon(chain.getThisObject(),(Canvas)chain.getArg(0))?null:chain.proceed());
+            Class<?> background=loader.loadClass("com.android.systemui.statusbar.notification.row.NotificationBackgroundView");
+            for(Method method:background.getDeclaredMethods())if(method.getName().equals("onDraw"))deoptimize(method);
+        } catch (Throwable unavailable) {
+            moduleLog(Log.INFO,TAG,"Optional native notification color branches unavailable",unavailable);
+        }
+        for (String name : new String[]{"com.oplus.systemui.notification.material.NotificationSpotLightDelegate$Companion",
+                "com.oplus.systemui.qs.base.spotlight.SharedSpotLightEffect", "com.coui.appcompat.spotlight.COUISpotLightEffectDrawable",
+                "com.coui.appcompat.seekbar.effect.SpotLightEffectRenderer"}) try {
+            Class<?> type = loader.loadClass(name);
+            for (Method draw : type.getDeclaredMethods()) {
+                Class<?>[] params = draw.getParameterTypes();
+                boolean host = params.length >= 2 && params[0] == View.class && params[1] == Canvas.class;
+                boolean scoped = params.length >= 1 && params[0] == Canvas.class &&
+                        (name.endsWith("COUISpotLightEffectDrawable") || name.endsWith("SpotLightEffectRenderer"));
+                if (!draw.getName().matches("draw|drawEffect|drawSpotLight") || !host && !scoped) continue;
+                deoptimize(draw);
+                installHook(HookGroup.C17_HIGHLIGHTS, draw, chain -> C17_HIGHLIGHTS.skipSpotlight(host ? (View) chain.getArg(0) : null)
+                        ? null : chain.proceed());
+            }
+        } catch (ClassNotFoundException unavailable) { }
+        for (String caller : new String[]{"com.oplus.systemui.statusbar.notification.row.OplusActivatableNotificationViewExImpl",
+                "com.oplus.systemui.plugins.qs.customize.view.tile.OplusQSResizeableTileView",
+                "com.oplus.systemui.qs.base.tile.OplusQSTileBaseView$SpotLightIconFrame",
+                "com.oplus.systemui.qs.base.spotlight.SpotLightFrameLayout",
+                "com.oplus.systemui.qs.base.spotlight.SpotLightImageButton",
+                "com.oplus.systemui.qs.base.spotlight.SpotLightLinearLayout",
+                "com.oplus.systemui.qs.base.spotlight.SpotLightConstraintLayout",
+                "com.oplus.systemui.qs.OplusQsFooterSettingsSpotLightImageView",
+                "com.oplus.systemui.qs.media.OplusQsMediaButton",
+                "com.oplus.systemui.qs.media.OplusQsMediaOutputSpotlightLayout",
+                "com.oplus.systemui.notification.clearall.OplusClearAllButton",
+                "com.oplus.systemui.qs.widget.OplusQSMultiUserSwitch",
+                "com.oplus.systemui.qs.base.tile.OplusQSHighlightTileView",
+                "com.oplus.systemui.plugins.qs.customize.view.viewholder.EditableBrightnessVolumeViewHolder$bvLayoutContainer$2$1",
+                "com.oplus.systemui.qs.media.QsMediaSpotLightHelper",
+                QsPanelCorners.EDITABLE_HOLDER_CLASS + "$realPluginContainer$2$1"}) try {
+            for (Method method : loader.loadClass(caller).getDeclaredMethods())
+                if (method.getName().matches("drawNotificationSpotLightIfInstalled|dispatchDraw|drawSpotLightEffect|onDraw")) deoptimize(method);
+        } catch (ClassNotFoundException unavailable) { }
+        try {
+            Class<?> light=loader.loadClass("com.oplus.systemui.qs.media.multilight.MultiLightDrawable");
+            Method drawLight=light.getDeclaredMethod("draw",Canvas.class);deoptimize(drawLight);
+            installHook(HookGroup.C17_HIGHLIGHTS,drawLight,chain ->
+                    C17_HIGHLIGHTS.skipNativeMediaLight((Drawable)chain.getThisObject())?null:chain.proceed());
+            Class<?> mediaBackground=loader.loadClass("com.oplus.systemui.qs.media.multilight.OplusQsMediaBackgroundDrawable");
+            for(Method method:mediaBackground.getDeclaredMethods())if(method.getName().equals("draw"))deoptimize(method);
+        } catch (Throwable unavailable) {
+            moduleLog(Log.INFO,TAG,"Optional native media light layer unavailable",unavailable);
+        }
+        try {
+            Class<?> helper=loader.loadClass("com.oplus.systemui.qs.media.QsMediaSpotLightHelper");
+            Method drawSpot=helper.getDeclaredMethod("drawSpotLightEffect",Canvas.class);deoptimize(drawSpot);
+            installHook(HookGroup.C17_HIGHLIGHTS,drawSpot,chain ->
+                    C17_HIGHLIGHTS.skipNativeMediaSpotlight(chain.getThisObject())?null:chain.proceed());
+        } catch (Throwable unavailable) {
+            moduleLog(Log.INFO,TAG,"Optional native media spotlight layer unavailable",unavailable);
+        }
+        try {
+            Class<?> slider=loader.loadClass("com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar");
+            Method stroke=slider.getDeclaredMethod("getStrokePaint");deoptimize(stroke);
+            installHook(HookGroup.C17_HIGHLIGHTS,stroke,chain->{
+                Object result=chain.proceed();
+                return result instanceof Paint ? C17_HIGHLIGHTS.sliderStroke(
+                        (View)chain.getThisObject(),(Paint)result) : result;
+            });
+            for(Method caller:slider.getDeclaredMethods())if(caller.getName().equals("onDraw"))deoptimize(caller);
+        } catch (Throwable unavailable) {
+            moduleLog(Log.INFO,TAG,"Optional native QS slider highlight contract unavailable",unavailable);
+        }
+    }
+
     private boolean installQsAppearance(ClassLoader loader) {
         boolean found=false;
         try {
@@ -2151,12 +2258,22 @@ public final class StatusBarModule extends XposedModule {
                 Method draw=type.getDeclaredMethod(glass?"onDrawContent":"draw",Canvas.class);deoptimize(draw);
                 installHook(HookGroup.QS_APPEARANCE,draw,chain->{
                     Drawable drawable=(Drawable)chain.getThisObject();Canvas canvas=(Canvas)chain.getArg(0);
-                    if(glass)CLEAR_APPEARANCE.drawGlassContent(drawable,canvas,
-                            target->QS_APPEARANCE.drawGlassContent(drawable,target,
-                                    mediaCanvas->QS_MEDIA.drawGlassContent(drawable,mediaCanvas,nativeCanvas->chain.proceed(new Object[]{nativeCanvas}))));
-                    else CLEAR_APPEARANCE.drawBlur(drawable,canvas,
-                            target->QS_APPEARANCE.drawBlur(drawable,target,
-                                    mediaCanvas->QS_MEDIA.drawBlur(drawable,mediaCanvas,nativeCanvas->chain.proceed(new Object[]{nativeCanvas}))));
+                    if(glass) {
+                        C17HighlightRemoval.RecordScope record = C17_HIGHLIGHTS.beginRecord(drawable);
+                        try { CLEAR_APPEARANCE.drawGlassContent(drawable,canvas,
+                                target->QS_APPEARANCE.drawGlassContent(drawable,target,
+                                        mediaCanvas->QS_MEDIA.drawGlassContent(drawable,mediaCanvas,
+                                                nativeCanvas->C17_HIGHLIGHTS.drawContent(drawable,nativeCanvas,
+                                                        acrylicCanvas->chain.proceed(new Object[]{acrylicCanvas})))));
+                        } finally { record.close(); }
+                    }
+                    else {
+                        C17HighlightRemoval.SurfaceScope surface=C17_HIGHLIGHTS.beginBlur(drawable);
+                        try { CLEAR_APPEARANCE.drawBlur(drawable,canvas,
+                                target->QS_APPEARANCE.drawBlur(drawable,target,
+                                        mediaCanvas->QS_MEDIA.drawBlur(drawable,mediaCanvas,nativeCanvas->chain.proceed(new Object[]{nativeCanvas}))));
+                        } finally { surface.close(); }
+                    }
                     return null;
                 });found=true;
             } catch(ClassNotFoundException|NoSuchMethodException unsupported) { }
@@ -2180,7 +2297,7 @@ public final class StatusBarModule extends XposedModule {
                             ||eventName.equals("onThemeApplied")||eventName.equals("onConfigurationChanged")||eventName.equals("onQsColorStateChanged")||eventName.equals("onDrawableUpdate");
                     if(!detach&&!refresh)continue;deoptimize(event);
                     installHook(HookGroup.QS_APPEARANCE,event,chain->{Object result=chain.proceed();View owner=(View)chain.getThisObject();
-                        if(detach)QS_APPEARANCE.detach(owner);else QS_APPEARANCE.refreshTile(owner);return result;
+                        if(detach){QS_APPEARANCE.detach(owner);C17_HIGHLIGHTS.detach(owner);}else QS_APPEARANCE.refreshTile(owner);return result;
                     });
                 }
             } catch(ClassNotFoundException unsupported) { }
@@ -2197,7 +2314,7 @@ public final class StatusBarModule extends XposedModule {
                     deoptimize(event);
                     installHook(HookGroup.QS_APPEARANCE,event,chain->{
                         Object result=chain.proceed();View owner=(View)chain.getThisObject();
-                        if(detach)QS_APPEARANCE.detach(owner);else QS_APPEARANCE.refreshDeviceCard(owner);
+                        if(detach){QS_APPEARANCE.detach(owner);C17_HIGHLIGHTS.detach(owner);}else QS_APPEARANCE.refreshDeviceCard(owner);
                         return result;
                     });
                 }
@@ -2521,6 +2638,7 @@ public final class StatusBarModule extends XposedModule {
         for (View child : QsPanelCorners.pluginControls(container)) {
             if (detach) { QS_PANEL_CORNERS.detach(child); QS_ICON_SIZE.detachDevice(child); continue; }
             ClassLoader actualLoader = child.getClass().getClassLoader();
+            if (actualLoader != null) installC17HighlightRemoval(actualLoader);
             if (actualLoader != null) installQsPanelCorners(actualLoader);
             QS_PANEL_CORNERS.onNativeUpdate(child);
             if (QsDeviceIconSize.supported(child)) {
@@ -2610,6 +2728,7 @@ public final class StatusBarModule extends XposedModule {
                 for(Method event:proxy.getDeclaredMethods())if(event.getName().equals("getBlurDrawable")) {
                     deoptimize(event);
                     installHook(HookGroup.QS_MEDIA,event,chain->{Object result=chain.proceed();
+                        if(result instanceof Drawable)C17_HIGHLIGHTS.onNativeBlurResult(chain.getThisObject(),(Drawable)result);
                         QS_MEDIA.onNativeBlurResult(chain.getThisObject(),result);return result;});
                 }
                 Class<?> shader=loader.loadClass("com.oplus.posteffect.agsl.DrawableShader");
@@ -2726,14 +2845,23 @@ public final class StatusBarModule extends XposedModule {
                 installHook(HookGroup.TEXT, event, chain -> {
                     Object result = chain.proceed();
                     TEXT.classificationChanged((View) chain.getThisObject());
+                    LOCKSCREEN.classificationChanged((View) chain.getThisObject());
                     return result;
                 });
             }
             Method setText = TextView.class.getDeclaredMethod("setText", CharSequence.class, TextView.BufferType.class);
+            // The dynamically loaded OEM clock calls the one-argument setter. Its compiled
+            // wrapper may inline this final overload, so both native entries must be deoptimized.
+            deoptimize(TextView.class.getDeclaredMethod("setText", CharSequence.class));
+            deoptimize(setText);
             installHook(HookGroup.TEXT, setText, chain -> {
                 TextView view = (TextView) chain.getThisObject();
-                if (TEXT.isInternal() || TEXT.kind(view) == TextControls.NONE) return chain.proceed();
-                Object result = chain.proceed(new Object[]{TEXT.nativeText(view, (CharSequence) chain.getArg(0)), chain.getArg(1)});
+                CharSequence input = LOCKSCREEN.formatDate(view, (CharSequence) chain.getArg(0));
+                if (TEXT.isInternal() || TEXT.kind(view) == TextControls.NONE) {
+                    return input == chain.getArg(0) ? chain.proceed()
+                            : chain.proceed(new Object[]{input, chain.getArg(1)});
+                }
+                Object result = chain.proceed(new Object[]{TEXT.nativeText(view, input), chain.getArg(1)});
                 TEXT.attach(view);
                 return result;
             });
@@ -2799,6 +2927,9 @@ public final class StatusBarModule extends XposedModule {
             });
             installHook(HookGroup.TEXT, View.class.getDeclaredMethod("draw", Canvas.class), chain -> {
                 View view = (View) chain.getThisObject();
+                C17HighlightRemoval.SurfaceScope surface = isHighlightSurface(view)
+                        ? C17_HIGHLIGHTS.beginSurface(view) : null;
+                try {
                 if (QsMediaAppearance.isMediaView(view)) {
                     QS_MEDIA.drawMedia(view,(Canvas)chain.getArg(0),canvas->chain.proceed(new Object[]{canvas}));
                     return null;
@@ -2821,6 +2952,7 @@ public final class StatusBarModule extends XposedModule {
                 Canvas canvas = (Canvas) chain.getArg(0); int saved = canvas.save();
                 TEXT.beforeDraw((TextView) view, canvas);
                 try { return chain.proceed(); } finally { canvas.restoreToCount(saved); }
+                } finally { if (surface != null) surface.close(); }
             });
             for (String name : new String[]{"onVisibilityChanged", "onWindowVisibilityChanged"}) {
                 Method method = name.equals("onVisibilityChanged")
@@ -2836,6 +2968,7 @@ public final class StatusBarModule extends XposedModule {
                 final boolean attach=name.equals("onAttachedToWindow");
                 installHook(HookGroup.TEXT,View.class.getDeclaredMethod(name),chain->{
                     Object result=chain.proceed();View view=(View)chain.getThisObject();
+                    if(attach)LOCKSCREEN.attach(view);else LOCKSCREEN.detach(view);
                     if(QsTileAppearance.isDeviceCard(view)) {
                         if(attach)QS_APPEARANCE.refreshDeviceCard(view);else QS_APPEARANCE.detach(view);
                     }
@@ -2891,6 +3024,14 @@ public final class StatusBarModule extends XposedModule {
                 for (Method caller : target.getDeclaredMethods()) {
                     if (caller.getName().matches("updateClock|onDarkChanged|onConfigurationChanged|setFontTypeface|updateTextColor|updateEverything|reloadDimens|onMeasure|calculateSecondTextMaxWidth|updateMinWidth.*"))
                         deoptimize(caller);
+                    if (caller.getName().matches("onConfigurationChanged|updateConfigurationChanged|setFontTypeface")) {
+                        deoptimize(caller);
+                        installHook(HookGroup.TEXT, caller, chain -> {
+                            TextControls.NativeStyleScope scope = TEXT.beginNativeStyle((TextView) chain.getThisObject());
+                            try { return chain.proceed(); }
+                            finally { if (scope != null) scope.close(); }
+                        });
+                    }
                 }
                 for (String event : new String[]{"onAttachedToWindow", "onDetachedFromWindow"}) {
                     try {
@@ -2957,6 +3098,7 @@ public final class StatusBarModule extends XposedModule {
                 Field maxSize = carrier.getDeclaredField("mMaxTextSizePx"); maxSize.setAccessible(true);
                 installHook(HookGroup.TEXT, carrier.getDeclaredMethod("updateTextSize$1"), chain -> {
                     TextView view = (TextView) chain.getThisObject();
+                    if (TEXT.isInternal()) return chain.proceed();
                     if (!TEXT.replaces(view)) return chain.proceed();
                     TEXT.nativeSize(view, maxSize.getFloat(view)); TEXT.beforeMeasure(view); return null;
                 });
@@ -2965,10 +3107,41 @@ public final class StatusBarModule extends XposedModule {
                 Class<?> callback=loader.loadClass("com.oplus.systemui.qs.widget.OplusSecondCarrierText$1");
                 for(Method method:callback.getDeclaredMethods())if(method.getName().equals("updateCarrierInfo"))deoptimize(method);
             }catch(ClassNotFoundException absent){}
+            installLockscreenControls(loader);
             moduleLog(Log.INFO, TAG, "Status clock and carrier text controls installed");
             return true;
         } catch (Throwable error) {
             moduleLog(Log.WARN, TAG, "Text controls incomplete; retry at next package phase", error); return false;
+        }
+    }
+
+    private void installLockscreenControls(ClassLoader loader) throws NoSuchMethodException {
+        // The lock is a native FrameLayout, not a TextView or the fingerprint target.
+        // Suppress only its decorative children, retaining native input and unlocking state.
+        Method drawChild = ViewGroup.class.getDeclaredMethod("drawChild", Canvas.class, View.class, Long.TYPE);
+        deoptimize(drawChild);
+        installHook(HookGroup.TEXT, drawChild, chain -> LOCKSCREEN.hideLockChild(
+                (ViewGroup) chain.getThisObject(), (View) chain.getArg(1)) ? false : chain.proceed());
+        for (String name : new String[]{LockscreenControls.SINGLE, LockscreenControls.DUAL,
+                LockscreenControls.RED, LockscreenControls.CUSTOM, LockscreenControls.LOCK}) try {
+            Class<?> owner = loader.loadClass(name);
+            if (!View.class.isAssignableFrom(owner)) continue;
+            for (Constructor<?> constructor : owner.getDeclaredConstructors()) {
+                installHook(HookGroup.TEXT, constructor, chain -> {
+                    Object result = chain.proceed(); LOCKSCREEN.attach((View) chain.getThisObject()); return result;
+                });
+            }
+            for (Method event : owner.getDeclaredMethods()) {
+                if (Modifier.isAbstract(event.getModifiers()) || Modifier.isStatic(event.getModifiers())) continue;
+                if (!event.getName().matches("onFinishInflate|onAttachedToWindow|onConfigChanged|onConfigurationChanged"
+                        + "|onMovedToDisplay|updateDate|updateTime|refresh|refreshDate|updateIcon|updateColorAndBackgroundVisibility")) continue;
+                deoptimize(event);
+                installHook(HookGroup.TEXT, event, chain -> {
+                    Object result = chain.proceed(); LOCKSCREEN.attach((View) chain.getThisObject()); return result;
+                });
+            }
+        } catch (ClassNotFoundException unsupportedClock) {
+            // Native clocks differ between firmware/theme packages; leave missing variants native.
         }
     }
 
@@ -2985,6 +3158,21 @@ public final class StatusBarModule extends XposedModule {
     private boolean installSpeedControls(ClassLoader loader) {
         try {
             Class<?> speed = loader.loadClass("com.oplus.systemui.statusbar.phone.netspeed.widget.NetworkSpeedView");
+            try {
+                Class<?> sampler = loader.loadClass("com.oplus.systemui.statusbar.phone.netspeed.OplusNetworkSpeedControllerExImpl");
+                Method delay = sampler.getDeclaredMethod("postUpdateNetworkSpeedDelay", Long.TYPE); deoptimize(delay);
+                for (Method caller : sampler.getDeclaredMethods())
+                    if (caller.getName().matches("access\\$updateNetworkSpeed|updateNetworkSpeed|updateNetworkSpeedLoop|notifyNetworkSpeed")) deoptimize(caller);
+                  try {
+                      Class<?> handler = loader.loadClass("com.oplus.systemui.statusbar.phone.netspeed.OplusNetworkSpeedControllerExImpl$bgHandler$1");
+                      deoptimize(handler.getDeclaredMethod("handleMessage", android.os.Message.class));
+                  } catch (ClassNotFoundException | NoSuchMethodException unavailable) {
+                      moduleLog(Log.WARN, TAG, "Optional native throughput sampling caller unavailable", unavailable);
+                  }
+                installHook(HookGroup.SPEED, delay, chain -> chain.proceed(new Object[]{NETWORK_SPEED.samplingDelay((Long) chain.getArg(0))}));
+            } catch (ClassNotFoundException | NoSuchMethodException unavailable) {
+                moduleLog(Log.WARN, TAG, "Optional native throughput sampling interval unavailable", unavailable);
+            }
             speedNumberField = speed.getField("mSpeedNumber");
             speedUnitField = speed.getField("mSpeedUnit");
             for(Method caller:speed.getDeclaredMethods())
@@ -2992,11 +3180,14 @@ public final class StatusBarModule extends XposedModule {
             try {
                 installHook(HookGroup.SPEED,speed.getDeclaredMethod("onConfigurationChanged",android.content.res.Configuration.class),chain->{
                     View view=(View)chain.getThisObject();SpeedStyle style=speedStyleFor(view);
+                    NETWORK_SPEED.beforeNativeLayout(view);
                     // Restore the base sizes before the native configuration callback, which may early-return.
                     TextView number=(TextView)speedNumberField.get(view),unit=(TextView)speedUnitField.get(view);
                     if(number!=null&&style.numberSize>0)number.setTextSize(TypedValue.COMPLEX_UNIT_PX,style.numberSize);
                     if(unit!=null&&style.unitSize>0)unit.setTextSize(TypedValue.COMPLEX_UNIT_PX,style.unitSize);
-                    Object result=chain.proceed();
+                    Object result;
+                    try { result=chain.proceed(); }
+                    finally { NETWORK_SPEED.afterNativeLayout(view, (TextView)speedNumberField.get(view), (TextView)speedUnitField.get(view)); }
                     if(number!=null){style.numberSize=number.getTextSize();style.appliedNumberSize=style.numberSize;}
                     if(unit!=null){style.unitSize=unit.getTextSize();style.appliedUnitSize=style.unitSize;}
                     applySpeedStyle(view,style);return result;
@@ -3018,8 +3209,17 @@ public final class StatusBarModule extends XposedModule {
                 return result;
             });
             installHook(HookGroup.SPEED,speed.getDeclaredMethod("onDetachedFromWindow"),chain->{
-                Object result=chain.proceed();releaseOverflow((View)chain.getThisObject());return result;
+                Object result=chain.proceed();NETWORK_SPEED.onViewDetached((View)chain.getThisObject());releaseOverflow((View)chain.getThisObject());return result;
             });
+            for (Method method : speed.getDeclaredMethods()) {
+                if (!method.getName().matches("onLayout|applyNetworkState")) continue;
+                deoptimize(method);
+                installHook(HookGroup.SPEED, method, chain -> {
+                    Object result=chain.proceed();View host=(View)chain.getThisObject();
+                    NETWORK_SPEED.apply(host,(TextView)speedNumberField.get(host),(TextView)speedUnitField.get(host));
+                    return result;
+                });
+            }
             installHook(HookGroup.SPEED, speed.getDeclaredMethod("setIconTint", Integer.TYPE), chain -> {
                 View view = (View) chain.getThisObject();
                 SpeedStyle style = speedStyleFor(view);
@@ -3109,6 +3309,7 @@ public final class StatusBarModule extends XposedModule {
             if (number.getCurrentTextColor() != tint) number.setTextColor(tint);
             if (unit.getCurrentTextColor() != tint) unit.setTextColor(tint);
             allowDrawableOverflow(view);
+            NETWORK_SPEED.apply(view,number,unit);
         } catch (Throwable error) {
             logFrameworkStage(Log.WARN, "Could not apply throughput style", error);
         }
@@ -3207,6 +3408,171 @@ public final class StatusBarModule extends XposedModule {
         }
     }
 
+    private boolean installNativeStatusIcons(ClassLoader loader) {
+        try {
+            STATUS_HINTS.resolve(loader);
+            Class<?> container=loader.loadClass("com.android.systemui.statusbar.phone.StatusIconContainer");
+            Class<?> icon=loader.loadClass("com.android.systemui.statusbar.StatusBarIconView");
+            Class<?> state=loader.loadClass("com.android.systemui.statusbar.phone.StatusIconContainer$StatusIconState");
+            Method childAt=ViewGroup.class.getDeclaredMethod("getChildAt",Integer.TYPE);
+            deoptimize(childAt);
+            installHook(HookGroup.STATUS_HINTS,childAt,chain->{
+                int original=(Integer)chain.getArg(0),mapped=STATUS_HINTS.childIndex(chain.getThisObject(),original);
+                return mapped==original?chain.proceed():chain.proceed(new Object[]{mapped});
+            });
+            Method blocked=icon.getDeclaredMethod("isIconBlocked");deoptimize(blocked);
+            installHook(HookGroup.STATUS_HINTS,blocked,chain->STATUS_HINTS.iconBlocked((View)chain.getThisObject(),(Boolean)chain.proceed()));
+            Method apply=state.getDeclaredMethod("applyToView",View.class);deoptimize(apply);
+            installHook(HookGroup.STATUS_HINTS,apply,chain->{
+                STATUS_HINTS.beforeApply(chain.getThisObject(),(View)chain.getArg(0));return chain.proceed();
+            });
+            for(Method method:container.getDeclaredMethods()) {
+                String name=method.getName();
+                if(name.equals("onMeasure")||name.equals("updateStates")) {
+                    final boolean targets=name.equals("updateStates");deoptimize(method);
+                    installHook(HookGroup.STATUS_HINTS,method,chain->{
+                        NativeStatusIcons.Scope scope=STATUS_HINTS.begin((ViewGroup)chain.getThisObject(),targets);
+                        try{return chain.proceed();}finally{if(scope!=null)scope.close();}
+                    });
+                } else if(name.equals("onLayout")) {
+                    deoptimize(method);installHook(HookGroup.STATUS_HINTS,method,chain->{
+                        Object result=chain.proceed();STATUS_HINTS.onLayout((ViewGroup)chain.getThisObject());return result;
+                    });
+                } else if(name.matches("onViewAdded|onViewRemoved|onConfigurationChanged|onAttachedToWindow|onDetachedFromWindow")) {
+                    deoptimize(method);installHook(HookGroup.STATUS_HINTS,method,chain->{
+                        Object result=chain.proceed();ViewGroup host=(ViewGroup)chain.getThisObject();
+                        if(name.equals("onDetachedFromWindow"))STATUS_HINTS.detached(host);else STATUS_HINTS.changed(host);
+                        return result;
+                    });
+                }
+            }
+            for(Method method:icon.getDeclaredMethods())if(method.getName().equals("set")||method.getName().equals("onDensityOrFontScaleChanged")) {
+                deoptimize(method);installHook(HookGroup.STATUS_HINTS,method,chain->{
+                    Object result=chain.proceed();STATUS_HINTS.bound((View)chain.getThisObject());return result;
+                });
+            }
+            Method detached=View.class.getDeclaredMethod("onDetachedFromWindow");deoptimize(detached);
+            installHook(HookGroup.STATUS_HINTS,detached,chain->{
+                Object result=chain.proceed();Object host=chain.getThisObject();
+                if(container.isInstance(host))STATUS_HINTS.detached((ViewGroup)host);return result;
+            });
+            try {
+                Class<?> deferred=loader.loadClass("com.android.systemui.statusbar.phone.StatusIconContainer$1");
+                for(Method method:deferred.getDeclaredMethods())if(method.getName().equals("run"))deoptimize(method);
+            }catch(ClassNotFoundException absent){/* Direct native layout remains hooked. */}
+            return true;
+        } catch(Throwable unavailable){logFrameworkStage(Log.WARN,"Native system hint icon controls unavailable",unavailable);return false;}
+    }
+
+    private boolean installNetworkIconOrder(ClassLoader loader) {
+        try {
+            NETWORK_ORDER.resolve(loader);
+            Class<?> container = loader.loadClass("com.android.systemui.statusbar.phone.StatusIconContainer");
+            Method childAt = ViewGroup.class.getDeclaredMethod("getChildAt", Integer.TYPE);
+            deoptimize(childAt);
+            installHook(HookGroup.NETWORK_ORDER, childAt, chain -> {
+                int original = (Integer) chain.getArg(0);
+                int mapped = NETWORK_ORDER.childIndex(chain.getThisObject(), original);
+                return mapped == original ? chain.proceed() : chain.proceed(new Object[]{mapped});
+            });
+            for (Method method : container.getDeclaredMethods()) {
+                String name = method.getName();
+                if (name.equals("onMeasure") || name.equals("updateStates")) {
+                    deoptimize(method);
+                    installHook(HookGroup.NETWORK_ORDER, method, chain -> {
+                        NetworkIconOrder.IndexScope scope = NETWORK_ORDER.begin((ViewGroup) chain.getThisObject());
+                        try { return chain.proceed(); } finally { if (scope != null) scope.close(); }
+                    });
+                } else if (name.matches("onViewAdded|onViewRemoved|onConfigurationChanged|onAttachedToWindow|onDetachedFromWindow")) {
+                    deoptimize(method);
+                    installHook(HookGroup.NETWORK_ORDER, method, chain -> {
+                        Object result = chain.proceed(); ViewGroup parent = (ViewGroup) chain.getThisObject();
+                        if (name.equals("onDetachedFromWindow")) NETWORK_ORDER.detached(parent); else NETWORK_ORDER.changed(parent);
+                        return result;
+                    });
+                } else if (name.equals("onLayout")) deoptimize(method);
+            }
+            // updateStates is also called by the OEM's deferred layout runnable.
+            try {
+                Class<?> runnable = loader.loadClass("com.android.systemui.statusbar.phone.StatusIconContainer$1");
+                for (Method method : runnable.getDeclaredMethods()) if (method.getName().equals("run")) deoptimize(method);
+            } catch (ClassNotFoundException noDeferredLayout) { }
+            Class<?> modern = loader.loadClass(MODERN_VIEW);
+            Method init = modern.getDeclaredMethod("initView", String.class, loader.loadClass("kotlin.jvm.functions.Function0"));
+            deoptimize(init);
+            installHook(HookGroup.NETWORK_ORDER, init, chain -> {
+                Object result = chain.proceed(); NETWORK_ORDER.bound((View) chain.getThisObject()); return result;
+            });
+            try {
+                NETWORK_ORDER.resolveCompose(loader);
+                Class<?> node = loader.loadClass("androidx.compose.ui.node.LayoutNode");
+                Method modifier = node.getDeclaredMethod("setModifier", loader.loadClass("androidx.compose.ui.Modifier"));
+                deoptimize(modifier);
+                installHook(HookGroup.NETWORK_ORDER, modifier, chain -> {
+                    Object result = chain.proceed(); NETWORK_ORDER.nodeChanged(chain.getThisObject(), chain.getArg(0)); return result;
+                });
+                Class<?> setter = loader.loadClass("androidx.compose.ui.node.ComposeUiNode$Companion$SetModifier$1");
+                for (Method method : setter.getDeclaredMethods()) if (method.getName().equals("invoke")) deoptimize(method);
+                Class<?> row = loader.loadClass("androidx.compose.foundation.layout.RowKt");
+                for (Method method : row.getDeclaredMethods()) if (method.getName().equals("rowMeasurePolicy")) {
+                    deoptimize(method);
+                    installHook(HookGroup.NETWORK_ORDER, method, chain -> NETWORK_ORDER.rowPolicy(chain.proceed()));
+                }
+                String prefix = "com.android.systemui.statusbar.pipeline.shared.ui.composable.";
+                for (String strategy : new String[]{"BigTypeStackedMobileIconLayoutStrategy", "DefaultStackedMobileIconLayoutStrategy", "TigoFiveGStackedMobileIconLayoutStrategy"}) {
+                    Class<?> layout = loader.loadClass(prefix + strategy);
+                    for (Method method : layout.getDeclaredMethods()) if (method.getName().startsWith("SignalIcon-")) deoptimize(method);
+                    for (Method method : layout.getDeclaredMethods()) if (method.getName().equals("StackedMobileIcon") && method.getParameterTypes().length == 8) {
+                        deoptimize(method);
+                        installHook(HookGroup.NETWORK_ORDER, method, chain -> {
+                            // Subscribe in the caller's native restart group. Force the strategy to
+                            // update its node policy when this independent setting changes.
+                            boolean force = NETWORK_ORDER.forceStrategy(chain.getArg(6), chain.getArg(1), chain.getThisObject());
+                            NetworkIconOrder.RowScope scope = NETWORK_ORDER.beginRow(chain.getArg(1));
+                            if (force && readComposeRevision != null && composeStyleRevision != null) readComposeRevision.invoke(composeStyleRevision);
+                            try {
+                                if (!force) return chain.proceed();
+                                Object[] args = chain.getArgs().toArray(); args[7] = ((Integer) args[7]) | 1;
+                                return chain.proceed(args);
+                            } finally { if (scope != null) scope.close(); }
+                        });
+                    }
+                }
+                for (String source : new String[]{"OplusStackedMobileIconLayoutStrategyKt", "TigoFiveGStackedMobileIconLayoutStrategyKt"}) {
+                    Class<?> text = loader.loadClass(prefix + source);
+                    for (Method method : text.getDeclaredMethods()) if (method.getName().contains("NetworkTypeText-") && method.getParameterTypes().length == 13) {
+                        deoptimize(method);
+                        installHook(HookGroup.NETWORK_ORDER, method, chain -> {
+                            Object original = chain.getArg(3); Object tagged = NETWORK_ORDER.textModifier(original);
+                            if (original == tagged) return chain.proceed();
+                            Object[] args = chain.getArgs().toArray(); args[3] = tagged;
+                            args[11] = ((Integer) args[11]) | 1; // Preserve the OEM changed/default slot branches.
+                            return chain.proceed(args);
+                        });
+                    }
+                }
+                Class<?> signal = loader.loadClass(prefix + "OplusStackedMobileIconLayoutStrategy");
+                for (Method method : signal.getDeclaredMethods()) if (method.getName().startsWith("SignalIcon-") && !java.lang.reflect.Modifier.isAbstract(method.getModifiers())) {
+                    deoptimize(method);
+                    installHook(HookGroup.NETWORK_ORDER, method, chain -> {
+                        Object original = chain.getArg(4); Object tagged = NETWORK_ORDER.signalModifier(original);
+                        if (original == tagged) return chain.proceed();
+                        Object[] args = chain.getArgs().toArray(); args[4] = tagged; return chain.proceed(args);
+                    });
+                }
+                Class<?> defaultSignal = loader.loadClass(prefix + "OplusStackedMobileIconLayoutStrategy$ComposeDefaultImpls");
+                for (Method method : defaultSignal.getDeclaredMethods()) if (method.getName().startsWith("SignalIcon$default-")) deoptimize(method);
+                Class<?> caller = loader.loadClass(prefix + "OplusStackedMobileIconKt");
+                for (Method method : caller.getDeclaredMethods()) if (method.getName().equals("OplusStackedMobileIcon")) deoptimize(method);
+            } catch (ClassNotFoundException legacyViews) {
+                moduleLog(Log.INFO, TAG, "Network icon ordering retained for native view slots");
+            }
+            return true;
+        } catch (Throwable error) {
+            moduleLog(Log.WARN, TAG, "Could not install native network icon ordering", error); return false;
+        }
+    }
+
     private boolean installComposeSupport(ClassLoader loader) {
         Class<?> factory;
         try {
@@ -3220,15 +3586,23 @@ public final class StatusBarModule extends XposedModule {
                 writeComposeRevision = loader.loadClass("androidx.compose.runtime.MutableIntState").getMethod("setIntValue", Integer.TYPE);
             }
             ComposeBridge bridge = new ComposeBridge(loader);
+            try { NATIVE_BADGE.resolve(loader); }
+            catch (ReflectiveOperationException|LinkageError unavailable) {
+                moduleLog(Log.INFO,TAG,"Optional native network badge controls unavailable",unavailable);
+            }
             Object largeLayout = loader.loadClass("com.android.systemui.statusbar.pipeline.shared.ui.composable.BigTypeStackedMobileIconLayoutStrategy").getField("INSTANCE").get(null);
-            installHook(HookGroup.COMPOSE, factory.getDeclaredMethod("getStrategy"), chain -> {
+            Method getStrategy=factory.getDeclaredMethod("getStrategy");deoptimize(getStrategy);
+            installHook(HookGroup.COMPOSE, getStrategy, chain -> {
                 Object nativeLayout = chain.proceed();
                 if(composeRenderingReady)readComposeRevision.invoke(composeStyleRevision);
-                return composeRenderingReady && (FEATURES.enabled("data")
-                        || FEATURES.enabled("label") && !FEATURES.hideNetworkLabel()) ? largeLayout : nativeLayout;
+                // Signal styling works with the original layout. Forcing BigType for signal
+                // alone leaves a large network label behind after its independent page is off.
+                return composeRenderingReady && FEATURES.enabled("label")
+                        && !FEATURES.hideNetworkLabel() ? largeLayout : nativeLayout;
             });
             Class<?> model = loader.loadClass("com.oplus.systemui.statusbar.pipeline.ui.viewmodel.OplusStackedMobileIconViewModelImpl");
-            installHook(HookGroup.COMPOSE, model.getDeclaredMethod("getActivityIndicatorIconResId"), chain -> {
+            Method activityGetter=model.getDeclaredMethod("getActivityIndicatorIconResId");deoptimize(activityGetter);
+            installHook(HookGroup.COMPOSE, activityGetter, chain -> {
                 Object nativeActivity = chain.proceed();
                 if(composeRenderingReady)readComposeRevision.invoke(composeStyleRevision);
                 return FEATURES.effective("data","data_activity_hidden") ? 0 : nativeActivity;
@@ -3246,57 +3620,105 @@ public final class StatusBarModule extends XposedModule {
             for (Method image : loader.loadClass("androidx.compose.foundation.ImageKt").getDeclaredMethods()) {
                 if (!image.getName().equals("Image") || image.getParameterCount() != 10
                         || !image.getParameterTypes()[0].getName().equals("androidx.compose.ui.graphics.painter.Painter")) continue;
+                deoptimize(image);
                 installHook(HookGroup.COMPOSE, image, chain -> {
                     if (!composeRenderingReady) return chain.proceed();
                     Object painter = chain.getArg(0);
                     if (!painterClass.isInstance(painter)) return chain.proceed();
                     Object drawable = painterDrawable.invoke(painter);
-                    if (!(drawable instanceof ScaledDrawable)) return chain.proceed();
-                    ScaledDrawable icon = (ScaledDrawable) drawable;
+                    if (!(drawable instanceof ScaledDrawable) && !(drawable instanceof NativeDataActivity.ArrowDrawable)) return chain.proceed();
+                    // Only subscribe to visual revisions here. The native Image restart group
+                    // must keep the exact dirty/default bits and remembered slot structure.
                     readComposeRevision.invoke(composeStyleRevision);
-                    Object[] args = new Object[10];
-                    for (int i = 0; i < args.length; i++) args[i] = chain.getArg(i);
-                    Object base = args[2] == null ? bridge.empty : args[2];
-                    Object filter = args[6];
-                    if (filter != null && nativeFilters.containsKey(filter)) filter = nativeFilters.get(filter);
-                    int tint = filter == null ? icon.nativeTint
-                            : nativeFilterColor((ColorFilter) bridge.nativeFilter.invoke(filter), icon.nativeTint);
-                    Object original = bases.get(base);
-                    if (original != null) base = original;
-                    String item=icon.wifiIcon?"wifi":"data";
-                    Object frame = FEATURES.enabled(item)?bridge.height.invoke(null, base, ICON_SLOT_DP):base;
-                    float d = context == null ? icon.density : context.getResources().getDisplayMetrics().density;
-                    args[2] = !FEATURES.enabled(item)?base:bridge.place(frame,NumericPolicy.pixels(icon.wifiIcon ? wifiOffsetXdp : dataOffsetXdp,d),
-                            NumericPolicy.pixels(icon.wifiIcon ? wifiOffsetYdp : dataOffsetYdp,d),
-                            NumericPolicy.scale((icon.wifiIcon ? wifiIconScalePercent : dataIconScalePercent) / 100f,ICON_SLOT_DP*d));
-                    if(args[2]!=base)bases.put(args[2], base);
-                    args[6] = FEATURES.color(item)?bridge.tintFilter.invoke(bridge.filterCompanion,
-                            bridge.color.invoke(null, styleColor(item, tint)), 5):filter;
-                    if(args[6]!=null&&args[6]!=filter)nativeFilters.put(args[6], filter);
-                    args[8] = 0; args[9] = ((Integer) args[9]) & ~(4 | 64);
-                    return chain.proceed(args);
+                    return chain.proceed();
                 });
                 imageInstalled = true;
             }
             if (!imageInstalled) throw new NoSuchMethodException("Compose Image renderer");
+            Class<?> painterModifier=loader.loadClass("androidx.compose.ui.draw.PainterModifierKt");
+            Method paint=painterModifier.getDeclaredMethod("paint$default",bridge.modifier,
+                    loader.loadClass("androidx.compose.ui.graphics.painter.Painter"),loader.loadClass("androidx.compose.ui.Alignment"),
+                    loader.loadClass("androidx.compose.ui.layout.ContentScale"),Float.TYPE,
+                    loader.loadClass("androidx.compose.ui.graphics.ColorFilter"),Integer.TYPE);
+            Method modifierThen=bridge.modifier.getMethod("then",bridge.modifier);
+            deoptimize(paint);
+            installHook(HookGroup.COMPOSE,paint,chain->{
+                if(!composeRenderingReady)return chain.proceed();
+                Object painter=chain.getArg(1);
+                if(!painterClass.isInstance(painter))return chain.proceed();
+                Object drawable=painterDrawable.invoke(painter);
+                if(drawable instanceof NativeDataActivity.ArrowDrawable) {
+                    readComposeRevision.invoke(composeStyleRevision);
+                    NativeDataActivity.ArrowDrawable arrow=(NativeDataActivity.ArrowDrawable)drawable;arrow.composePlacement=true;
+                    Object[] args=new Object[7];for(int index=0;index<args.length;index++)args[index]=chain.getArg(index);
+                    Object base=args[0]==null?bridge.empty:args[0];Object original=bases.get(base);if(original!=null)base=original;
+                    Object filter=args[5];if(filter!=null&&nativeFilters.containsKey(filter))filter=nativeFilters.get(filter);
+                    args[0]=base;args[5]=filter;
+                    if(DATA_ACTIVITY.enabled()) {
+                        float density=arrow.density;
+                        Object layer=bridge.place(bridge.empty,DATA_ACTIVITY.x(density),DATA_ACTIVITY.y(density),
+                                DATA_ACTIVITY.scale(Math.max(arrow.getIntrinsicWidth(),arrow.getIntrinsicHeight())));
+                        args[0]=modifierThen.invoke(layer,base);bases.put(args[0],base);
+                    }
+                    if(DATA_ACTIVITY.colorEnabled()) {
+                        int nativeTint=filter==null?arrow.nativeTint:nativeFilterColor((ColorFilter)bridge.nativeFilter.invoke(filter),arrow.nativeTint);
+                        arrow.nativeTint=nativeTint;
+                        args[5]=bridge.tintFilter.invoke(bridge.filterCompanion,bridge.color.invoke(null,DATA_ACTIVITY.tint(nativeTint)),5);
+                        if(args[5]!=null&&args[5]!=filter)nativeFilters.put(args[5],filter);
+                    }
+                    return args[0]==chain.getArg(0)&&args[5]==chain.getArg(5)?chain.proceed():chain.proceed(args);
+                }
+                if(!(drawable instanceof ScaledDrawable))return chain.proceed();
+                // This call runs inside Image's native restart group, so unchanged Painter
+                // arguments still redraw after a style revision without dirty-bit changes.
+                readComposeRevision.invoke(composeStyleRevision);
+                ScaledDrawable icon=(ScaledDrawable)drawable;icon.composePlacement=true;
+                Object[] args=new Object[7];for(int i=0;i<args.length;i++)args[i]=chain.getArg(i);
+                Object base=args[0]==null?bridge.empty:args[0];Object original=bases.get(base);
+                if(original!=null)base=original;
+                Object filter=args[5];
+                if(filter!=null&&nativeFilters.containsKey(filter))filter=nativeFilters.get(filter);
+                String item=icon.wifiIcon?"wifi":"data";
+                args[0]=base;args[5]=filter;
+                if(FEATURES.enabled(item)){
+                    float d=context==null?icon.density:context.getResources().getDisplayMetrics().density;
+                    Object frame=bridge.height.invoke(null,bridge.empty,ICON_SLOT_DP);
+                    Object layer=bridge.place(frame,NumericPolicy.pixels(icon.wifiIcon?wifiOffsetXdp:dataOffsetXdp,d),
+                            NumericPolicy.pixels(icon.wifiIcon?wifiOffsetYdp:dataOffsetYdp,d),
+                            NumericPolicy.scale((icon.wifiIcon?wifiIconScalePercent:dataIconScalePercent)/100f,ICON_SLOT_DP*d));
+                    // Image already appended clipToBounds. Put placement outside the entire
+                    // original chain so the native slot clip moves with the visible glyph.
+                    args[0]=modifierThen.invoke(layer,base);bases.put(args[0],base);
+                }
+                if(FEATURES.color(item)){
+                    int tint=filter==null?icon.nativeTint:nativeFilterColor((ColorFilter)bridge.nativeFilter.invoke(filter),icon.nativeTint);
+                    args[5]=bridge.tintFilter.invoke(bridge.filterCompanion,bridge.color.invoke(null,styleColor(item,tint)),5);
+                    if(args[5]!=null&&args[5]!=filter)nativeFilters.put(args[5],filter);
+                }
+                // Real C17 paint$default has no Composer. Its only mask branches are
+                // alignment(4) and alpha(16); preserve both and every untouched argument.
+                return args[0]==chain.getArg(0)&&args[5]==chain.getArg(5)?chain.proceed():chain.proceed(args);
+            });
             Class<?> textModel = loader.loadClass("com.android.systemui.statusbar.pipeline.mobile.domain.model.OplusNetworkTypeTextModel");
             Method type = textModel.getMethod("getNetworkTypeText");
             Method name = loader.loadClass(NETWORK_TYPE).getMethod("getName");
             boolean labelInstalled = false;
             for (Method text : loader.loadClass("com.android.systemui.statusbar.pipeline.shared.ui.composable.OplusStackedMobileIconLayoutStrategyKt").getDeclaredMethods()) {
                 if (!text.getName().startsWith("NetworkTypeText-") || text.getParameterCount() != 13) continue;
+                deoptimize(text);
                 installHook(HookGroup.COMPOSE, text, chain -> {
                     if (!composeRenderingReady) return chain.proceed();
                     readComposeRevision.invoke(composeStyleRevision);
-                    if (!FEATURES.enabled("label")) return chain.proceed();
-                    int nativeTint = (Integer) bridge.argb.invoke(null, chain.getArg(2));
-                    String rawLabel = "";
-                    if (!wifiConnected && !airplaneMode && chain.getArg(1) != null) {
-                        Object networkType = type.invoke(chain.getArg(1));
-                        if (networkType != null) {
-                            rawLabel=(String)name.invoke(networkType);
-                        }
+                    // C17 emits the native badge as a Compose node, without mobile_type View IDs.
+                    // A separately enabled custom network label still owns its own output below.
+                    if (!FEATURES.enabled("label")) {
+                        if(FEATURES.hideNativeNetworkBadge())return null;
+                        return chain.proceed();
                     }
+                    int nativeTint = (Integer) bridge.argb.invoke(null, chain.getArg(2));
+                    // Native stacked info is firstOrNull, not necessarily the main traffic
+                    // SIM. refreshLabel selects activeDataSubscription for both renderers.
+                    String rawLabel = networkLabel;
                     final String shown = FEATURES.hideNetworkLabel() ? "" : RadioState.cellularLabel(FEATURES.enabled("label"),wifiConnected,airplaneMode,
                             rawLabel,networkLabel,FEATURES.effective("label","label_normalize_enabled"),wifiSwitchEnabled,mobileDataSwitchEnabled);
                     Object base = shown.isEmpty() || chain.getArg(3) == null ? bridge.empty : chain.getArg(3);
@@ -3307,6 +3729,7 @@ public final class StatusBarModule extends XposedModule {
                     Object frame = bridge.height.invoke(null, sized, ICON_SLOT_DP);
                     Object placed = bridge.place(frame,NumericPolicy.pixels(labelOffsetXdp,d),NumericPolicy.pixels(labelOffsetYdp,d),
                             NumericPolicy.scale(labelScalePercent / 100f,Math.max(ICON_SLOT_DP*d,NumericPolicy.layoutPixels(slotWidthDp,d))));
+                    if (!shown.isEmpty()) placed = NETWORK_ORDER.textModifier(placed);
                     Object create = bridge.function(ctx -> new NetworkLabelView((Context) ctx));
                     Object update = bridge.function(view -> { ((NetworkLabelView) view).update(shown, nativeTint); return bridge.unit; });
                     bridge.androidView.invoke(null, create, placed, update, chain.getArg(10), 0, 0);
@@ -3318,7 +3741,53 @@ public final class StatusBarModule extends XposedModule {
                 });
                 labelInstalled = true;
             }
+            // Keep the outer NetworkTypeText slot table untouched. Style only the real
+            // content renderer while its exact OEM content lambda is on the stack.
+            Class<?> nativeContent=loader.loadClass("com.android.systemui.statusbar.pipeline.shared.ui.composable.OplusStackedMobileIconLayoutStrategyKt$$ExternalSyntheticLambda2");
+            for(Method method:nativeContent.getDeclaredMethods())if(method.getName().equals("invoke")&&method.getParameterCount()==2) {
+                deoptimize(method);
+                installHook(HookGroup.COMPOSE,method,chain->{
+                    try(NativeNetworkBadgeControls.Scope scope=NATIVE_BADGE.enterContent(chain.getThisObject())){return chain.proceed();}
+                });
+            }
+            Class<?> badgeText=loader.loadClass("com.android.systemui.statusbar.pipeline.shared.ui.composable.OplusStackedMobileIconLayoutStrategyKt");
+            for(Method text:badgeText.getDeclaredMethods())if(text.getName().startsWith("StackedMobileText-")&&text.getParameterCount()==13) {
+                deoptimize(text);
+                installHook(HookGroup.COMPOSE,text,chain->{
+                    if(!composeRenderingReady)return chain.proceed();
+                    readComposeRevision.invoke(composeStyleRevision);
+                    if(!NATIVE_BADGE.needsAdjustment(chain.getArg(2),chain.getArg(10)))return chain.proceed();
+                    Object[] nativeArgs=chain.getArgs().toArray();
+                    Object[] adjusted=NATIVE_BADGE.adjustText(nativeArgs,context==null?1f:context.getResources().getDisplayMetrics().density,context);
+                    return adjusted==nativeArgs?chain.proceed():chain.proceed(adjusted);
+                });
+            }
+            Class<?> nativeRestart=loader.loadClass("com.android.systemui.statusbar.pipeline.shared.ui.composable.OplusStackedMobileIconLayoutStrategyKt$$ExternalSyntheticLambda5");
+            for(Method method:nativeRestart.getDeclaredMethods())if(method.getName().equals("invoke"))deoptimize(method);
             if (!labelInstalled) throw new NoSuchMethodException("Compose network label");
+            // Tigo's branded 5G image bypasses the text renderer. Its ordinary text delegates
+            // to Oplus below, so only hide here; applying font/position twice would compound it.
+            try {
+                Class<?> tigo=loader.loadClass("com.android.systemui.statusbar.pipeline.shared.ui.composable.TigoFiveGStackedMobileIconLayoutStrategyKt");
+                for(Method badge:tigo.getDeclaredMethods()) {
+                    if(!badge.getName().startsWith("TigoFiveGNetworkTypeText-")||badge.getParameterCount()!=13)continue;
+                    deoptimize(badge);
+                    installHook(HookGroup.COMPOSE,badge,chain->{
+                        if(!composeRenderingReady)return chain.proceed();
+                        readComposeRevision.invoke(composeStyleRevision);
+                        if(FEATURES.enabled("label"))return FEATURES.hideNetworkLabel()?null:chain.proceed();
+                        if(FEATURES.hideNativeNetworkBadge())return null;
+                        return chain.proceed();
+                    });
+                }
+            } catch (ClassNotFoundException unavailableVariant) { }
+            for(String callerName:new String[]{"DefaultStackedMobileIconLayoutStrategy",
+                    "BigTypeStackedMobileIconLayoutStrategy","TigoFiveGStackedMobileIconLayoutStrategy",
+                    "OplusStackedMobileIconLayoutStrategyKt$$ExternalSyntheticLambda0",
+                    "TigoFiveGStackedMobileIconLayoutStrategyKt$$ExternalSyntheticLambda0"})try {
+                for(Method caller:loader.loadClass("com.android.systemui.statusbar.pipeline.shared.ui.composable."+callerName).getDeclaredMethods())
+                    if(caller.getName().equals("OplusStackedMobileIcon")||caller.getName().equals("invoke"))deoptimize(caller);
+            } catch (ClassNotFoundException unavailableVariant) { }
             for (Method caller : loader.loadClass("com.android.systemui.statusbar.pipeline.shared.ui.composable.OplusStackedMobileIconKt").getDeclaredMethods())
                 if (caller.getName().equals("OplusStackedMobileIcon")) deoptimize(caller);
             for (Method caller : loader.loadClass("com.android.systemui.statusbar.pipeline.shared.ui.composable.OplusStackedMobileIconLayoutStrategy").getDeclaredMethods())
@@ -3394,6 +3863,13 @@ public final class StatusBarModule extends XposedModule {
     private boolean installDrawableOverrides(ClassLoader classLoader) {
         try {
             Class<?> clsLoadClass = classLoader.loadClass("android.content.res.Resources");
+            for(Method getter:clsLoadClass.getDeclaredMethods())if(getter.getName().equals("getDrawable")||getter.getName().equals("getDrawableForDensity"))deoptimize(getter);
+            try {
+                Method compat=classLoader.loadClass("androidx.appcompat.content.res.AppCompatResources").getDeclaredMethod("getDrawable",Context.class,Integer.TYPE);
+                deoptimize(compat);
+                installHook(HookGroup.DRAWABLE,compat,chain->{Object original=chain.proceed();return original instanceof Drawable
+                        ?DATA_ACTIVITY.wrap(((Context)chain.getArg(0)).getResources(),(Integer)chain.getArg(1),(Drawable)original):original;});
+            }catch(ClassNotFoundException|NoSuchMethodException legacy){/* Framework drawable path remains available. */}
             installHook(HookGroup.DRAWABLE, clsLoadClass.getDeclaredMethod("getDrawable", Integer.TYPE), new XposedInterface.Hooker() { // from class: dev.puitheme.StatusBarModule$$ExternalSyntheticLambda11
                 public final Object intercept(XposedInterface.Chain chain) throws Throwable {
                     return StatusBarModule.lambda$installDrawableOverrides$1(chain);
@@ -3447,6 +3923,7 @@ public final class StatusBarModule extends XposedModule {
     }
 
     private static Drawable replacementDrawable(Resources resources, int i, Drawable nativeDrawable) {
+        Drawable arrow=DATA_ACTIVITY.wrap(resources,i,nativeDrawable);if(arrow!=nativeDrawable)return arrow;
         if(nativeDrawable instanceof ScaledDrawable)return nativeDrawable;
         if (i == 0 || moduleResources == null) return null;
         try {
@@ -3567,11 +4044,40 @@ public final class StatusBarModule extends XposedModule {
                     return StatusBarModule.lambda$installNetworkModelHooks$7(chain);
                 }
             });
+            installSingleNetworkLabelHooks(classLoader);
             moduleLog(Log.INFO, TAG, "Subscription-aware network label hooks installed");
             return true;
         } catch (Throwable th) {
             moduleLog(Log.ERROR, TAG, "Could not bind the native network type model", th);
             return false;
+        }
+    }
+
+    private void installSingleNetworkLabelHooks(ClassLoader loader) {
+        try {
+            SINGLE_LABEL.resolve(loader);
+            Class<?> binding=loader.loadClass("com.oplus.systemui.statusbar.pipeline.mobile.ui.view.OplusStatusBarMobileViewBinder$Os17Binding");
+            for(Method method:binding.getDeclaredMethods()) {
+                String name=method.getName();
+                boolean modelEvent=name.equals("bindNetworkTypeText")&&method.getParameterCount()==1;
+                boolean styleEvent=(name.equals("initViews")||name.equals("updateTint"))&&method.getParameterCount()==1;
+                boolean fontEvent=name.equals("access$setMobileTypeTextTypeface")&&method.getParameterCount()==4;
+                if(!modelEvent&&!styleEvent&&!fontEvent)continue;deoptimize(method);
+                installHook(HookGroup.MODEL,method,chain->{
+                    Object owner=fontEvent?chain.getArg(0):chain.getThisObject();
+                    try(SingleNetworkLabelControls.NativeScope scope=SINGLE_LABEL.beforeNative(owner,modelEvent,modelEvent?chain.getArg(0):null)) {
+                        return chain.proceed();
+                    }
+                });
+            }
+            // These real C17 flow collectors inline bind/style calls on release builds.
+            for(String suffix:new String[]{"$bindSubclassFlows$1$1","$bindSubclassFlows$2$1","$bindSubclassFlows$2"})try {
+                for(Method method:loader.loadClass(binding.getName()+suffix).getDeclaredMethods())
+                    if(method.getName().equals("invokeSuspend")||method.getName().equals("emit"))deoptimize(method);
+            }catch(ClassNotFoundException unsupported){ }
+            moduleLog(Log.INFO,TAG,"Single-SIM primary data network label binder installed");
+        }catch(ReflectiveOperationException|LinkageError unavailable){
+            moduleLog(Log.INFO,TAG,"Optional single-SIM network label binder unavailable",unavailable);
         }
     }
 
@@ -3862,11 +4368,22 @@ public final class StatusBarModule extends XposedModule {
             context = context2;
         }
         ModuleLifecycle.bind(context, () -> MAIN.post(() -> {
+            if(settingsStartup!=null)settingsStartup.stop();
+            if(frameworkSettings!=null)frameworkSettings.stop();
+            MAIN.removeCallbacks(FRAMEWORK_SETTINGS_CHANGED);
             applyStyleSettings(ModuleLifecycle.nativeSettings());
             FontRepository.releaseRuntime();
             QS_MEDIA.releaseRuntime();
+            C17_HIGHLIGHTS.release();
             QS_ICON_SIZE.releaseRuntime();
             DATA_BATTERY_SPACING.releaseRuntime();
+            NETWORK_ORDER.releaseRuntime();
+            STATUS_HINTS.releaseRuntime();
+            NATIVE_STACK.configure(null); NATIVE_STACK.reset();
+            NATIVE_BADGE.releaseRuntime();
+            DATA_ACTIVITY.releaseRuntime();
+            SINGLE_LABEL.releaseRuntime();
+            LOCKSCREEN.releaseRuntime();
             QsTileAppearance.releaseNativeMembers();
             moduleResources = null;
             ICONS.clear();
@@ -3878,6 +4395,9 @@ public final class StatusBarModule extends XposedModule {
                 if (ModuleLifecycle.removed() || nonce.equals(lastIconTraceProbe)) return;
                 lastIconTraceProbe = nonce;
                 BIG_CLOCK.resetStatusIconTrace();
+                // Explicit verified own-app probe only: fixed structural counters, no user text.
+                Log.i("C17-Stack", NATIVE_STACK.diagnosticSummary() + "; "
+                        + BIG_CLOCK.groupStackDiagnostics() + "; " + LOCKSCREEN.diagnosticSummary() + "; " + DATA_ACTIVITY.diagnosticSummary());
             }));
             ModuleRuntimeStatus.registerSystemUiReceiver(context, frameworkLogger.getFrameworkName(),
                     frameworkLogger.getFrameworkVersion(), frameworkLogger.getApiVersion());
@@ -3891,9 +4411,7 @@ public final class StatusBarModule extends XposedModule {
                 logFrameworkStage(Log.WARN, "Could not access bundled iOS vectors", th);
             }
         }
-        if (!settingsObserverRegistered) {
-            registerSettingsObserver();
-        }
+        ensureSettingsStartup();
         registerMobileDataObserver();
         if (receiverRegistered) {
             return;
@@ -3906,6 +4424,8 @@ public final class StatusBarModule extends XposedModule {
         intentFilter.addAction("android.telephony.action.DEFAULT_SUBSCRIPTION_CHANGED");
         intentFilter.addAction("android.telephony.action.CARRIER_CONFIG_CHANGED");
         intentFilter.addAction(Intent.ACTION_USER_UNLOCKED);
+        intentFilter.addAction(Intent.ACTION_LOCKED_BOOT_COMPLETED);
+        intentFilter.addAction(Intent.ACTION_BOOT_COMPLETED);
         for (String action : new String[]{Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED,
                 Intent.ACTION_DATE_CHANGED, Intent.ACTION_LOCALE_CHANGED, Intent.ACTION_SCREEN_ON, Intent.ACTION_SCREEN_OFF})
             intentFilter.addAction(action);
@@ -3926,14 +4446,10 @@ public final class StatusBarModule extends XposedModule {
                         TEXT.refresh(); return;
                     }
                 }
-                if (intent != null && Intent.ACTION_USER_UNLOCKED.equals(intent.getAction())) {
-                    StatusBarModule.readStyleSettings();
-                    if (!settingsObserverRegistered) {
-                        StatusBarModule.registerSettingsObserver();
-                    }
-                    StatusBarModule.invalidateLiveDrawables();
-                    StatusBarModule.refreshLabel();
-                    logFrameworkStage(Log.INFO, "User unlocked; visual settings reapplied");
+                if (intent != null && (Intent.ACTION_USER_UNLOCKED.equals(intent.getAction())
+                        || Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(intent.getAction())
+                        || Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction()))) {
+                    if(settingsStartup!=null)settingsStartup.signal(false);
                 }
                 StatusBarModule.updateRadioState();
                 StatusBarModule.scheduleRefresh();
@@ -3975,19 +4491,17 @@ public final class StatusBarModule extends XposedModule {
     }
 
     private static void registerSettingsObserver() {
-        if (context == null) {
+        if (context == null || settingsObserverRegistered || ModuleLifecycle.removed()) {
             return;
         }
         Uri uri = Uri.parse(StatusBarSettings.CONTENT_URI);
-        readStyleSettings();
         try {
             context.getContentResolver().registerContentObserver(uri, false, new ContentObserver(MAIN) { // from class: dev.puitheme.StatusBarModule.2
                 @Override // android.database.ContentObserver
                 public void onChange(boolean z, Uri uri2) {
-                    if(StatusBarModule.readStyleSettings(false)) {
-                        StatusBarModule.invalidateLiveDrawables();
-                        StatusBarModule.refreshLabel();
-                    }
+                    // Real edits/20-second trials may precede their confirmed framework mirror.
+                    preferSettingsProvider=true;
+                    if(settingsStartup!=null)settingsStartup.signal(false);
                 }
             });
             settingsObserverRegistered = true;
@@ -3999,23 +4513,59 @@ public final class StatusBarModule extends XposedModule {
 
     /* JADX INFO: Access modifiers changed from: private */
     public static void readStyleSettings() {
-        readStyleSettings(true);
+        if(context==null||ModuleLifecycle.removed())return;
+        // A newly installed native consumer needs the successful process snapshot,
+        // even if the provider is temporarily unavailable or returns the same values.
+        Runnable rebind=()->{
+            if(ModuleLifecycle.removed())return;
+            Bundle cached=SettingsSnapshot.lastApplied(context);
+            if(cached!=null)applyStyleSnapshot(cached,true);
+            ensureSettingsStartup();
+            if(settingsStartup!=null)settingsStartup.signal(true);
+        };
+        if(Looper.myLooper()==MAIN.getLooper())rebind.run();else MAIN.post(rebind);
     }
 
-    private static boolean readStyleSettings(boolean force) {
-        if (context == null) {
-            return false;
-        }
+    private static synchronized void ensureSettingsStartup() {
+        if(context==null||ModuleLifecycle.removed())return;
+        if(frameworkSettings==null&&frameworkLogger!=null)frameworkSettings=new SettingsFrameworkReader(
+                ()->frameworkLogger.getRemotePreferences(SettingsFrameworkMirror.GROUP),()->{
+                    MAIN.removeCallbacks(FRAMEWORK_SETTINGS_CHANGED);
+                    MAIN.post(FRAMEWORK_SETTINGS_CHANGED);
+                },ModuleLifecycle::removed);
+        if(settingsStartup==null)settingsStartup=new SettingsStartupLoader(MAIN,
+                StatusBarModule::readStartupSettings,(snapshot,force)->{
+                    if(!applyStyleSnapshot(snapshot,force))return false;
+                    return settingsObserved();
+                },ModuleLifecycle::removed,()->{
+                    registerSettingsObserver();return settingsObserved();
+                });
+        registerSettingsObserver();
+        settingsStartup.start();
+    }
+
+    private static boolean settingsObserved() {
+        return settingsObserverRegistered||frameworkSettings!=null&&frameworkSettings.observed();
+    }
+
+    private static Bundle readStartupSettings() {
+        // ColorOS can reject a provider's cross-app auto-start, including after unlock.
+        // A boot snapshot comes directly from the already-running framework daemon.
+        return frameworkSettings==null?SettingsSnapshot.readFresh(context)
+                :frameworkSettings.read(preferSettingsProvider,()->SettingsSnapshot.readFresh(context));
+    }
+
+    private static boolean applyStyleSnapshot(Bundle bundleCall,boolean force) {
+        if(context==null||ModuleLifecycle.removed()||!SettingsSnapshot.complete(bundleCall))return false;
         Bundle previous=SettingsSnapshot.lastApplied(context);
         try {
-            Bundle bundleCall = SettingsSnapshot.read(context);
-            if (bundleCall == null) {
-                ModuleDiagnostics.info("settings", "Settings provider returned no data; retaining current configuration");
-                return false;
-            }
-            if(!force&&SettingsSnapshot.matchesApplied(context,bundleCall))return false;
+            if(!force&&SettingsSnapshot.matchesApplied(context,bundleCall))return true;
+            if(moduleResources==null)try {moduleResources=context.createPackageContext(MODULE_PACKAGE,2).getResources();}
+            catch(Exception unavailable){/* Keep native resources until the module package is ready. */}
             applyStyleSettings(bundleCall);
             SettingsSnapshot.rememberApplied(context,bundleCall);
+            invalidateLiveDrawables();
+            refreshLabel();
             return true;
         } catch (Throwable failed) {
             boolean restored=false;
@@ -4024,12 +4574,14 @@ public final class StatusBarModule extends XposedModule {
             ModuleDiagnostics.error("settings",restored?"Settings application failed; previous configuration restored"
                     :"Settings application incomplete; no successful configuration could be restored",failed);
             Log.w(TAG,"Could not apply visual settings",failed);
-            return restored;
+            return false;
         }
     }
 
     private static void applyStyleSettings(Bundle bundleCall) {
             bundleCall = SafetyMode.runtimeSettings(bundleCall);
+            bundleCall = new Bundle(bundleCall);
+            bundleCall.putBoolean(StatusBarShadeIconSettings.MASTER, false);
             ModuleDiagnostics.configure(context, bundleCall);
             NOTIFICATION_ICONS.configure(context,bundleCall);
             FEATURES=FeatureOptions.from(bundleCall);
@@ -4040,10 +4592,16 @@ public final class StatusBarModule extends XposedModule {
             QS_ICON_SIZE.configure(bundleCall);
             QS_PANEL_CORNERS.configure(bundleCall);
             QS_MEDIA.configure(bundleCall);
+            C17_HIGHLIGHTS.configure(bundleCall);
+            NETWORK_SPEED.configure(bundleCall);
             CLEAR_APPEARANCE.configure(bundleCall);
             CLEAR_MOTION.configure(bundleCall);
             BIG_CLOCK.configure(bundleCall);
-            bigClockEnabled = bundleCall.getBoolean(NotificationBigClockSettings.MASTER, false);
+            NATIVE_STACK.configure(bundleCall);
+            bigClockEnabled = bundleCall.getBoolean(NotificationBigClockSettings.MASTER, false)
+                    || bundleCall.getBoolean(NotificationBigClockSettings.LANDSCAPE_MASTER, false)
+                    || bundleCall.getBoolean(NotificationBigClockSettings.STACK_ENABLED, false)
+                    || bundleCall.getBoolean(NotificationGroupStack.MASTER, false);
             NativeBackdropMotion backdrop = notificationBackdropMotion;
             if (!bigClockEnabled && backdrop != null) MAIN.post(() -> { if (!bigClockEnabled) backdrop.release(); });
             BADGES.configure(FEATURES);
@@ -4065,7 +4623,7 @@ public final class StatusBarModule extends XposedModule {
             speedUnitScalePercent = FEATURES.size("speed")?settingValue(bundleCall, StatusBarSettings.SPEED_UNIT_SCALE, 100):100;
             speedLineGapDp = FEATURES.effective("speed","speed_lines_enabled")?settingValue(bundleCall, StatusBarSettings.SPEED_LINE_GAP, 0):0;
             speedWeight = Math.round(settingValue(bundleCall, StatusBarSettings.SPEED_WEIGHT, 600));
-            singleSignal = FEATURES.effective("data","data_single_enabled") && FEATURES.isEnabled("data_icon_enabled") && "single".equals(bundleCall.getString(StatusBarSettings.SIGNAL_LAYOUT, "system"));
+            singleSignal = FEATURES.singleSignal(bundleCall.getString(StatusBarSettings.SIGNAL_LAYOUT, "system"));
             FontRepository.configure(context, FEATURES.enabled("font")?bundleCall.getString(StatusBarSettings.FONT_MODE, "system"):"system",
                     bundleCall.getString(StatusBarSettings.FONT_REVISION, ""));
             Map<String, Integer> colors = new HashMap<>();
@@ -4077,7 +4635,13 @@ public final class StatusBarModule extends XposedModule {
             styleColors = colors;
             customColorAlpha = alphaModes;
             TEXT.configure(bundleCall, colors, alphaModes);
+            LOCKSCREEN.configure(bundleCall);
             if (BATTERY != null) BATTERY.configure(bundleCall,colors,alphaModes);
+            NETWORK_ORDER.configure(bundleCall);
+            STATUS_HINTS.configure(bundleCall);
+            NATIVE_BADGE.configure(bundleCall);
+            DATA_ACTIVITY.configure(bundleCall);
+            ModuleDiagnostics.runtimeApplied(context,bundleCall);
             ModuleDiagnostics.info("settings", "Visual settings applied; Android SDK " + android.os.Build.VERSION.SDK_INT
                     + "; active hooks " + COMPLETED_HOOK_GROUPS);
     }
@@ -4262,6 +4826,8 @@ public final class StatusBarModule extends XposedModule {
         if (strNormalize.isEmpty() && !airplaneMode) strNormalize=readTelephonyNetworkLabel();
         strNormalize = RadioState.cellularLabel(true,wifiConnected,airplaneMode,strNormalize,"",
                 FEATURES.effective("label","label_normalize_enabled"),wifiSwitchEnabled,mobileDataSwitchEnabled);
+        SINGLE_LABEL.update(FEATURES,strNormalize,activeSub,labelOffsetXdp,labelOffsetYdp,labelScalePercent,
+                slotWidthDp,fontWeight,styleColors,customColorAlpha);
         if (!networkLabel.equals(strNormalize)) {
             networkLabel = strNormalize;
             DATA_BATTERY_SPACING.fallbackChanged(strNormalize);

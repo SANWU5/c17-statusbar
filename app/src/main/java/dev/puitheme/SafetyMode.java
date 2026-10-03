@@ -16,8 +16,7 @@ public final class SafetyMode {
     /** Apply this copy to consumers; keep the original snapshot for persistence and rollback. */
     public static Bundle runtimeSettings(Bundle saved) {
         if (saved == null) throw new IllegalArgumentException("Missing settings snapshot");
-        Bundle runtime = new Bundle(saved);
-        runtime.putBoolean(StatusBarSettings.DATA_ACTIVITY_HIDDEN, true);
+        Bundle runtime = SettingsSnapshot.runtimeCopy(saved);
         if (!enabled(saved)) return runtime;
         for (String group : FeatureOptions.GROUPS) runtime.putBoolean(FeatureOptions.masterKey(group), false);
         runtime.putBoolean(QsTileAppearance.MASTER, false);
@@ -25,7 +24,15 @@ public final class SafetyMode {
         runtime.putBoolean(QsMediaAppearance.MASTER, false);
         runtime.putBoolean(NotificationClearAppearance.MASTER, false);
         runtime.putBoolean(NotificationBigClockSettings.MASTER, false);
+        runtime.putBoolean(NotificationBigClockSettings.LANDSCAPE_MASTER, false);
+        runtime.putBoolean(NotificationGroupStack.MASTER, false);
+        runtime.putBoolean(FeatureOptions.STACK_LANDSCAPE_ENABLED,false);
+        runtime.putBoolean(NativeDataActivity.MASTER,false);
         runtime.putBoolean(NotificationIconArea.MASTER, false);
+        runtime.putBoolean(NetworkIconOrder.SWAP, false);
+        runtime.putBoolean(C17HighlightRemoval.ENABLED, false);
+        runtime.putBoolean(C17HighlightRemoval.BACKGROUND_ENABLED, false);
+        runtime.putBoolean(NativeStatusIcons.MASTER, false);
         return runtime;
     }
 }

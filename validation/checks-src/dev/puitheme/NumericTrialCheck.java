@@ -94,11 +94,12 @@ public final class NumericTrialCheck {
         equal(17f,raw.memory.values.get(key));equal(17f,raw.disk.get(key));
         equal("retained",raw.disk.get("unrelated"));equal(false,journal.disk.containsKey("key"));equal(false,NumericTrial.active());
         guarded=new ActivationGuardPreferences(raw.proxy,()->true,()->{});
-        equal(true,NumericTrial.begin(storage,raw.proxy,guarded,key,-999f));
+        float retryValue=NetworkSpeedControls.INTERVAL_MILLIS.equals(key)?2000f:-999f;
+        equal(true,NumericTrial.begin(storage,raw.proxy,guarded,key,retryValue));
         // A transient rollback failure retains its deadline task and retries without user input.
         raw.failCommits=2;equal(false,NumericTrial.rollback());equal(true,NumericTrial.active());
-        equal(-999f,raw.disk.get(key));retryTimer();equal(true,NumericTrial.active());
-        equal(-999f,raw.disk.get(key));retryTimer();equal(false,NumericTrial.active());
+        equal(retryValue,raw.disk.get(key));retryTimer();equal(true,NumericTrial.active());
+        equal(retryValue,raw.disk.get(key));retryTimer();equal(false,NumericTrial.active());
         equal(17f,raw.disk.get(key));equal(false,journal.disk.containsKey("key"));
         // A thrown commit has the same recoverable boundary; editor creation is not simulated as failing.
         equal(true,NumericTrial.begin(storage,raw.proxy,guarded,key,777f));
@@ -109,6 +110,38 @@ public final class NumericTrialCheck {
     private static void coldStart(Storage storage,SharedPreferences raw) throws Exception {
         Field field=NumericTrial.class.getDeclaredField("initialized");field.setAccessible(true);field.setBoolean(null,false);
         NumericTrial.recover(storage,raw);
+    }
+    private static void suggestedRangeSaveOrTrial(String key) throws Exception {
+        Storage storage=new Storage();
+        Map<String,Object> original=new HashMap<>();original.put(key,3f);original.put("unrelated","retained");
+        DurablePreferences raw=new DurablePreferences(original),journal=new DurablePreferences(new HashMap<>());
+        storage.files.put(StatusBarSettings.PREFS,raw.proxy);storage.files.put("statusbar_numeric_trial",journal.proxy);
+        coldStart(storage,raw.proxy);
+        SharedPreferences guarded=new ActivationGuardPreferences(raw.proxy,()->true,()->{});
+        SettingsCatalog.Item item=SettingsCatalog.item(key);
+        equal(true,item!=null);
+        float outside=item.max+1f,kept=item.max+3f;
+        // The same policy used by the actual editor chooses a normal saved write in-range.
+        for(float value:new float[]{item.min,(item.min+item.max)/2f,item.max}) {
+            equal(false,SettingsCatalog.requiresNumericTrial(item,value));
+            equal(true,guarded.edit().putFloat(key,value).commit());
+            equal(value,raw.disk.get(key));equal(false,NumericTrial.active());
+            equal(false,journal.disk.containsKey("key"));
+        }
+        equal(true,SettingsCatalog.requiresNumericTrial(item,outside));
+        equal(true,NumericTrial.begin(storage,raw.proxy,guarded,key,outside));
+        equal(outside,raw.disk.get(key));equal(key,journal.disk.get("key"));equal(true,NumericTrial.active());
+        equal(20000L,NumericTrial.deadline()-SystemClock.elapsedRealtime());
+        equal(true,NumericTrial.rollback());equal(item.max,raw.disk.get(key));equal(false,NumericTrial.active());
+        equal(true,NumericTrial.begin(storage,raw.proxy,guarded,key,kept));
+        equal(true,NumericTrial.keep());equal(kept,raw.disk.get(key));equal(false,journal.disk.containsKey("key"));
+        equal(true,NumericTrial.begin(storage,raw.proxy,guarded,key,1000000f));
+        raw=raw.reopen();journal=journal.reopen();
+        storage.files.put(StatusBarSettings.PREFS,raw.proxy);storage.files.put("statusbar_numeric_trial",journal.proxy);
+        coldStart(storage,raw.proxy);equal(kept,raw.disk.get(key));equal(false,NumericTrial.active());
+        equal("retained",raw.disk.get("unrelated"));
+        equal(false,raw.disk.containsKey(NotificationBigClockSettings.MASTER));
+        equal(false,raw.disk.containsKey(NotificationBigClockSettings.STACK_ENABLED));
     }
     public static void main(String[] args) throws Exception {
         Storage storage=new Storage();
@@ -164,6 +197,13 @@ public final class NumericTrialCheck {
         writeFailure.throwWrites=1;equal(false,NumericTrial.begin(writeStorage,writeRaw,writeGuard,key,777f));
         equal(32f,writeRaw.getFloat(key,0));equal(false,NumericTrial.active());
         durableFailureCases(key);
+        // Retain recovery of old journals, but only the new millisecond field has an editor.
+        durableFailureCases(NetworkSpeedControls.INTERVAL_SECONDS);
+        durableFailureCases(NetworkSpeedControls.INTERVAL_MILLIS);
+        suggestedRangeSaveOrTrial(NotificationBigClockSettings.VISIBLE_COUNT);
+        equal(1f,SettingsCatalog.item(NetworkSpeedControls.INTERVAL_MILLIS).min);
+        equal(500f,SettingsCatalog.item(NetworkSpeedControls.INTERVAL_MILLIS).max);
+        suggestedRangeSaveOrTrial(NetworkSpeedControls.INTERVAL_MILLIS);
         System.out.println("Numeric trial checks passed: "+checks);
     }
 }

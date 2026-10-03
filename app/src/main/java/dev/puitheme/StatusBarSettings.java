@@ -93,6 +93,19 @@ public final class StatusBarSettings {
         Map<String, Boolean> booleans = new LinkedHashMap<>(FeatureOptions.DEFAULTS);
         booleans.put(DIAGNOSTICS_ENABLED, false);
         booleans.put(SAFE_MODE, false);
+        booleans.put(NetworkIconOrder.SWAP, false);
+        booleans.put(C17HighlightRemoval.ENABLED, false);
+        booleans.put(C17HighlightRemoval.BACKGROUND_ENABLED, false);
+        booleans.put(C17HighlightRemoval.NOTIFICATION_ENABLED, true);
+        booleans.put(C17HighlightRemoval.CONTROL_ENABLED, true);
+        booleans.put(C17HighlightRemoval.UNIFORM_NOTIFICATION_ENABLED, false);
+        booleans.put(NotificationClearMotion.LANDSCAPE_MASTER, false);
+        booleans.put(LockscreenControls.DATE_ENABLED, false);
+        booleans.put(LockscreenControls.HIDE_LOCK, false);
+        booleans.put(NotificationGroupStack.MASTER, false);
+        booleans.putAll(NativeStatusIcons.booleanDefaults());
+        booleans.putAll(NativeNetworkBadgeControls.booleanDefaults());
+        booleans.putAll(NetworkSpeedControls.BOOLEANS);
         booleans.putAll(QsTileAppearance.BOOLEANS);
         booleans.putAll(QsTileCorners.BOOLEANS);
         booleans.putAll(QsMediaAppearance.BOOLEANS);
@@ -123,6 +136,10 @@ public final class StatusBarSettings {
         numbers.put(SPEED_UNIT_SCALE, 100f);
         numbers.put(SPEED_LINE_GAP, 0f);
         numbers.put(SPEED_WEIGHT, 600f);
+        numbers.putAll(NetworkSpeedControls.NUMBERS);
+        numbers.putAll(NativeStatusIcons.floatDefaults());
+        numbers.putAll(NativeNetworkBadgeControls.floatDefaults());
+        numbers.put(NativeDataActivity.X,0f);numbers.put(NativeDataActivity.Y,0f);numbers.put(NativeDataActivity.SCALE,100f);
         numbers.put(BATTERY_HOLD, 3f);
         numbers.put(BATTERY_FADE, 1f);
         numbers.put(BATTERY_OFFSET_X, 0f);numbers.put(BATTERY_OFFSET_Y, 0f);
@@ -146,6 +163,8 @@ public final class StatusBarSettings {
         numbers.putAll(QsMediaAppearance.NUMBERS);
         numbers.putAll(NotificationBigClockSettings.NUMBERS);
         numbers.putAll(NotificationClearAppearance.NUMBERS);
+        numbers.put(NotificationClearMotion.LANDSCAPE_OFFSET_X, 0f);
+        numbers.put(NotificationClearMotion.LANDSCAPE_OFFSET_Y, 0f);
         numbers.putAll(NotificationIconArea.NUMBERS);
         numbers.putAll(BatteryTextStyle.NUMBERS);
         numbers.putAll(QsTileIconSize.NUMBERS);
@@ -162,7 +181,10 @@ public final class StatusBarSettings {
         colors.putAll(QsTileAppearance.COLORS);
         colors.putAll(QsMediaAppearance.COLORS);
         colors.putAll(NotificationBigClockSettings.COLORS);
+        colors.put(C17HighlightRemoval.LIGHT_BACKGROUND, C17HighlightRemoval.DEFAULT_LIGHT_BACKGROUND);
+        colors.put(C17HighlightRemoval.DARK_BACKGROUND, C17HighlightRemoval.DEFAULT_DARK_BACKGROUND);
         colors.putAll(NotificationClearAppearance.COLORS);
+        colors.put(NativeDataActivity.COLOR_LIGHT,0xff000000);colors.put(NativeDataActivity.COLOR_DARK,0xffffffff);
         colors.putAll(NotificationIconArea.COLORS);
         COLOR_DEFAULTS = Collections.unmodifiableMap(colors);
         Map<String, String> strings = new LinkedHashMap<>();
@@ -180,9 +202,13 @@ public final class StatusBarSettings {
         strings.put(FONT_REVISION, "");
         strings.put(FONT_NAME, "未导入字体");
         strings.put(SIGNAL_LAYOUT, "system");
+        strings.putAll(NetworkSpeedControls.STRINGS);
         strings.put(BATTERY_STYLE, "pui");
         strings.putAll(NotificationBigClockSettings.STRINGS);
         strings.putAll(NotificationIconArea.STRINGS);
+        strings.putAll(NativeStatusIcons.stringDefaults());
+        strings.putAll(NativeNetworkBadgeControls.stringDefaults());
+        strings.put(LockscreenControls.DATE_FORMAT, "M月d日 {周}");
         STRING_DEFAULTS = Collections.unmodifiableMap(strings);
     }
 
@@ -191,15 +217,18 @@ public final class StatusBarSettings {
     }
 
     public static String string(Map<String, ?> values, String key) {
+        if (NetworkSpeedControls.DISPLAY_STYLE.equals(key)) return "system";
         Object value = typedValue(values, key, String.class);
         return value instanceof String ? (String) value : STRING_DEFAULTS.get(key);
     }
 
     public static boolean bool(Map<String, ?> values, String key) {
+        if (NotificationGroupStack.MASTER.equals(key)) return false;
+        if (NetworkSpeedControls.STYLE_ENABLED.equals(key)) return false;
         if (QsTileCorners.MASTER.equals(key)) return QsTileCorners.enabled(values);
-        if (NotificationBigClockSettings.STACK_ENABLED.equals(key)) return false;
-        // Cellular traffic arrows are now an invariant, including old/malformed saved values.
-        if (DATA_ACTIVITY_HIDDEN.equals(key)) return true;
+        // Old false/malformed values cannot enable arrows; the new independent switch owns this.
+        if (DATA_ACTIVITY_HIDDEN.equals(key)) return !bool(values,NativeDataActivity.MASTER);
+        if (StatusBarShadeIconSettings.MASTER.equals(key)) return false;
         Object value = typedValue(values, key, Boolean.class);
         return value instanceof Boolean ? (Boolean) value : Boolean.TRUE.equals(BOOLEAN_DEFAULTS.get(key));
     }
@@ -214,6 +243,7 @@ public final class StatusBarSettings {
         Object value = values == null ? null : values.get(key);
         if (type.isInstance(value)) return value;
         String legacy = CarrierPanels.legacyKey(key);
+        if(legacy==null)legacy=NotificationClearAppearance.legacyKey(key);
         Object inherited = values == null || legacy == null ? null : values.get(legacy);
         return type.isInstance(inherited) ? inherited : null;
     }
@@ -229,6 +259,7 @@ public final class StatusBarSettings {
         // A newly selected panel color owns its alpha. Unedited panels inherit the old pair.
         if (!(color instanceof Number)) {
             String legacy = CarrierPanels.legacyKey(colorKey);
+            if(legacy==null)legacy=NotificationClearAppearance.legacyKey(colorKey);
             if (legacy != null) return customAlpha(values, legacy);
         }
         // Older settings that already contain an alpha value remain intentional custom colors.
@@ -242,13 +273,17 @@ public final class StatusBarSettings {
             if (!Float.isNaN(result) && !Float.isInfinite(result)) return result;
         }
         String legacy = CarrierPanels.legacyKey(key);
+        if(legacy==null)legacy=NotificationClearAppearance.legacyKey(key);
         if (legacy != null) return number(values, legacy, fallback);
         return fallback;
     }
 
     public static float settingNumber(Map<String, ?> values, String key, float fallback) {
+        if (NetworkSpeedControls.INTERVAL_MILLIS.equals(key) && values != null && !values.containsKey(key)
+                && values.get(NetworkSpeedControls.INTERVAL_SECONDS) instanceof Number)
+            return SettingsFrameworkMirror.migratedSpeedMillis(values.get(NetworkSpeedControls.INTERVAL_SECONDS));
         if (QsTileCorners.RADIUS.equals(key)) return QsTileCorners.radius(values);
-        if (NotificationBigClockSettings.VISIBLE_COUNT.equals(key))
+        if (NotificationBigClockSettings.VISIBLE_COUNT.equals(NotificationBigClockSettings.portraitKey(key)))
             return NotificationBigClockSettings.visibleCount(values == null ? null : values.get(key));
         if (values == null || !values.containsKey(key)) {
             if(key.equals(TILES_LEFT_RANGE)||key.equals(TILES_RIGHT_RANGE))return number(values,TILES_FADE_RANGE,fallback);
@@ -279,29 +314,41 @@ public final class StatusBarSettings {
                 && userManager != null && userManager.isUserUnlocked()
                 && credentialContext != null && !credentialContext.isDeviceProtectedStorage()) {
             SharedPreferences legacy = credentialContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            Map<String,?> legacyValues=legacy.getAll();
             SharedPreferences.Editor editor = preferences.edit();
-            for (Map.Entry<String, ?> entry : legacy.getAll().entrySet()) {
+            Map<String,Object> copied=new LinkedHashMap<>();
+            for (Map.Entry<String, ?> entry : legacyValues.entrySet()) {
                 // Values already written to device storage take precedence.
                 if (!preferences.contains(entry.getKey())) {
                     copyPreference(editor, entry.getKey(), entry.getValue());
+                    copied.put(entry.getKey(),entry.getValue());
                 }
             }
             // Record migration only after the copied settings are durable.
-            if (editor.commit()) {
-                migration.edit().putBoolean(CREDENTIAL_MIGRATED, true).commit();
+            if (!legacyValues.isEmpty()&&SettingsSnapshot.fromPreferences(legacyValues)!=null
+                    &&PreferenceWrites.commit(preferences,editor,copied,false)) {
+                Map<String,Object> completed=new LinkedHashMap<>();completed.put(CREDENTIAL_MIGRATED,true);
+                PreferenceWrites.commit(migration,migration.edit().putBoolean(CREDENTIAL_MIGRATED, true),completed,false);
             }
         }
-        if (!Boolean.TRUE.equals(preferences.getAll().get(DATA_ACTIVITY_HIDDEN)))
-            preferences.edit().putBoolean(DATA_ACTIVITY_HIDDEN, true).apply();
-        QsTileCorners.migrate(preferences);
+        // A locked/temporarily empty store must stay empty, rather than acquire a defaults-only marker.
+        if (!preferences.getAll().isEmpty()) {
+            boolean hidden=bool(preferences.getAll(),DATA_ACTIVITY_HIDDEN);
+            if (!Boolean.valueOf(hidden).equals(preferences.getAll().get(DATA_ACTIVITY_HIDDEN)))
+                preferences.edit().putBoolean(DATA_ACTIVITY_HIDDEN, hidden).apply();
+            QsTileCorners.migrate(preferences);
+        }
         NumericTrial.recover(deviceContext, preferences);
+        NotificationClearAppearance.migrate(preferences,migration,userManager!=null&&userManager.isUserUnlocked());
         return preferences;
     }
 
     @SuppressWarnings("unchecked")
     static void copyPreference(SharedPreferences.Editor editor, String key, Object value) {
-        if (DATA_ACTIVITY_HIDDEN.equals(key)) {
-            editor.putBoolean(key, true);
+        if (NotificationGroupStack.MASTER.equals(key)) {
+            editor.putBoolean(key, false);
+        } else if (DATA_ACTIVITY_HIDDEN.equals(key)) {
+            editor.putBoolean(key, !(value instanceof Boolean)||(Boolean)value);
         } else if (value instanceof Integer) {
             editor.putInt(key, (Integer) value);
         } else if (value instanceof Long) {

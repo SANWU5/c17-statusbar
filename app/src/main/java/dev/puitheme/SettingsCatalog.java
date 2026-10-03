@@ -15,7 +15,7 @@ import java.math.BigDecimal;
 
 /** User-facing descriptors shared by the Compose configuration pages. No View or Activity state. */
 public final class SettingsCatalog {
-    public static final String STATUSBAR = "statusbar", NOTIFICATION = "notification", CONTROL_CENTER = "control_center", LOCK_SCREEN = "lockscreen";
+    public static final String STATUSBAR = "statusbar", NOTIFICATION = "notification", CONTROL_CENTER = "control_center", LOCK_SCREEN = "lockscreen", OTHER = "other";
     public static final String BOOLEAN = "boolean", NUMERIC = "numeric", STRING = "string";
     public static final String COLOR = "color", FONT = "font", IMAGE = "image", OPTIONS = "options";
     private static final String[] CLOCK_VALUES = {"HH:mm", "HH:mm:ss", "{上午下午} hh:mm", "{时段} HH:mm", "M月d日 {周} HH:mm", "yyyy年MM月dd日 {星期} HH:mm", "MM/dd HH:mm"};
@@ -133,12 +133,35 @@ public final class SettingsCatalog {
                 StatusBarSettings.CARRIER_OFFSET_X, StatusBarSettings.CARRIER_OFFSET_Y,
                 StatusBarSettings.CARRIER_SCALE, StatusBarSettings.CARRIER_WEIGHT, StatusBarSettings.CARRIER_SPACING,
                 "carrier_color_light", "carrier_color_dark"));
+        hidden.add(StatusBarShadeIconSettings.MASTER);
+        hidden.add(NotificationBigClockSettings.INTERACTIVE_STACK);
+        hidden.add(NotificationGroupStack.MASTER);
+        hidden.add("data_single_enabled");
+        hidden.add(NetworkSpeedControls.INTERVAL_SECONDS);
+        hidden.add(NetworkSpeedControls.STYLE_ENABLED);
+        hidden.add(NetworkSpeedControls.DISPLAY_STYLE);
+        for (String key : new String[]{NotificationBigClockSettings.COMPACT_SCALE,
+                NotificationBigClockSettings.COMPACT_MAX_SIZE, NotificationBigClockSettings.COMPACT_OFFSET_X,
+                NotificationBigClockSettings.COMPACT_OFFSET_Y}) hidden.add(NotificationBigClockSettings.landscapeKey(key));
+        hidden.add(NotificationBigClockSettings.TAIL_WIDTH_1);
+        hidden.add(NotificationBigClockSettings.TAIL_WIDTH_2);
+        hidden.add(NotificationBigClockSettings.TAIL_WIDTH_3);
+        for (String key : new String[]{NotificationBigClockSettings.COMPACT_WEIGHT,
+                NotificationBigClockSettings.STACK_ENABLED, NotificationBigClockSettings.VISIBLE_COUNT, NotificationBigClockSettings.TAIL_WIDTH_1,
+                NotificationBigClockSettings.TAIL_WIDTH_2, NotificationBigClockSettings.TAIL_WIDTH_3}) {
+            String landscape = NotificationBigClockSettings.landscapeKey(key);
+            if (StatusBarSettings.BOOLEAN_DEFAULTS.containsKey(landscape)
+                    || StatusBarSettings.NUMERIC_DEFAULTS.containsKey(landscape)) hidden.add(landscape);
+        }
         HIDDEN = Collections.unmodifiableSet(hidden);
         List<Group> groups = new ArrayList<>();
-        groups.add(speed()); groups.add(data()); groups.add(wifi()); groups.add(label());
+        groups.add(speed()); groups.add(data()); groups.add(wifi()); groups.add(label()); groups.add(nativeNetworkBadge()); groups.add(networkOrder());
         groups.add(clock("clock", STATUSBAR)); groups.add(carrier()); groups.add(font()); groups.add(battery()); groups.add(notificationIcons());
-        groups.add(tiles()); groups.add(qs()); groups.add(tileCorners()); groups.add(tileIconSize()); groups.add(shadeIcons()); groups.add(clock("shade_clock", NOTIFICATION));
-        groups.add(bigClock()); groups.add(clear()); groups.add(media());
+        groups.add(nativeStatusIcons());
+        groups.add(tiles()); groups.add(qs()); groups.add(tileCorners()); groups.add(tileIconSize()); groups.add(clock("shade_clock", NOTIFICATION));
+        groups.add(bigClock()); groups.add(landscapeClock()); groups.add(wholeStack()); groups.add(clear()); groups.add(landscapeClear()); groups.add(media());
+        groups.add(highlightRemoval());
+        groups.add(lockscreenDate()); groups.add(lockscreenLock());
         Map<String, Group> byId = new LinkedHashMap<>();
         Map<String, Item> byKey = new LinkedHashMap<>();
         for (Group group : groups) {
@@ -161,7 +184,8 @@ public final class SettingsCatalog {
         String theme = key.contains("_light_") ? "浅色界面 · " : key.contains("_dark_") ? "深色界面 · " : "";
         if (!theme.isEmpty() && "qs_appearance".equals(groupId)) return theme + (key.contains("gradient") ? "渐变" : "底色");
         if (!theme.isEmpty() && "qs_media".equals(groupId)) return theme + (key.contains("background") ? "背景" : "外发光");
-        if ("notification_big_clock".equals(groupId)) {
+        if (groupId.startsWith("notification_big_clock")) {
+            key = NotificationBigClockSettings.portraitKey(key);
             if (NotificationBigClockSettings.OFFSET_X.equals(key) || NotificationBigClockSettings.OFFSET_Y.equals(key)) return "初始位置";
             if (NotificationBigClockSettings.COMPACT_OFFSET_X.equals(key) || NotificationBigClockSettings.COMPACT_OFFSET_Y.equals(key)) return "收起位置";
             if (NotificationBigClockSettings.COMPACT_MAX_SIZE.equals(key) || NotificationBigClockSettings.COMPACT_SCALE.equals(key)) return "收起样式";
@@ -205,6 +229,9 @@ public final class SettingsCatalog {
     private static Group speed() {
         Builder b = builder("speed", "实时网速", "保留系统实时数值与 KB/s 单位。", STATUSBAR, "speed_enabled");
         controls(b, "speed", "独立开关", true);
+        b.toggle(NetworkSpeedControls.INTERVAL_ENABLED, "调整刷新间隔", "关闭时跟随系统；较短间隔更新更快", "刷新速度");
+        b.add(NetworkSpeedControls.INTERVAL_MILLIS, "刷新间隔", "单位为毫秒，建议 1–500 ms。间隔越短，采样和界面更新越频繁，请按需要调节。", NUMERIC,
+                "刷新速度", "ms", 1f, 500f, 1f, null, null, null, null);
         b.toggle("speed_lines_enabled", "数字与单位间距", "分别安排数字与单位的间距", "独立开关");
         position(b, "speed", "位置");
         scale(b, StatusBarSettings.SPEED_SCALE, "整体大小", "大小");
@@ -216,17 +243,39 @@ public final class SettingsCatalog {
         return new Group(b);
     }
     private static Group data() {
-        Builder b = builder("data", "蜂窝信号", "信号格数跟随真实系统信号，蜂窝数据箭头自动隐藏。", STATUSBAR, "data_enabled");
+        Builder b = builder("data", "蜂窝信号", "信号格数跟随真实系统信号。数据小箭头默认隐藏，可在原生角标调整中独立开启和调节。", STATUSBAR, "data_enabled");
         controls(b, "data", "独立开关", false);
         b.toggle("data_icon_enabled", "仿 iOS 信号样式", "保留真实信号强度", "独立开关");
         b.toggle("data_badge_hidden", "隐藏系统网络角标", "减少重复网络标识", "独立开关");
-        b.toggle("data_single_enabled", "应用单排信号选项", "按照下面的信号布局显示", "独立开关");
         b.toggle(DataBatterySpacing.ENABLED, "无网络标识间距", "系统确认 Wi-Fi 图标和网络制式文字均不显示、蜂窝直接邻接电池时生效；状态未知时保留原生间距。", "电池边界间距");
         b.add(DataBatterySpacing.SPACING, "蜂窝与电池间距微调", "相对原生边界增加或减少，0 保留原生；仅改变蜂窝与电池边界，不改变其他图标间距与偏移。", NUMERIC,
                 "电池边界间距", "dp", -12, 24, .01f, null, null, null, null);
         b.choice(StatusBarSettings.SIGNAL_LAYOUT, "信号布局", "双卡次信号仍由系统维护", "信号布局", new String[]{"system", "single"}, new String[]{"跟随系统单双排", "只显示主信号单排"});
         position(b, "data", "位置"); scale(b, StatusBarSettings.DATA_ICON_SCALE, "图标大小", "大小");
         normalColors(b, "data", "蜂窝信号");
+        return new Group(b);
+    }
+    private static Group networkOrder() {
+        return new Group(builder("network_order", "网络图标顺序",
+                "将 Wi-Fi 图标或 4G/5G 文字与蜂窝信号调换位置。独立于图标样式开关；各自的自定义位移仍叠加在新顺序上，过大的位移可能造成重叠。关闭后恢复原生顺序。",
+                STATUSBAR, NetworkIconOrder.SWAP));
+    }
+    private static Group nativeNetworkBadge() {
+        Builder b=builder("native_network_badge", "原生角标调整",
+                "调整系统蜂窝网络角标，保留原生样式、双卡和网络状态。角标调整只能在关闭网络制式文字时启用；数据小箭头独立开启，默认隐藏，不受角标和网络文字开关限制。",
+                STATUSBAR,NativeNetworkBadgeControls.MASTER);
+        b.number(NativeNetworkBadgeControls.X,"水平位置","位置","dp",-32,32,.01f);
+        b.number(NativeNetworkBadgeControls.Y,"垂直位置","位置","dp",-16,16,.01f);
+        scale(b,NativeNetworkBadgeControls.SCALE,"角标大小","大小");
+        b.number(NativeNetworkBadgeControls.WEIGHT,"字体粗细","文字","",100,900,1);
+        b.choice(NativeNetworkBadgeControls.FONT,"角标字体","仅用于原生网络角标；自选字体在文字字体页面导入。","文字",
+                new String[]{"native","global","system","pingfang","custom"},new String[]{"原生角标字体","跟随文字字体","系统字体","苹方","自选字体"});
+        b.toggle(NativeDataActivity.MASTER,"显示数据小箭头","开启后恢复原生蜂窝上传/下载活动提示，独立于本页角标主开关。","数据小箭头");
+        b.number(NativeDataActivity.X,"箭头水平位置","数据小箭头","dp",-32,32,.01f);
+        b.number(NativeDataActivity.Y,"箭头垂直位置","数据小箭头","dp",-16,16,.01f);
+        scale(b,NativeDataActivity.SCALE,"箭头大小","数据小箭头");
+        b.toggle(NativeDataActivity.COLOR_ENABLED,"自定义箭头颜色","关闭使用系统随背景变化的原生颜色。","数据小箭头");
+        b.colorPair(NativeDataActivity.COLOR_LIGHT,NativeDataActivity.COLOR_DARK,"箭头颜色","数据小箭头");
         return new Group(b);
     }
     private static Group wifi() {
@@ -372,7 +421,7 @@ public final class SettingsCatalog {
         return new Group(b);
     }
     private static Group bigClock() {
-        Builder b = builder("notification_big_clock", "通知栏大时钟", "竖屏通知页显示日期与大时钟，随上滑平滑收起。开启后下拉期间隐藏原顶部状态栏的小时间、通知图标和右侧图标，以及通知页自己的小时间和右侧图标；左右切页保持隐藏，两页都收起后恢复原生。控制中心自己的右侧保持原生，左侧仍由“顶部图标切页”独立管理；横屏保留原有时钟。", NOTIFICATION, NotificationBigClockSettings.MASTER);
+        Builder b = builder("notification_big_clock", "竖屏大时钟", "只调整竖屏通知页，横屏单独配置。时间与通知左右边缘对齐，通知字号、图标与卡片尺寸保持原生。上滑时顶部时间与通知边缘渐隐、模糊，底部自定义文字保持清晰。默认关闭；既有竖屏配置继续保存。", NOTIFICATION, NotificationBigClockSettings.MASTER);
         b.text(NotificationBigClockSettings.PATTERN, "时间格式", "可选择常用格式或输入自定义格式", "时间", CLOCK_VALUES, CLOCK_LABELS);
         b.choice(NotificationBigClockSettings.FONT, "字体来源", "自选字体使用“文字字体”中导入的文件", "时间", new String[]{"native", "system", "pingfang", "custom"}, new String[]{"原生", "系统", "苹方", "自选"});
         b.number(NotificationBigClockSettings.MAX_SIZE, "展开字号上限", "时间", "dp", 48, 240, .01f);
@@ -407,11 +456,6 @@ public final class SettingsCatalog {
         b.number(NotificationBigClockSettings.COMPACT_OFFSET_Y, "收起垂直位置", "布局", "dp", -120, 120, .01f);
         b.toggle(NotificationBigClockSettings.NOTIFICATION_GAP_ENABLED, "自动保留时钟与首张通知的距离", "", "通知留白");
         b.number(NotificationBigClockSettings.NOTIFICATION_GAP, "时间与通知间距", "通知留白", "dp", 0, 100, .01f);
-        b.toggle(NotificationBigClockSettings.STACK_ENABLED, "通知堆叠（不可用）", "底层bug修复不了 该功能不予适用", "通知堆叠");
-        b.number(NotificationBigClockSettings.VISIBLE_COUNT, "完整通知数量", "通知堆叠", "", 1, 3, 1);
-        b.number(NotificationBigClockSettings.TAIL_WIDTH_1, "第一层底边宽度", "通知堆叠", "%", 50, 100, .01f);
-        b.number(NotificationBigClockSettings.TAIL_WIDTH_2, "第二层底边宽度", "通知堆叠", "%", 50, 100, .01f);
-        b.number(NotificationBigClockSettings.TAIL_WIDTH_3, "第三层底边宽度", "通知堆叠", "%", 50, 100, .01f);
         b.toggle(NotificationBigClockSettings.NOTIFICATION_EDGE_ENABLED, "通知进入顶部边缘时模糊与渐隐", "效果随真实通知位置变化", "通知顶部边缘");
         b.number(NotificationBigClockSettings.NOTIFICATION_EDGE_SAFE_DISTANCE, "顶部安全距离", "通知顶部边缘", "dp", 0, 100, .01f);
         b.number(NotificationBigClockSettings.NOTIFICATION_EDGE_RANGE, "过渡范围", "通知顶部边缘", "dp", 0, 120, .01f);
@@ -428,8 +472,21 @@ public final class SettingsCatalog {
         b.colorPair(NotificationBigClockSettings.FOOTER_COLOR_LIGHT, NotificationBigClockSettings.FOOTER_COLOR_DARK, "底部文字", "底部颜色");
         return new Group(b);
     }
+    private static Group landscapeClock() {
+        Group portrait = bigClock();
+        Builder b = builder("notification_big_clock_landscape", "横屏大时钟",
+                "只调整横屏通知页，上方时钟、下方通知，清除按钮在右侧。通知大小保持原生，时间与通知左右对齐；顶部可随上滑淡出、模糊，底部自定义文字保持清晰。与竖屏大时钟独立保存、独立开启，默认关闭。",
+                NOTIFICATION, NotificationBigClockSettings.LANDSCAPE_MASTER);
+        for (Item item : portrait.items) if (!item.master && !HIDDEN.contains(NotificationBigClockSettings.landscapeKey(item.key))) b.add(
+                NotificationBigClockSettings.landscapeKey(item.key), item.title, item.description, item.type,
+                item.section, item.unit, item.min, item.max, item.step, item.values, item.labels,
+                NotificationBigClockSettings.landscapeKey(item.pairedKey), item.scene);
+        b.toggle(NotificationBigClockSettings.LANDSCAPE_NOTIFICATION_WIDTH_ENABLED,"调整通知长度","只改变横屏通知卡片宽度，通知文字与图标大小保持原生。","通知布局");
+        b.number(NotificationBigClockSettings.LANDSCAPE_NOTIFICATION_WIDTH,"通知长度","通知布局","%",50,150,1);
+        return new Group(b);
+    }
     private static Group clear() {
-        Builder b = builder("notification_clear", "通知清除按钮", "独立设置底色、滑入淡入与通知间距，保留原生玻璃和清除操作。", NOTIFICATION, NotificationClearAppearance.MASTER);
+        Builder b = builder("notification_clear", "竖屏清除按钮位置", "位置、入场动效、通知安全距离和按钮颜色只作用于竖屏，保留原生清除操作。横屏位置与颜色请到横屏清除按钮位置单独设置。", NOTIFICATION, NotificationClearAppearance.MASTER);
         b.toggle("notification_clear_motion_enabled", "独立滑入与淡入", "只调整清除按钮的入场与收起，不依赖大时钟", "动效与安全距离");
         b.number("notification_clear_safe_distance", "与通知安全距离", "动效与安全距离", "dp", 0, 160, .1f);
         b.number("notification_clear_entry_travel", "入场位移", "动效与安全距离", "dp", 0, 160, .1f);
@@ -441,8 +498,53 @@ public final class SettingsCatalog {
         b.number(NotificationClearAppearance.GRADIENT_ANGLE, "渐变方向", "渐变效果", "°", 0, 360, .01f);
         return new Group(b);
     }
+    private static Group landscapeClear() {
+        Builder b = builder("notification_clear_landscape", "横屏清除按钮位置",
+                "位置与颜色独立于竖屏保存，位置开关不影响下方颜色开关。跟随通知页原生移动、渐隐与清除操作；位移过大可能与通知重叠或超出屏幕。首次升级继承原先共用颜色，之后两方向分别调整。",
+                NOTIFICATION, NotificationClearMotion.LANDSCAPE_MASTER);
+        b.number(NotificationClearMotion.LANDSCAPE_OFFSET_X, "水平位置", "位置", "dp", -160, 160, .1f);
+        b.number(NotificationClearMotion.LANDSCAPE_OFFSET_Y, "垂直位置", "位置", "dp", -160, 160, .1f);
+        b.toggle(NotificationClearAppearance.LANDSCAPE_MASTER,"自定义按钮颜色","仅横屏生效，不依赖位置开关；关闭恢复横屏原生材质。","按钮底色");
+        b.colorPair(NotificationClearAppearance.LANDSCAPE_COLOR_LIGHT,NotificationClearAppearance.LANDSCAPE_COLOR_DARK,"按钮底色","按钮底色");
+        b.number(NotificationClearAppearance.LANDSCAPE_OPACITY,"底色透明度","按钮底色","%",0,100,.01f);
+        b.toggle(NotificationClearAppearance.LANDSCAPE_GRADIENT_ENABLED,"启用渐变","仅横屏自定义颜色开启时生效。","渐变效果");
+        b.colorPair(NotificationClearAppearance.LANDSCAPE_GRADIENT_COLOR_LIGHT,NotificationClearAppearance.LANDSCAPE_GRADIENT_COLOR_DARK,"渐变终点","渐变效果");
+        b.number(NotificationClearAppearance.LANDSCAPE_GRADIENT_ANGLE,"渐变方向","渐变效果","°",0,360,.01f);
+        return new Group(b);
+    }
+    private static Group lockscreenDate() {
+        Builder b=builder("lockscreen_date", "锁屏日期自定义",
+                "自定义锁屏的年月日与星期文字，保持系统原生字体、大小和更新频率。仅处理锁屏日期，不改变通知页或控制中心时间，默认关闭。",
+                LOCK_SCREEN, LockscreenControls.DATE_ENABLED);
+        b.text(LockscreenControls.DATE_FORMAT,"日期格式","例如 yyyy年M月d日 {星期}；{周} 显示周六，{星期} 显示星期六。","显示内容",
+                new String[]{"M月d日 {周}","yyyy年M月d日 {星期}","yyyy/MM/dd EEEE","M月d日"},
+                new String[]{"月日与星期","年月日与完整星期","数字日期与星期","只显示月日"});
+        return new Group(b);
+    }
+    private static Group lockscreenLock() {
+        return new Group(builder("lockscreen_lock_icon", "隐藏锁屏小锁",
+                "只隐藏锁屏小锁的视觉图标，保留解锁触摸区域、原生状态和指纹交互，默认关闭。",
+                LOCK_SCREEN, LockscreenControls.HIDE_LOCK));
+    }
+    private static Group wholeStack() {
+        Builder b=builder("notification_stack", "堆叠通知", "开启后竖屏使用系统原生堆叠，随列表滑动自动展开和缩放。“横屏也生效”默认关闭，开启后扩展到横屏，不依赖大时钟。展开应用分组仍使用系统原生点击操作。", STATUSBAR, NotificationBigClockSettings.STACK_ENABLED);
+        b.toggle(FeatureOptions.STACK_LANDSCAPE_ENABLED,"横屏也生效","开启堆叠通知后，允许横屏使用同样的堆叠。默认关闭。","显示规则");
+        b.number(NotificationBigClockSettings.VISIBLE_COUNT,"完整通知数量","显示规则","个",1,5,1);
+        return new Group(b);
+    }
+    private static Group nativeStatusIcons() {
+        Builder b=builder("status_hint_icons", "系统提示图标", "独立调整蓝牙、定位、闹钟等原生提示图标。数量优先选择当前可显示的提示；排序只调整各段提示图标，不跨越网络区域。通知图标、Wi-Fi、蜂窝信号、电池和网速不由本页控制。", STATUSBAR, NativeStatusIcons.MASTER);
+        b.number(NativeStatusIcons.X,"水平位置","位置","dp",-32,32,.1f);
+        b.number(NativeStatusIcons.Y,"垂直位置","位置","dp",-16,16,.1f);
+        b.number(NativeStatusIcons.MAX,"最多显示数量","显示规则","个",0,14,1);
+        b.add(NativeStatusIcons.SPACING,"附加间距","0 保留系统间距，正值放宽。只移动提示图标，不改变网络和电池位置；间距或位移过大可能超出屏幕。",NUMERIC,"位置","dp",0,12,.1f,null,null,null,null);
+        b.text(NativeStatusIcons.PRIORITY,"显示优先级","长按拖拽中文图标名称排序，靠前的优先保留；只显示系统当前允许显示的图标。","显示规则",
+                new String[]{"","bluetooth,location,alarm_clock","location,microphone,camera,bluetooth","zen,alarm_clock,bluetooth"},
+                new String[]{"跟随系统","蓝牙优先","定位与隐私优先","勿扰与闹钟优先"});
+        return new Group(b);
+    }
     private static Group media() {
-        Builder b = builder("qs_media", "音乐卡片", "封面背景、虚化与小封面发光，按浅色和深色界面分别设置。", CONTROL_CENTER, QsMediaAppearance.MASTER);
+        Builder b = builder("qs_media", "音乐卡片", "封面背景、虚化与小封面发光，按浅色和深色界面分别设置。换封面立即显示新封面的取样纯色，停止更新约 1 秒后后台计算模糊背景，再柔和淡入。", CONTROL_CENTER, QsMediaAppearance.MASTER);
         b.toggle(QsMediaAppearance.BACKGROUND, "使用封面作为卡片背景", "居中裁切，保留原生标题与播放按钮", "显示效果");
         b.toggle(QsMediaAppearance.GLOW, "小封面外发光", "保留系统玻璃与高光", "显示效果");
         for (String scene : new String[]{"light", "dark"}) {
@@ -458,6 +560,20 @@ public final class SettingsCatalog {
         return new Group(b);
     }
 
+    private static Group highlightRemoval() {
+        Builder b = builder("c17_highlight_removal", "C17 高光去除",
+                "去除通知与控制中心原生材质的边缘高光、内缘光泽和聚光，保留模糊、圆角与原生交互，使表面更接近亚克力。可分别设置浅色和深色底色，默认关闭。",
+                OTHER, C17HighlightRemoval.ENABLED);
+        b.toggle(C17HighlightRemoval.NOTIFICATION_ENABLED, "通知栏去高光", "只处理通知页和通知卡片的高光，关闭时恢复原生。", "作用范围");
+        b.toggle(C17HighlightRemoval.CONTROL_ENABLED, "状态栏面板去高光", "处理右侧控制中心、磁贴和音乐卡片的高光，关闭时恢复原生。", "作用范围");
+        b.toggle(C17HighlightRemoval.UNIFORM_NOTIFICATION_ENABLED, "统一通知卡片颜色", "独立使用下方浅色或深色底色，默认关闭；保留原生模糊和内容，关闭通知栏作用范围时恢复原生。会增加一次背景合成，请按需使用。", "通知颜色");
+        b.toggle(C17HighlightRemoval.BACKGROUND_ENABLED, "自定义亚克力底色",
+                "为普通材质设置统一底色；磁贴自定义颜色与音乐封面背景保持各自设置。关闭后只去高光。", "底色");
+        b.colorPair(C17HighlightRemoval.LIGHT_BACKGROUND, C17HighlightRemoval.DARK_BACKGROUND,
+                "亚克力底色", "颜色与透明度");
+        return new Group(b);
+    }
+
     public static List<Group> groups() { return GROUPS; }
     public static List<Group> groups(String category) {
         List<Group> result = new ArrayList<>();
@@ -467,24 +583,29 @@ public final class SettingsCatalog {
     public static List<NavigationSection> navigationSections(String category) {
         if (STATUSBAR.equals(category)) return Arrays.asList(
                 new NavigationSection("时间与电量", "clock", "battery"),
-                new NavigationSection("网络信号", "speed", "data", "wifi", "label"),
-                new NavigationSection("通知图标与字体", "notification_icons", "font"));
+                new NavigationSection("网络信号", "speed", "data", "wifi", "label", "native_network_badge", "network_order"),
+                new NavigationSection("通知显示", "notification_icons", "notification_stack"),
+                new NavigationSection("系统提示", "status_hint_icons"),
+                new NavigationSection("文字字体", "font"));
         if (CONTROL_CENTER.equals(category)) return Arrays.asList(
                 new NavigationSection("磁贴与滑块", "tile_corners", "tile_icon_size", "qs_appearance", "tiles"),
                 new NavigationSection("音乐卡片", "qs_media"),
-                new NavigationSection("顶部时间与文字", "shade_status_icons", "shade_clock", "carrier"));
+                new NavigationSection("顶部时间与文字", "shade_clock", "carrier"));
         if (NOTIFICATION.equals(category)) return Arrays.asList(
-                new NavigationSection("时钟与日期", "notification_big_clock", "shade_clock"),
-                new NavigationSection("通知显示", "shade_status_icons", "notification_clear"),
+                new NavigationSection("时钟与日期", "notification_big_clock", "notification_big_clock_landscape", "shade_clock"),
+                new NavigationSection("通知显示", "notification_stack"),
+                new NavigationSection("清除按钮", "notification_clear", "notification_clear_landscape"),
                 new NavigationSection("界面文字", "carrier"));
-        if (LOCK_SCREEN.equals(category)) return Collections.singletonList(new NavigationSection("锁屏文字", "carrier"));
+        if (OTHER.equals(category)) return Collections.singletonList(new NavigationSection("界面材质", "c17_highlight_removal"));
+        if (LOCK_SCREEN.equals(category)) return Arrays.asList(new NavigationSection("日期与文字", "lockscreen_date", "carrier"),
+                new NavigationSection("提示图标", "lockscreen_lock_icon"));
         return Collections.emptyList();
     }
     public static List<DetailPage> detailPages(Group group) {
         if (group == null) return Collections.emptyList();
         LinkedHashMap<String, List<Item>> buckets = new LinkedHashMap<>();
         LinkedHashMap<String, String> labels = new LinkedHashMap<>();
-        if ("notification_big_clock".equals(group.id)) {
+        if (group.id.startsWith("notification_big_clock")) {
             labels.put("time", "时间"); labels.put("date", "日期"); labels.put("notifications", "通知");
             labels.put("effects", "动效"); labels.put("footer", "底部");
         } else if ("carrier".equals(group.id)) {
@@ -516,7 +637,7 @@ public final class SettingsCatalog {
     }
     private static String detailPageId(Group group, Item item) {
         String section = item.section;
-        if ("notification_big_clock".equals(group.id)) {
+        if (group.id.startsWith("notification_big_clock")) {
             if (section.startsWith("日期")) return "date";
             if (section.startsWith("通知")) return "notifications";
             if (section.startsWith("底部")) return "footer";
@@ -548,27 +669,36 @@ public final class SettingsCatalog {
         return group == null ? Collections.emptyList() : group.items;
     }
     public static Item item(String key) { return ITEM_BY_KEY.get(key); }
-    /** Keep the abandoned stacking controls discoverable without enabling runtime ownership. */
+    /** Unavailable controls are disabled by the editor; experimental controls remain opt-in. */
     public static String unavailableReason(String key) {
-        if (NotificationBigClockSettings.STACK_ENABLED.equals(key) || NotificationBigClockSettings.VISIBLE_COUNT.equals(key)
-                || NotificationBigClockSettings.TAIL_WIDTH_1.equals(key) || NotificationBigClockSettings.TAIL_WIDTH_2.equals(key)
-                || NotificationBigClockSettings.TAIL_WIDTH_3.equals(key)) return "底层bug修复不了 该功能不予适用";
         return "";
+    }
+    /** Saved conflicting values are retained; their effects resume only when the conflict ends. */
+    public static String unavailableReason(String key, Map<String,?> values) {
+        Item item=item(key);
+        if(item!=null && "native_network_badge".equals(item.groupId)
+                && !key.startsWith("native_data_activity_")
+                && StatusBarSettings.bool(values,"label_enabled"))
+            return "请先关闭网络制式文字，再启用原生角标调整";
+        return unavailableReason(key);
     }
 
     /** Actual precedence and mutual exclusion, shown at the top of each affected feature. */
     public static String conflictDescription(String groupId, String category) {
-        if ("clock".equals(groupId)) return "优先级：竖屏通知页启用大时钟后，下拉页的小时间由大时钟接管；状态栏本身仍使用本页设置。";
-        if ("shade_clock".equals(groupId)) return "冲突：与通知栏大时钟共用通知页时间区域。修改本页启用的条件会关闭大时钟，控制中心和横屏仍使用下拉时钟。";
+        if ("clock".equals(groupId)) return "优先级：竖屏或横屏通知页启用大时钟后，下拉页的小时间由大时钟接管；状态栏本身仍使用本页设置。";
+        if ("shade_clock".equals(groupId)) return "冲突：与通知栏大时钟共用通知页时间区域。修改本页启用的条件会关闭大时钟；大时钟未启用时通知页保留下拉时钟，控制中心仍使用本页设置。";
         if ("carrier".equals(groupId) && NOTIFICATION.equals(category)) return "冲突：与通知栏大时钟共用顶部区域。启用或编辑本页条件会关闭大时钟；关闭本页开关不会自动开启大时钟。";
-        if ("notification_big_clock".equals(groupId)) return "优先级：大时钟或“顶部图标切页”任一开启，下拉期间顶部原生小时间、通知图标与右侧图标及通知页的小时间和右侧图标持续隐藏，两页都真正收起后恢复；控制中心自己的右侧保留原生，左侧仅由“顶部图标切页”管理。大时钟、日期和底部文字正常显示。编辑下拉时钟或通知栏运营商文字会关闭大时钟。通知堆叠不可用。";
+        if (groupId.startsWith("notification_big_clock")) return "优先级：仅在本页对应的横屏或竖屏方向替代通知页小时间，保留控制中心原生图标。编辑下拉时钟或通知栏运营商文字会关闭两个方向的大时钟；堆叠通知在“状态栏 → 通知显示”独立设置。";
         if ("font".equals(groupId)) return "优先级：各功能独立字号和粗细仍有效；大时钟选择原生字体时使用自身字形，选择自选字体后才使用这里导入的文件。";
         if ("notification_icons".equals(groupId)) return "互斥：原生图标、爱心、文字和图片只选一种。最多图标数量仅作用于原生模式；通知页隐藏规则优先于本页外观设置。";
+        if ("notification_stack".equals(groupId)) return "显示范围：开启本页主开关后只在竖屏堆叠；“横屏也生效”允许扩展到横屏。仅折叠外层通知列表，应用内分组保持系统原生逻辑；不依赖大时钟。";
         if ("shade_status_icons".equals(groupId)) return "优先级：此开关或大时钟任一开启，顶部原生小时间、通知图标与右侧图标及通知页的小时间和右侧图标在整个下拉、左右切页期间持续隐藏。两页都收起或两个开关都关闭时恢复原生。控制中心自己的右侧始终保留原生，左侧小时间与通知图标仅由此开关管理。通知图标样式和数量继续在“通知图标区域”中设置。";
         if ("label".equals(groupId)) return "优先级：隐藏网络制式、Wi-Fi 已连接或两个网络开关都关闭时，隐藏优先于名称、位置、字体和颜色设置。";
+        if ("native_network_badge".equals(groupId)) return "互斥：网络制式文字开启时暂停本页调整；关闭后按原生角标的隐藏开关显示，保留本页参数。隐藏系统网络角标优先于位置、大小和字重。";
         if ("battery".equals(groupId)) return "优先级：电池内文字调整只作用于数字；充电数字与闪电交替开启时，数字阶段使用文字设置。切换电池样式后按该样式的原生字形重新应用。";
         if ("qs_media".equals(groupId)) return "互斥：外发光使用封面反色时，自定义发光颜色不生效。封面背景和统一圆角可同时使用。";
-        if ("data".equals(groupId)) return "优先级：隐藏网络角标不会隐藏独立网络制式文字；该文字在“网络制式文字”中设置。蜂窝数据箭头始终隐藏。";
+        if ("c17_highlight_removal".equals(groupId)) return "共同使用：去除高光可与磁贴颜色、音乐封面背景同时开启。这两类自定义背景保留；本页亚克力底色作用于其他原生材质。";
+        if ("data".equals(groupId)) return "优先级：隐藏网络角标不会隐藏独立网络制式文字；该文字在“网络制式文字”中设置。蜂窝数据小箭头在“原生角标调整”独立开启，不受蜂窝样式或网络文字开关限制。";
         return "";
     }
     public static List<Item> allItems() { return Collections.unmodifiableList(new ArrayList<>(ITEM_BY_KEY.values())); }
@@ -590,11 +720,22 @@ public final class SettingsCatalog {
     }
     /** Check domain restrictions before float conversion can erase a fractional input. */
     static String numericInputError(String key, BigDecimal raw) {
+        if (NetworkSpeedControls.INTERVAL_MILLIS.equals(key) && raw.signum() <= 0)
+            return "刷新间隔应大于 0 ms";
         if (QsTileCorners.RADIUS.equals(key) && (raw.signum() < 0 || raw.compareTo(BigDecimal.valueOf(30)) > 0))
             return "圆角半径应为 0 到 30 dp";
-        if (NotificationIconArea.MAX_COUNT.equals(key) && (raw.signum() < 0 || raw.stripTrailingZeros().scale() > 0))
+        if ((NativeStatusIcons.MAX.equals(key)||NotificationIconArea.MAX_COUNT.equals(key)) && (raw.signum() < 0 || raw.stripTrailingZeros().scale() > 0))
             return "图标数量应为非负整数，0 表示不显示";
+        if (NotificationBigClockSettings.VISIBLE_COUNT.equals(NotificationBigClockSettings.portraitKey(key)) && (raw.compareTo(BigDecimal.ONE) < 0
+                || raw.compareTo(BigDecimal.valueOf(Integer.MAX_VALUE)) > 0 || raw.stripTrailingZeros().scale() > 0))
+            return "完整通知数量应为 1 到 2147483647 的整数";
         return null;
+    }
+    /** Suggested bounds control trial confirmation, not valid manual-entry limits. */
+    public static boolean requiresNumericTrial(Item item, Number value) {
+        if (item == null || value == null || !NUMERIC.equals(item.type)) return false;
+        double number = value.doubleValue();
+        return Double.isFinite(number) && (number < item.min || number > item.max);
     }
     public static float customNumber(Item item, String input) {
         BigDecimal raw = NumericInput.decimal(input);
@@ -611,20 +752,23 @@ public final class SettingsCatalog {
             if (!(value instanceof Number)) return "请输入有效数字";
             float number = ((Number) value).floatValue();
             if (Float.isNaN(number) || Float.isInfinite(number)) return "请输入有限数字";
+            if (NetworkSpeedControls.INTERVAL_MILLIS.equals(item.key) && number <= 0) return "刷新间隔应大于 0 ms";
             if ("qs_tile_corner_radius".equals(item.key) && (number < 0 || number > 30)) return "圆角半径应为 0 到 30 dp";
-            if ("notification_icons_max_count".equals(item.key) && (number < 0 || number != Math.floor(number))) return "图标数量应为非负整数，0 表示不显示";
-            if (NotificationBigClockSettings.VISIBLE_COUNT.equals(item.key) && (number < 1 || number > 3 || number != Math.round(number))) return "完整通知数量只能为 1、2 或 3";
+            if ((NativeStatusIcons.MAX.equals(item.key)||NotificationIconArea.MAX_COUNT.equals(item.key)) && (number < 0 || number != Math.floor(number))) return "图标数量应为非负整数，0 表示不显示";
+            if (NotificationBigClockSettings.VISIBLE_COUNT.equals(NotificationBigClockSettings.portraitKey(item.key)) && (number < 1
+                    || number > (float)Integer.MAX_VALUE || number != Math.floor(number))) return "完整通知数量应为 1 到 2147483647 的整数";
             return null;
         }
         if (COLOR.equals(item.type)) return value instanceof Number ? null : "请输入有效颜色";
         if (!(value instanceof String)) return "请输入文字";
         String text = (String) value;
+        if (LockscreenControls.DATE_FORMAT.equals(item.key)) return TimeFormat.validationError(text);
         if (NotificationIconArea.TEXT.equals(item.key) && text.codePointCount(0, text.length()) > 12) return "符号或文字最多12个字符";
         if (OPTIONS.equals(item.type)) {
             for (String option : item.values) if (option.equals(text)) return null;
             return "请选择列表中的选项";
         }
-        if (item.key.endsWith("_pattern")) return NotificationBigClockSettings.FOOTER_PATTERN.equals(item.key) ? TimeFormat.contentValidationError(text) : TimeFormat.validationError(text);
+        if (item.key.endsWith("_pattern")) return NotificationBigClockSettings.FOOTER_PATTERN.equals(NotificationBigClockSettings.portraitKey(item.key)) ? TimeFormat.contentValidationError(text) : TimeFormat.validationError(text);
         if (STRING.equals(item.type) && (text.length() > TimeFormat.MAX_TEXT || text.indexOf('\n') >= 0 || text.indexOf('\r') >= 0)) return "请使用不超过 120 个字符的单行文字";
         return null;
     }

@@ -29,6 +29,7 @@ public final class SafeConfigCheck {
         stored.put(QsMediaAppearance.MASTER,true);
         stored.put(NotificationClearAppearance.MASTER,true);
         stored.put(NotificationBigClockSettings.MASTER,true);
+        stored.put(NetworkIconOrder.SWAP,true);
         Bundle saved=SettingsSnapshot.fromPreferences(stored);
         equal(true,SettingsSnapshot.complete(saved));
         equal(true,saved.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
@@ -42,14 +43,26 @@ public final class SafeConfigCheck {
             equal(true,saved.get(master));
         }
         equal(137.25f,safe.get(StatusBarSettings.CLOCK_SCALE));
+        equal(false,safe.get(NetworkIconOrder.SWAP));
+        equal(true,saved.get(NetworkIconOrder.SWAP));
         equal("bad legacy type",stored.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
         saved.putBoolean(StatusBarSettings.SAFE_MODE,false);
         Bundle resumed=SafetyMode.runtimeSettings(saved);
         equal(true,resumed.get(QsTileAppearance.MASTER));
         equal(true,resumed.get(QsMediaAppearance.MASTER));
         equal(true,resumed.get(NotificationBigClockSettings.MASTER));
+        equal(true,resumed.get(NetworkIconOrder.SWAP));
         equal(true,FeatureOptions.from(resumed).effective("data",StatusBarSettings.DATA_ACTIVITY_HIDDEN));
         equal(false,ConfigTransfer.exportJson(stored).contains(StatusBarSettings.SAFE_MODE));
+        saved.putBoolean(NativeDataActivity.MASTER,true);saved.putBoolean(FeatureOptions.STACK_LANDSCAPE_ENABLED,true);
+        saved.putBoolean(NotificationGroupStack.MASTER,true);
+        Bundle independent=SafetyMode.runtimeSettings(saved);
+        equal(false,independent.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));equal(false,independent.get(NotificationGroupStack.MASTER));
+        equal(true,independent.get(NativeDataActivity.MASTER));equal(true,independent.get(FeatureOptions.STACK_LANDSCAPE_ENABLED));
+        saved.putBoolean(StatusBarSettings.SAFE_MODE,true);Bundle independentSafe=SafetyMode.runtimeSettings(saved);
+        equal(false,independentSafe.get(NativeDataActivity.MASTER));equal(false,independentSafe.get(FeatureOptions.STACK_LANDSCAPE_ENABLED));
+        equal(false,FeatureOptions.from(independentSafe).effective("data",StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+        equal(true,saved.get(NativeDataActivity.MASTER));equal(true,saved.get(FeatureOptions.STACK_LANDSCAPE_ENABLED));
 
         equal(true,RootAccess.classify(0,"C17_ROOT_UID:0\n",false).granted);
         equal(true,RootAccess.classify(0,"manager message\r\n C17_ROOT_UID:0 \r\n",false).granted);
@@ -57,6 +70,6 @@ public final class SafeConfigCheck {
             equal(false,RootAccess.classify(0,output,false).granted);
         equal(false,RootAccess.classify(1,"C17_ROOT_UID:0",false).granted);
         equal(RootAccess.State.TIMEOUT,RootAccess.classify(0,"C17_ROOT_UID:0",true).state);
-        System.out.println(checks+" checks passed (forced cellular arrows, complete snapshots, safety restoration, true Root proof)");
+        System.out.println(checks+" checks passed (independent cellular arrows, complete snapshots, safety restoration, true Root proof)");
     }
 }

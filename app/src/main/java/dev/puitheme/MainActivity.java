@@ -54,6 +54,7 @@ public final class MainActivity extends Activity {
     private static final int CONFIG_EXPORT_REQUEST=19, CONFIG_IMPORT_REQUEST=20;
     private static final Uri SETTINGS_URI=Uri.parse(StatusBarSettings.CONTENT_URI);
     private SharedPreferences preferences;
+    private SharedPreferences rawPreferences;
     private LinearLayout editor, tabs;
     private LinearLayout bottomNavigation;
     private volatile boolean rootGranted;
@@ -85,7 +86,8 @@ public final class MainActivity extends Activity {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private boolean settingsNotificationPending;
     private final Runnable settingsNotification=()->{
-        settingsNotificationPending=false;getContentResolver().notifyChange(SETTINGS_URI,null);
+        settingsNotificationPending=false;
+        if(SettingsSnapshot.notificationAllowed(rawPreferences))getContentResolver().notifyChange(SETTINGS_URI,null);
     };
     private final List<SliderControl> controls=new ArrayList<>();
     private final List<View> qsPreviews=new ArrayList<>();
@@ -220,6 +222,7 @@ public final class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         getWindow().getDecorView().setSystemUiVisibility(darkUi?0:View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR|View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        rawPreferences=preferences;
         preferences=new ActivationGuardPreferences(preferences,()->resumed&&canEditConfiguration(),()->handler.post(()->{
             if(resumed&&!canEditConfiguration()&&!isFinishing()&&!isDestroyed()) {
                 Toast.makeText(this,"激活模块或授予 Root 后即可保存配置",Toast.LENGTH_SHORT).show();showActivationPage();
@@ -630,7 +633,7 @@ public final class MainActivity extends Activity {
     }
     private String appVersion() {
         try { return getPackageManager().getPackageInfo(getPackageName(),0).versionName; }
-        catch(android.content.pm.PackageManager.NameNotFoundException unavailable) { return "1.6.0"; }
+        catch(android.content.pm.PackageManager.NameNotFoundException unavailable) { return "1.6.1"; }
     }
     private void addQsAppearance(LinearLayout card) {
         addHint(card,"统一应用于 Wi-Fi、数据和其他活动磁贴，以及亮度、音量滑条的已填充部分。");
@@ -1073,6 +1076,11 @@ public final class MainActivity extends Activity {
         updateSummary.setPadding(0,dp(6),0,dp(5));box.addView(updateSummary,matchWrap());
         addAction(box,"检查更新","SANWU5 / c17-statusbar",()->checkUpdates(true));
         addAction(box,"打开 GitHub 项目","查看源码与正式发布版本",()->openUpdateUrl(GitHubUpdates.REPO_URL));
+        addAction(box,"作者 GitHub",ProjectContact.GITHUB,()->openUpdateUrl("https://github.com/"+ProjectContact.GITHUB));
+        addAction(box,"作者酷安",ProjectContact.COOLAPK+" · 点击复制",()->
+                Toast.makeText(this,ProjectContact.copyCoolapk(this)?"酷安用户名已复制":"复制失败，请手动复制用户名",Toast.LENGTH_SHORT).show());
+        addAction(box,"合作与捐赠","QQ："+ProjectContact.QQ+" · 点击复制",()->
+                Toast.makeText(this,ProjectContact.copyQq(this)?"QQ号已复制":"复制失败，请手动复制QQ号",Toast.LENGTH_SHORT).show());
         addAction(box,"开源许可证","GNU GPLv3",()->showLicense());parent.addView(box,matchWrap());
     }
     private void addDiagnostics(LinearLayout parent) {
@@ -1158,7 +1166,7 @@ public final class MainActivity extends Activity {
             keys.add(new String[]{group+"_position_enabled","位置调整"});keys.add(new String[]{group+"_size_enabled","大小调整"});keys.add(new String[]{group+"_color_enabled","颜色调整"});
         }
         if(group.equals("data")) {
-            keys.add(new String[]{"data_icon_enabled","仿 iOS 信号样式"});keys.add(new String[]{"data_badge_hidden","隐藏系统网络角标"});keys.add(new String[]{"data_single_enabled","应用单排信号选项"});
+            keys.add(new String[]{"data_icon_enabled","仿 iOS 信号样式"});keys.add(new String[]{"data_badge_hidden","隐藏系统网络角标"});
         } else if(group.equals("wifi")) {
             keys.add(new String[]{"wifi_icon_enabled","仿 iOS Wi-Fi 样式"});keys.add(new String[]{"wifi_activity_hidden","隐藏 Wi-Fi 上传下载箭头"});keys.add(new String[]{"wifi_badge_hidden","隐藏 Wi-Fi 角标"});
         } else if(group.equals("label")) {
@@ -1477,8 +1485,8 @@ public final class MainActivity extends Activity {
             boolean success=false;
             try{success=ConfigTransfer.commit(preferences,prepared);}
             catch(RuntimeException error){ModuleDiagnostics.error("config","Configuration application failed",error);}
-            // Publish the completed snapshot even if this Activity was rotated or closed.
-            try{getApplicationContext().getContentResolver().notifyChange(SETTINGS_URI,null);}
+            // Publish only a successful complete import, even if the Activity was rotated.
+            try{if(success&&SettingsSnapshot.notificationAllowed(rawPreferences))getApplicationContext().getContentResolver().notifyChange(SETTINGS_URI,null);}
             catch(RuntimeException error){ModuleDiagnostics.error("config","Configuration refresh notification failed",error);}
             final boolean applied=success;
             runOnUiThread(()->{transferringConfig=false;if(isFinishing()||isDestroyed())return;
@@ -1709,7 +1717,7 @@ public final class MainActivity extends Activity {
         FontRepository.configure(this,enabled("font_enabled")?string(StatusBarSettings.FONT_MODE):"system",string(StatusBarSettings.FONT_REVISION));
         // The value is saved immediately; one notification per display frame avoids applying
         // the entire runtime form many times before any of those changes can be displayed.
-        if(!settingsNotificationPending) { settingsNotificationPending=true;editor.postOnAnimation(settingsNotification); }
+        if(SettingsSnapshot.notificationAllowed(rawPreferences)&&!settingsNotificationPending) { settingsNotificationPending=true;editor.postOnAnimation(settingsNotification); }
         updateSample();schedulePreview();
         for(View preview:qsPreviews)preview.invalidate();
         if(bigClockConflictHint!=null)bigClockConflictHint.setVisibility(enabled(NotificationBigClockSettings.MASTER)?View.VISIBLE:View.GONE);

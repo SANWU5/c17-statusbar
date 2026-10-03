@@ -63,6 +63,53 @@ public final class QsTileAppearanceCheck {
     private static Bundle settings(){Bundle settings=new Bundle();settings.putBoolean(QsTileAppearance.MASTER,true);settings.putInt("qs_global_light_color",0xff123456);settings.putInt("qs_global_dark_color",0xff654321);return settings;}
     private static MixColorTileDrawable attach(QsTileAppearance a,OplusQSResizeableTileView tile,String spec,int state){tile.state=new State(state,spec);MixColorTileDrawable bg=new MixColorTileDrawable();bg.setBounds(0,0,120,120);tile.bg=bg;a.refreshTile(tile);return bg;}
     private static void colors(Shader value,int a,int b){equal(true,value instanceof LinearGradient);LinearGradient g=(LinearGradient)value;equal(a,g.colors[0]);equal(b,g.colors[1]);}
+    private static void steadyDrawing() throws Throwable {
+        QsTileAppearance appearance=new QsTileAppearance();appearance.configure(settings());
+        OplusQSResizeableTileView tile=new OplusQSResizeableTileView();MixColorTileDrawable fill=attach(appearance,tile,"wifi",2);
+        Canvas canvas=new Canvas();appearance.drawTile(fill,canvas,fill::draw);Shader first=fill.seenShader;
+        ThreadLocal<?> pool=(ThreadLocal<?>)QsTileAppearance.field(appearance,"drawBuffers");Object buffers=pool.get();
+        for(int i=0;i<10000;i++) {
+            // Native alpha keeps animating; only the immutable configured fill is reused.
+            fill.alpha=i%256;appearance.drawTile(fill,canvas,fill::draw);
+            equal(first,fill.seenShader);equal(i%256,fill.alpha);equal(null,fill.paint.getShader());
+        }
+        equal(buffers,pool.get());equal(false,QsTileAppearance.field(buffers,"busy"));
+        equal(0,((List<?>)QsTileAppearance.field(buffers,"paints")).size());
+        equal(0,((List<?>)QsTileAppearance.field(buffers,"changed")).size());
+        equal(0,((Map<?,?>)QsTileAppearance.field(buffers,"seen")).size());
+        // Reentry gets one independent reusable scratch buffer and restores the same Paint.
+        appearance.drawTile(fill,canvas,target->appearance.drawTile(fill,target,fill::draw));
+        Object nested=QsTileAppearance.field(buffers,"next");equal(true,nested!=null);equal(null,fill.paint.getShader());
+        appearance.drawTile(fill,canvas,target->appearance.drawTile(fill,target,fill::draw));equal(nested,QsTileAppearance.field(buffers,"next"));
+        fill.setBounds(2,3,170,80);appearance.drawTile(fill,canvas,fill::draw);equal(false,first==fill.seenShader);
+        Shader resized=fill.seenShader;fill.setBounds(0,0,120,120);appearance.drawTile(fill,canvas,fill::draw);equal(first,fill.seenShader);
+        fill.setBounds(2,3,170,80);appearance.drawTile(fill,canvas,fill::draw);equal(resized,fill.seenShader);
+        fill.paint.setShader(first);appearance.drawTile(fill,canvas,fill::draw);equal(first,fill.paint.getShader());fill.paint.setShader(null);
+        Bundle updated=settings();updated.putFloat("qs_global_light_opacity",25f);updated.putBoolean("qs_global_light_gradient_enabled",true);updated.putInt("qs_global_light_gradient_color",0xffaabbcc);appearance.configure(updated);
+        appearance.drawTile(fill,canvas,fill::draw);colors(fill.seenShader,0x40123456,0x40aabbcc);equal(false,resized==fill.seenShader);
+        tile.getResources().getConfiguration().uiMode=Configuration.UI_MODE_NIGHT_YES;appearance.drawTile(fill,canvas,fill::draw);colors(fill.seenShader,0xff654321,0xff654321);
+        updated.putBoolean(QsTileAppearance.MASTER,false);appearance.configure(updated);appearance.drawTile(fill,canvas,fill::draw);equal(null,fill.seenShader);equal(null,fill.paint.getShader());
+        QsTileAppearance.Style style=new QsTileAppearance.Style(-1,-1,100f,15f,true);Rect bounds=new Rect(0,0,100,80);
+        Shader cached=QsTileAppearance.shader(style,bounds);for(int i=0;i<10000;i++)equal(cached,QsTileAppearance.shader(style,bounds));
+        bounds.left=1;equal(false,cached==QsTileAppearance.shader(style,bounds));bounds.left=0;equal(cached,QsTileAppearance.shader(style,bounds));
+        for(int i=0;i<100;i++){bounds.right=110+i;QsTileAppearance.shader(style,bounds);}
+        equal(16,java.lang.reflect.Array.getLength(QsTileAppearance.field(style,"shaders")));
+        updated.putBoolean(QsTileAppearance.MASTER,true);appearance.configure(updated);
+        RectangleDeviceCardView device=new RectangleDeviceCardView();android.graphics.drawable.GradientDrawable deviceFill=new android.graphics.drawable.GradientDrawable();deviceFill.setColor(-1);device.body.setBackground(deviceFill);
+        appearance.drawDeviceCard(device,canvas,device::drawNative);
+        Map<?,?> sources=(Map<?,?>)QsTileAppearance.field(appearance,"deviceSources");Object source=sources.get(device);
+        Map<?,?> backgrounds=(Map<?,?>)QsTileAppearance.field(appearance,"backgrounds");Object owner=backgrounds.get(deviceFill);
+        for(int i=0;i<1000;i++)appearance.drawDeviceCard(device,canvas,device::drawNative);
+        equal(source,sources.get(device));equal(owner,backgrounds.get(deviceFill));equal(null,deviceFill.mFillPaint.getShader());
+        android.graphics.drawable.ShapeDrawable replacement=new android.graphics.drawable.ShapeDrawable();replacement.getPaint().setColor(-1);replacement.setBounds(0,0,100,80);device.body.setBackground(replacement);
+        appearance.drawDeviceCard(device,canvas,device::drawNative);equal(false,source==sources.get(device));equal(null,replacement.getPaint().getShader());
+        appearance.detach(device);equal(false,sources.containsKey(device));
+        equal(0,((Set<?>)QsTileAppearance.field(appearance,"traceStages")).size());
+        // Scratch buffers must not retain a detached paint or view after native errors.
+        updated.putBoolean(QsTileAppearance.MASTER,true);appearance.configure(updated);
+        try{appearance.drawTile(fill,canvas,target->{throw new IllegalStateException("steady failure");});throw new AssertionError();}catch(IllegalStateException expected){equal("steady failure",expected.getMessage());}
+        equal(null,fill.paint.getShader());equal(false,QsTileAppearance.field(buffers,"busy"));equal(0,((Map<?,?>)QsTileAppearance.field(buffers,"seen")).size());
+    }
     private static void deviceCards(QsTileAppearance appearance,Canvas canvas,Shader texture) throws Throwable {
         Bundle config=settings();config.putBoolean("qs_global_light_gradient_enabled",true);config.putInt("qs_global_light_gradient_color",0xffabcdef);config.putFloat("qs_global_light_opacity",50f);config.putFloat("qs_global_dark_opacity",50f);appearance.configure(config);
         DeviceCardFixture[] cards={new RectangleDeviceCardView(),new SquareDeviceCardView(),new NoDeviceEntranceCardView(),new RectangleEntranceCardView(),new SquareEntranceCardView()};
@@ -119,7 +166,7 @@ public final class QsTileAppearanceCheck {
         appearance.detach(tile);
     }
     public static void main(String[] args) throws Throwable {
-        nativeMembers();
+        nativeMembers();steadyDrawing();
         QsTileAppearance a=new QsTileAppearance();OplusQSResizeableTileView tile=new OplusQSResizeableTileView();Canvas c=new Canvas();MixColorTileDrawable bg=attach(a,tile,"wifi",2);
         a.configure(new Bundle());a.drawTile(bg,c,bg::draw);equal(null,bg.seenShader);equal(3,QsTileAppearance.BOOLEANS.size());equal(4,QsTileAppearance.NUMBERS.size());equal(4,QsTileAppearance.COLORS.size());equal(false,QsTileAppearance.BOOLEANS.get(QsTileAppearance.MASTER));
         for(String key:QsTileAppearance.BOOLEANS.keySet())equal(false,key.startsWith("qs_style_"));

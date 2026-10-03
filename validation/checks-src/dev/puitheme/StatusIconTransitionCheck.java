@@ -255,6 +255,7 @@ public final class StatusIconTransitionCheck {
         panel.addView(header); header.clock.receiver = receiver;
         header.clock.setAlpha(.72f);
         android.os.Bundle settings = new android.os.Bundle(); settings.putBoolean(NotificationBigClockSettings.MASTER, true);
+        settings.putBoolean(NotificationBigClockSettings.LANDSCAPE_MASTER, true);
         settings.putBoolean(StatusBarShadeIconSettings.MASTER, true);
         receiver.configure(settings); receiver.onHeaderInflated(header);
         check(header.clock.getVisibility() == View.INVISIBLE, "portrait pending/native footer clock stays replaced by BigClock");
@@ -263,12 +264,12 @@ public final class StatusIconTransitionCheck {
             header.clock.getResources().getConfiguration().orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE;
             panel.getResources().getConfiguration().orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE;
             receiver.onConfigurationChanged();
-            check(header.clock.getVisibility() == View.VISIBLE, "landscape restores native footer visibility on the same instance " + turn);
+            check(header.clock.getVisibility() == View.INVISIBLE, "landscape replacement keeps the exact native footer hidden " + turn);
             near(header.clock.getAlpha(), .72f, "landscape native footer alpha is not hidden by top-icon ownership " + turn);
             header.clock.setVisibility(View.GONE);
             check(header.clock.getVisibility() == View.GONE, "landscape keeps native GONE policy " + turn);
             header.clock.setVisibility(View.VISIBLE);
-            check(header.clock.getVisibility() == View.VISIBLE, "global BigClock master cannot override landscape native visibility " + turn);
+            check(header.clock.getVisibility() == View.INVISIBLE, "landscape replacement blocks duplicate native clock writers " + turn);
             header.clock.getResources().getConfiguration().orientation = android.content.res.Configuration.ORIENTATION_PORTRAIT;
             panel.getResources().getConfiguration().orientation = android.content.res.Configuration.ORIENTATION_PORTRAIT;
             receiver.onConfigurationChanged();
@@ -276,7 +277,7 @@ public final class StatusIconTransitionCheck {
         }
         header.clock.getResources().getConfiguration().orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE;
         header.clock.setVisibility(View.VISIBLE);
-        check(header.clock.getVisibility() == View.VISIBLE, "landscape native setter before configuration callback already bypasses INVISIBLE ownership");
+        check(header.clock.getVisibility() == View.INVISIBLE, "landscape native setter before configuration callback keeps replacement ownership");
         receiver.onConfigurationChanged();
         android.os.Bundle onlyShade = new android.os.Bundle(); onlyShade.putBoolean(StatusBarShadeIconSettings.MASTER, true);
         header.clock.getResources().getConfiguration().orientation = android.content.res.Configuration.ORIENTATION_PORTRAIT;
@@ -290,7 +291,7 @@ public final class StatusIconTransitionCheck {
         receiver.onHeaderInflated(header);
         check(header.clock.getVisibility() == View.VISIBLE, "landscape init/attach does not newly disable the native clock");
         receiver.configure(settings);
-        check(header.clock.getVisibility() == View.VISIBLE, "landscape settings reload cannot reacquire native clock visibility");
+        check(header.clock.getVisibility() == View.INVISIBLE, "landscape settings reload hides the replaced native clock");
         header.clock.getResources().getConfiguration().orientation = android.content.res.Configuration.ORIENTATION_PORTRAIT;
         receiver.onConfigurationChanged();
         check(header.clock.getVisibility() == View.INVISIBLE, "portrait resumes replacement after landscape native reinitialization");

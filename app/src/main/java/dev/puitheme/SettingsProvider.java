@@ -32,6 +32,9 @@ public final class SettingsProvider extends ContentProvider {
         if (ModuleRuntimeStatus.METHOD_BEGIN.equals(str)) return ModuleRuntimeStatus.beginProbe(getContext(), bundle);
         if (ModuleRuntimeStatus.METHOD_QUERY.equals(str)) return ModuleRuntimeStatus.queryStatus(getContext(), bundle);
         if (ModuleRuntimeStatus.METHOD_REPORT.equals(str)) return ModuleRuntimeStatus.recordSystemUiReport(getContext(), bundle);
+        if ("read_framework_settings_status".equals(str)) {
+            enforceAllowedReader();return SettingsFrameworkMirror.status();
+        }
         if (ModuleDiagnostics.METHOD_RECORD.equals(str)) {
             enforceAllowedReader();
             return ModuleDiagnostics.record(getContext(), bundle);
@@ -43,7 +46,9 @@ public final class SettingsProvider extends ContentProvider {
         Boolean requestedSafety = null;
         try {
             SharedPreferences preferences=StatusBarSettings.preferences(getContext());
-            Map<String,?> values=preferences.getAll();
+            if(!SettingsSnapshot.notificationAllowed(preferences))
+                throw new IllegalStateException("Settings storage has an unconfirmed failed write");
+            Map<String,?> values=SettingsSnapshot.readableValues(preferences);
             Object safety=values.get(StatusBarSettings.SAFE_MODE);
             if(safety instanceof Boolean)requestedSafety=(Boolean)safety;
             if(values.isEmpty())synchronized(this) {

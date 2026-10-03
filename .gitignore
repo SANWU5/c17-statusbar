@@ -6,6 +6,7 @@
 validation/build-checks/
 validation/build-safe-checks/
 validation/build-safe-config/
+validation/build-*/
 local.properties
 *.apk
 *.aab

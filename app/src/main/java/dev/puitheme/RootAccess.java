@@ -8,6 +8,7 @@ import android.os.Looper;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -117,6 +118,45 @@ public final class RootAccess {
                 return new Result(State.GRANTED, "已获得 Root 权限，可保存配置和切换安全模式。" );
         return new Result(State.DENIED, "未获得 Root 权限，请在 Root 管理器中允许本应用。" );
     }
+
+    /** Only the verified fixed-project installer calls this; no arbitrary command or URL API is exposed. */
+    static boolean installVerified(File apk,String sha256,int userId) throws IOException {
+        String command=installCommand(apk.getCanonicalPath(),sha256,userId);
+        java.lang.Process process=new ProcessBuilder("su","-c",command).redirectErrorStream(true).start();
+        BoundedOutput output=new BoundedOutput();
+        Thread reader=new Thread(()->output.drain(process.getInputStream()),"C17-update-root-output");
+        reader.setDaemon(true);reader.start();
+        try {
+            if(!process.waitFor(120L,TimeUnit.SECONDS)) {
+                // TERM permits the root shell's EXIT trap to remove both copies; installation itself is atomic.
+                process.destroy();throw new IOException("Root installation timed out");
+            }
+            reader.join(500L);
+            if(process.exitValue()!=0)return false;
+            for(String line:output.text().split("\\R"))if("C17_UPDATE_INSTALLED".equals(line.trim()))return true;
+            return false;
+        }catch(InterruptedException interrupted){Thread.currentThread().interrupt();process.destroy();throw new IOException("Root installation interrupted",interrupted);}
+        finally {
+            try{process.getInputStream().close();}catch(IOException ignored){}
+            try{process.getOutputStream().close();}catch(IOException ignored){}
+            try{process.getErrorStream().close();}catch(IOException ignored){}
+        }
+    }
+
+    static String installCommand(String source,String sha256,int userId) {
+        if(source==null||!source.startsWith("/data/")||source.indexOf('\n')>=0||source.indexOf('\r')>=0
+                ||sha256==null||!sha256.matches("[0-9a-f]{64}")||userId<0||userId>99999)
+            throw new IllegalArgumentException("Invalid verified APK");
+        String leaf=new File(source).getName();
+        if(!leaf.matches("c17-update-[0-9a-f]{32}\\.apk"))throw new IllegalArgumentException("Invalid update artifact");
+        String stage="/data/local/tmp/"+leaf;
+        String cleanup="rm -f -- "+shellQuote(stage)+" "+shellQuote(source);
+        return "set -eu; [ \"$(id -u)\" = 0 ]; trap "+shellQuote(cleanup)+" EXIT HUP INT TERM; "
+                +"cp -- "+shellQuote(source)+" "+shellQuote(stage)+"; chmod 644 "+shellQuote(stage)+"; "
+                +"actual=$(sha256sum "+shellQuote(stage)+"); actual=${actual%% *}; [ \"$actual\" = "+shellQuote(sha256)+" ]; "
+                +"pm install -r --user "+userId+" "+shellQuote(stage)+"; printf 'C17_UPDATE_INSTALLED\\n'";
+    }
+    private static String shellQuote(String value){return "'"+value.replace("'","'\"'\"'")+"'";}
 
     private static final class BoundedOutput {
         private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();

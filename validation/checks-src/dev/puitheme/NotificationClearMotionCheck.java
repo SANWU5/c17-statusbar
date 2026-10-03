@@ -8,6 +8,7 @@ import android.view.ViewGroup;
 import java.lang.reflect.Field;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 
 /** Checks native-property ownership and notification clearance without replacing native views. */
 public final class NotificationClearMotionCheck {
@@ -25,12 +26,174 @@ public final class NotificationClearMotionCheck {
     private static void set(Object owner, String name, Object value) throws Exception {
         Field field = owner.getClass().getDeclaredField(name); field.setAccessible(true); field.set(owner, value);
     }
-    public static final class Stack extends ViewGroup {
+    public static class Stack extends ViewGroup {
         public boolean mAnimationRunning;
         Stack() { super(new Context()); }
     }
     private static NotificationClearMotion.Frame frame(float f, float row, float bottom, float motion) {
         return NotificationClearMotion.frame(f, 600f, 48f, row, bottom, 18f, 32f, 0f, motion, 12f);
+    }
+
+    private static final android.os.IBinder TOKEN = (android.os.IBinder) Proxy.newProxyInstance(
+            android.os.IBinder.class.getClassLoader(), new Class<?>[]{android.os.IBinder.class},
+            (object, method, args) -> method.getReturnType() == boolean.class ? false : null);
+    private static final class LandscapeHost extends ViewGroup {
+        int width = 1200, height = 700;
+        boolean rtl;
+        android.os.IBinder token = TOKEN;
+        LandscapeHost() { super(new Context()); }
+        @Override public int getWidth() { return width; }
+        @Override public int getHeight() { return height; }
+        @Override public int getLayoutDirection() { return rtl ? View.LAYOUT_DIRECTION_RTL : View.LAYOUT_DIRECTION_LTR; }
+        @Override public android.os.IBinder getWindowToken() { return token; }
+    }
+    private static final class LandscapeButton extends View {
+        int width = 48, height = 48, top = 300;
+        LandscapeButton() { super(new Context()); offsetLeftAndRight(500); }
+        @Override public int getWidth() { return width; }
+        @Override public int getHeight() { return height; }
+        @Override public int getTop() { return top; }
+        @Override public android.os.IBinder getWindowToken() { return TOKEN; }
+    }
+    private static final class LandscapeStack extends Stack {
+        int left = 400, top = 140, width = 328, height = 500;
+        @Override public int getLeft() { return left; }
+        @Override public int getTop() { return top; }
+        @Override public int getWidth() { return width; }
+        @Override public int getHeight() { return height; }
+        @Override public android.os.IBinder getWindowToken() { return TOKEN; }
+    }
+    private static void draw(View button) {
+        for (android.view.ViewTreeObserver.OnPreDrawListener listener
+                : new java.util.ArrayList<>(button.getViewTreeObserver().preDrawListeners)) listener.onPreDraw();
+    }
+    @SuppressWarnings("unchecked")
+    private static Object bind(NotificationClearMotion motion, LandscapeButton button, Object controller,
+            LandscapeHost host, LandscapeStack stack) throws Exception {
+        Class<?> type = Class.forName("dev.puitheme.NotificationClearMotion$State");
+        Constructor<?> constructor = type.getDeclaredConstructor(NotificationClearMotion.class,
+                View.class, Object.class, View.class, ViewGroup.class); constructor.setAccessible(true);
+        Object state = constructor.newInstance(motion, button, controller, host, stack);
+        ((java.util.Map<View,Object>) field(motion, "states")).put(button, state);
+        ((java.util.ArrayList<Object>) field(motion, "liveStates")).add(state);
+        return state;
+    }
+    private static void landscapeChecks() throws Exception {
+        NotificationClearMotion motion = new NotificationClearMotion();
+        LandscapeHost host = new LandscapeHost(); LandscapeButton button = new LandscapeButton();
+        LandscapeStack stack = new LandscapeStack(); host.addView(stack); host.addView(button);
+        button.getResources().getDisplayMetrics().density = 1f;
+        button.getResources().getConfiguration().orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        host.getResources().getConfiguration().orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        button.setAlpha(.7f); button.setTranslationX(12f); button.setTranslationY(5f);
+        Object controller = new Object(), state = bind(motion,button,controller,host,stack);
+        Bundle settings = new Bundle();
+        motion.configure(settings); motion.onPanelChanged(host, 1f, 0, false);
+        motion.onLandscapeRegion(host, host, true, 900f, 1168f);
+        near(button.getLeft(),500f,"clock rail reports never enable landscape placement");
+        near(button.getTranslationY(),5f,"default landscape keeps native Y");
+        check(!motion.tracks(button),"default landscape has no setter ownership");
+        check(button.getViewTreeObserver().preDrawListeners.isEmpty(),"default landscape has no frame observer");
+        check(!NotificationClearMotion.booleanDefaults().get(NotificationClearMotion.LANDSCAPE_MASTER),"landscape master defaults off");
+        near(NotificationClearMotion.floatDefaults().get(NotificationClearMotion.LANDSCAPE_OFFSET_X),0f,"landscape horizontal default");
+        near(NotificationClearMotion.floatDefaults().get(NotificationClearMotion.LANDSCAPE_OFFSET_Y),0f,"landscape vertical default");
+
+        settings.putBoolean(NotificationClearMotion.LANDSCAPE_MASTER,true);
+        settings.putFloat(NotificationClearMotion.LANDSCAPE_OFFSET_X,20f);
+        settings.putFloat(NotificationClearMotion.LANDSCAPE_OFFSET_Y,-30f);
+        motion.configure(settings); draw(button);
+        near(button.getLeft(),520f,"landscape X is relative to real native layout");
+        near(button.getTranslationY(),-25f,"landscape Y composes native plus independent offset");
+        near(button.getAlpha(),.7f,"landscape uses native alpha without an independent reveal");
+        near(button.getTranslationX(),12f,"landscape preserves native page X");
+        check(!(Boolean)field(motion,"enabled"),"landscape does not require portrait/appearance master");
+        check((Integer)field(state,"reservation")==0,"landscape has no portrait footer reservation");
+        check(((java.util.Map<?,?>)field(motion,"rowAccess")).isEmpty(),"landscape placement never scans notifications");
+        int layouts=stack.layoutRequests;
+        for(int i=0;i<10000;i++)draw(button);
+        check(stack.layoutRequests==layouts,"stable landscape does not feed geometry into stack layout");
+        for(int i=0;i<=100;i++){
+            float nativeY=-80f+i*3f, nativeAlpha=i/100f;
+            button.setTranslationY(motion.nativeTranslationY(button,nativeY));
+            button.setAlpha(motion.nativeAlpha(button,nativeAlpha));
+            button.setTranslationX(i*2f); draw(button);
+            near(button.getTranslationY(),nativeY-30f,"every native gesture Y frame is retained");
+            near(button.getAlpha(),nativeAlpha,"every native fade frame is retained");
+            near(button.getLeft(),520f,"horizontal page translation does not move the base layout");
+            near(button.getTranslationX(),i*2f,"horizontal page animation is never cancelled");
+        }
+        button.offsetLeftAndRight(700-button.getLeft()); draw(button);
+        near(button.getLeft(),720f,"later native relayout becomes the new X baseline");
+        motion.onLandscapeRegion(host,host,false,900,1168);draw(button);
+        near(button.getLeft(),720f,"closing the clock does not release independent landscape position");
+        try(NotificationClearMotion.NativeScope scope=motion.beforeNative(controller)){
+            button.setTranslationY(motion.nativeTranslationY(button,11f));
+            button.setAlpha(motion.nativeAlpha(button,.3f));
+        }
+        near(button.getTranslationY(),-19f,"controller scope reapplies offset to new native input");
+        near(button.getAlpha(),.3f,"controller scope retains its true native alpha");
+        try(NotificationClearMotion.NativeScope scope=motion.beforeNative(controller)){
+            near(button.getLeft(),700f,"controller sees the original layout baseline");
+            button.offsetLeftAndRight(720-button.getLeft());
+        }
+        near(button.getLeft(),740f,"a native layout equal to the previous applied value is still a new baseline");
+        settings.putBoolean(NotificationClearMotion.LANDSCAPE_MASTER,false);motion.configure(settings);
+        near(button.getLeft(),720f,"OFF restores latest native layout, not initial layout");
+        near(button.getTranslationY(),11f,"OFF restores latest native Y");
+        near(button.getAlpha(),.3f,"OFF restores latest native alpha");
+        button.setTranslationY(motion.nativeTranslationY(button,35f));
+        near(button.getTranslationY(),35f,"OFF forwards subsequent native values unchanged");
+        check(!motion.tracks(button),"OFF releases setter ownership");
+        check(button.getViewTreeObserver().preDrawListeners.isEmpty(),"OFF releases the frame observer");
+        settings.putBoolean(NotificationClearMotion.LANDSCAPE_MASTER,true);motion.configure(settings);
+        settings.putBoolean(StatusBarSettings.SAFE_MODE,true);motion.configure(settings);
+        near(button.getLeft(),720f,"safe mode restores native layout");
+        near(button.getTranslationY(),35f,"safe mode restores latest native Y");
+        motion.detach(button);
+        button.getResources().getConfiguration().orientation=android.content.res.Configuration.ORIENTATION_UNDEFINED;
+    }
+    private static void sideRailMotionChecks() throws Exception {
+        NotificationClearMotion motion=new NotificationClearMotion();
+        LandscapeHost host=new LandscapeHost();host.width=3168;host.height=1440;
+        LandscapeButton button=new LandscapeButton();button.width=384;button.height=176;button.top=632;
+        LandscapeStack stack=new LandscapeStack();stack.left=928;stack.top=780;stack.width=1312;stack.height=660;
+        host.addView(stack);host.addView(button);
+        button.getResources().getDisplayMetrics().density=4f;
+        button.getResources().getConfiguration().orientation=android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        host.getResources().getConfiguration().orientation=android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        button.setAlpha(.7f);button.setTranslationY(13f);
+        Object controller=new Object(),state=bind(motion,button,controller,host,stack);
+        Bundle settings=new Bundle();settings.putBoolean(NotificationClearAppearance.MASTER,true);
+        settings.putBoolean(NotificationClearMotion.MOTION_ENABLED,true);
+        settings.putFloat(NotificationClearMotion.OFFSET_Y,180f);
+        motion.configure(settings);motion.onPanelChanged(host,1f,0,false);motion.onMarginHookAvailable(true);draw(button);
+        near(button.getTranslationY(),13f,"portrait position values cannot leak into landscape");
+        near(button.getAlpha(),.7f,"portrait reveal cannot leak into landscape");
+        settings.putBoolean(NotificationClearMotion.LANDSCAPE_MASTER,true);
+        settings.putFloat(NotificationClearMotion.LANDSCAPE_OFFSET_Y,-10f);motion.configure(settings);draw(button);
+        near(button.getTranslationY(),-27f,"landscape uses its own dp offset");
+        int layouts=stack.layoutRequests;
+        for(int i=0;i<1000;i++)draw(button);
+        check(stack.layoutRequests==layouts,"actual C17 dimensions remain stable");
+        check(((java.util.Map<?,?>)field(motion,"rowAccess")).isEmpty(),"actual landscape does not inspect row geometry");
+        check((Integer)field(state,"reservation")==0,"actual landscape is independent of notification footer space");
+        button.getResources().getConfiguration().orientation=android.content.res.Configuration.ORIENTATION_PORTRAIT;
+        host.getResources().getConfiguration().orientation=android.content.res.Configuration.ORIENTATION_PORTRAIT;
+        settings.putBoolean(NotificationClearMotion.MOTION_ENABLED,false);motion.configure(settings);draw(button);
+        near(button.getTranslationY(),13f,"rotation restores native input when portrait motion is off");
+        button.getResources().getConfiguration().orientation=android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        host.getResources().getConfiguration().orientation=android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        motion.onControllerChanged(controller,false);draw(button);
+        near(button.getTranslationY(),-27f,"rotation reuses landscape settings without clock activation");
+        button.setVisibility(View.INVISIBLE);motion.onControllerChanged(controller,false);draw(button);
+        near(button.getTranslationY(),13f,"OEM invisible state releases offset without forcing visibility");
+        button.setVisibility(View.VISIBLE);motion.onControllerChanged(controller,false);draw(button);
+        near(button.getTranslationY(),-27f,"OEM visible state can resume its independent position");
+        motion.onPanelChanged(host,0f,0,true);draw(button);
+        near(button.getTranslationY(),13f,"closed panel releases to the latest native position");
+        near(button.getLeft(),500f,"closed panel releases native layout");
+        motion.detach(button);button.getResources().getDisplayMetrics().density=1f;
+        button.getResources().getConfiguration().orientation=android.content.res.Configuration.ORIENTATION_UNDEFINED;
     }
 
     public static void main(String[] args) throws Exception {
@@ -192,6 +355,8 @@ public final class NotificationClearMotionCheck {
         restore.invoke(motion, state);
         near(button.getAlpha(), 0f, "off restores latest native zero after optimized scope");
         near(button.getTranslationY(), 5f, "off restores stored native translation after optimized scope");
-        System.out.println("NotificationClearMotionCheck passed: " + checks + " (native property ownership, geometry, entry/cancel/rebound, safety headroom, scroll reserve)");
+        landscapeChecks();
+        sideRailMotionChecks();
+        System.out.println("NotificationClearMotionCheck passed: " + checks + " (native property ownership, portrait clearance, independent landscape offsets/native frames)");
     }
 }

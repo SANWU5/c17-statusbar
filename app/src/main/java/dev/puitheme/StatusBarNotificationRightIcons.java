@@ -48,7 +48,7 @@ final class StatusBarNotificationRightIcons {
             boolean portrait = portrait(c != null ? c : h);
             // Parent onAttachedToWindow precedes the children's attach dispatch. Keep
             // the exact pending clock, then bind it when that child really attaches.
-            clock.bind(c); visibility.bind(c); visibility.configure(clockDisabled && portrait);
+            clock.bind(c); visibility.bind(c); visibility.configure(clockDisabled);
             clock.configure(iconsEnabled && !clockDisabled && portrait);
             clock.progress(fraction, portrait && !clockDisabled && permitted && h != null && c != null
                     && h.isAttachedToWindow() && c.isAttachedToWindow() && within(c, h));
@@ -59,7 +59,7 @@ final class StatusBarNotificationRightIcons {
             row.configure(enabled); fake.configure(enabled);
             refresh(fraction, enabled && permitted);
         }
-        void restore() { row.restore(); fake.restore(); clock.restore(); if (!clockDisabled || !portrait(smallClock.get())) visibility.restore(); }
+        void restore() { row.restore(); fake.restore(); clock.restore(); if (!clockDisabled) visibility.restore(); }
     }
 
     /** The replaced native header clock stays in its layout; it never participates in opacity motion. */
@@ -77,12 +77,12 @@ final class StatusBarNotificationRightIcons {
         int nativeVisibility(View target, int value) {
             if (writing || source.get() != target) return value;
             nativeValue = value;
-            if (!enabled || !portrait(target) || ModuleLifecycle.removed()) { owned = false; return value; }
+            if (!enabled || ModuleLifecycle.removed()) { owned = false; return value; }
             applied = value == View.GONE ? View.GONE : View.INVISIBLE; owned = true; return applied;
         }
         void apply() {
             View view = source.get();
-            if (!enabled || !portrait(view) || ModuleLifecycle.removed() || view == null) { restore(); return; }
+            if (!enabled || ModuleLifecycle.removed() || view == null) { restore(); return; }
             if (!owned || view.getVisibility() != applied) nativeValue = view.getVisibility();
             applied = nativeValue == View.GONE ? View.GONE : View.INVISIBLE;
             owned = true; write(view, applied);

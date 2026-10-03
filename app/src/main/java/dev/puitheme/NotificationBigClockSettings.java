@@ -9,6 +9,11 @@ import java.util.Map;
 
 /** Notification-only big-clock defaults and reversible conflicts with the original header. */
 public final class NotificationBigClockSettings {
+    public static final String PORTRAIT_PREFIX="notification_big_clock_";
+    public static final String LANDSCAPE_PREFIX="notification_big_clock_landscape_";
+    public static final String LANDSCAPE_MASTER=LANDSCAPE_PREFIX+"enabled";
+    public static final String LANDSCAPE_NOTIFICATION_WIDTH_ENABLED=LANDSCAPE_PREFIX+"notification_width_enabled";
+    public static final String LANDSCAPE_NOTIFICATION_WIDTH=LANDSCAPE_PREFIX+"notification_width";
     public static final String MASTER="notification_big_clock_enabled";
     public static final String PATTERN="notification_big_clock_pattern";
     public static final String DATE_DEFAULT="M月d日{周} {干支}{农历日期}";
@@ -52,6 +57,7 @@ public final class NotificationBigClockSettings {
     public static final String DATE_COLOR_DARK="notification_big_clock_date_color_dark";
     public static final String DATE_ALIGNMENT="notification_big_clock_date_alignment";
     public static final String STACK_ENABLED="notification_big_clock_stack_enabled";
+    public static final String INTERACTIVE_STACK="notification_big_clock_interactive_stack_enabled";
     public static final String VISIBLE_COUNT="notification_big_clock_visible_count";
     public static final String TAIL_WIDTH_1="notification_big_clock_tail_width_1";
     public static final String TAIL_WIDTH_2="notification_big_clock_tail_width_2";
@@ -82,11 +88,13 @@ public final class NotificationBigClockSettings {
     static {
         Map<String,Boolean> booleans=new LinkedHashMap<>();
         booleans.put(MASTER,false);booleans.put(GLASS,true);booleans.put(DATE_ENABLED,true);
-        booleans.put(STACK_ENABLED,false);booleans.put(FOOTER_ENABLED,false);
+        booleans.put(STACK_ENABLED,false);booleans.put(INTERACTIVE_STACK,false);booleans.put(FOOTER_ENABLED,false);
         booleans.put(GLASS_BORDER_ENABLED,true);booleans.put(ENTRY_EFFECT_ENABLED,true);
         booleans.put(NOTIFICATION_EDGE_ENABLED,true);
         booleans.put(NOTIFICATION_GAP_ENABLED,true);
         booleans.put(STATUS_ICONS_FIXED,true);
+        copyLandscape(booleans);
+        booleans.put(LANDSCAPE_NOTIFICATION_WIDTH_ENABLED,false);
         BOOLEANS=Collections.unmodifiableMap(booleans);
         Map<String,Float> numbers=new LinkedHashMap<>();
         numbers.put(SCALE,100f);numbers.put(COMPACT_SCALE,36f);
@@ -95,7 +103,7 @@ public final class NotificationBigClockSettings {
         numbers.put(COMPACT_OFFSET_X,0f);numbers.put(COMPACT_OFFSET_Y,0f);numbers.put(LETTER_SPACING,0f);
         numbers.put(DATE_SIZE,15f);numbers.put(DATE_WEIGHT,600f);numbers.put(DATE_OFFSET_X,0f);
         numbers.put(DATE_OFFSET_Y,0f);numbers.put(DATE_GAP,12f);
-        numbers.put(VISIBLE_COUNT,3f);numbers.put(STACK_GAP,8f);numbers.put(NOTIFICATION_GAP,18f);
+        numbers.put(VISIBLE_COUNT,1f);numbers.put(STACK_GAP,8f);numbers.put(NOTIFICATION_GAP,18f);
         numbers.put(STACK_INSET,8f);
         numbers.put(TAIL_WIDTH_1,96f);numbers.put(TAIL_WIDTH_2,92f);numbers.put(TAIL_WIDTH_3,88f);
         numbers.put(FOOTER_SIZE,13f);numbers.put(FOOTER_WEIGHT,400f);numbers.put(FOOTER_OFFSET_X,0f);
@@ -105,29 +113,55 @@ public final class NotificationBigClockSettings {
         numbers.put(ENTRY_TRAVEL,32f);
         numbers.put(NOTIFICATION_EDGE_SAFE_DISTANCE,18f);numbers.put(NOTIFICATION_EDGE_RANGE,24f);
         numbers.put(NOTIFICATION_EDGE_BLUR_RADIUS,8f);
+        copyLandscape(numbers);
+        numbers.put(LANDSCAPE_NOTIFICATION_WIDTH,100f);
         NUMBERS=Collections.unmodifiableMap(numbers);
         Map<String,Integer> colors=new LinkedHashMap<>();
         colors.put(COLOR_LIGHT,0xffffffff);colors.put(COLOR_DARK,0xffffffff);
         colors.put(DATE_COLOR_LIGHT,0xffffffff);colors.put(DATE_COLOR_DARK,0xffffffff);
         colors.put(FOOTER_COLOR_LIGHT,0xffffffff);colors.put(FOOTER_COLOR_DARK,0xffffffff);
         colors.put(GLASS_BORDER_COLOR_LIGHT,0xffffffff);colors.put(GLASS_BORDER_COLOR_DARK,0xffffffff);
+        copyLandscape(colors);
         COLORS=Collections.unmodifiableMap(colors);
         Map<String,String> strings=new LinkedHashMap<>();
         strings.put(PATTERN,TimeFormat.CLOCK_DEFAULT);strings.put(DATE_PATTERN,DATE_DEFAULT);
         strings.put(ALIGNMENT,"center");strings.put(FONT,"native");strings.put(DATE_ALIGNMENT,"center");
         strings.put(FOOTER_PATTERN,"{text}");strings.put(FOOTER_TEXT,"");strings.put(FOOTER_ALIGNMENT,"center");
+        copyLandscape(strings);
         STRINGS=Collections.unmodifiableMap(strings);
+    }
+    /** Independent defaults: upgrading never enables landscape from the portrait switch. */
+    private static <T> void copyLandscape(Map<String,T> values) {
+        for(Map.Entry<String,T> item:new LinkedHashMap<>(values).entrySet()) {
+            String key=item.getKey();
+            if(!key.startsWith(PORTRAIT_PREFIX)||INTERACTIVE_STACK.equals(key)
+                    ||STATUS_ICONS_FIXED.equals(key)||STACK_GAP.equals(key)||STACK_INSET.equals(key))continue;
+            values.put(landscapeKey(key),item.getValue());
+        }
+    }
+    public static String landscapeKey(String portraitKey) {
+        return portraitKey!=null&&portraitKey.startsWith(PORTRAIT_PREFIX)
+                &&!portraitKey.startsWith(LANDSCAPE_PREFIX)
+                ? LANDSCAPE_PREFIX+portraitKey.substring(PORTRAIT_PREFIX.length()):portraitKey;
+    }
+    public static String portraitKey(String key) {
+        return key!=null&&key.startsWith(LANDSCAPE_PREFIX)
+                ? PORTRAIT_PREFIX+key.substring(LANDSCAPE_PREFIX.length()):key;
+    }
+    public static boolean enabled(android.os.Bundle source,boolean landscape) {
+        return source!=null&&Boolean.TRUE.equals(source.get(landscape?LANDSCAPE_MASTER:MASTER));
     }
     private NotificationBigClockSettings(){}
 
-    /** Limit complete cards without deleting or changing any native notification. */
+    /** Complete cards are bounded by the actual native rows, never by the slider suggestion. */
     public static int visibleCount(Object stored) {
-        float value=stored instanceof Number?((Number)stored).floatValue():3f;
-        if(Float.isNaN(value)||Float.isInfinite(value))value=3f;
-        return Math.max(1,Math.min(3,Math.round(value)));
+        double value=stored instanceof Number?((Number)stored).doubleValue():1d;
+        if(Double.isNaN(value)||Double.isInfinite(value))value=1d;
+        return (int)Math.max(1L,Math.min(Integer.MAX_VALUE,Math.round(value)));
     }
 
     public static boolean positiveSize(String key) {
+        key=portraitKey(key);
         return MAX_SIZE.equals(key)||COMPACT_MAX_SIZE.equals(key)||DATE_SIZE.equals(key)||FOOTER_SIZE.equals(key);
     }
     /** Pure user text is passed as content, never interpreted as a date pattern. */
@@ -142,7 +176,7 @@ public final class NotificationBigClockSettings {
 
     /** Ignore originals only while the replacement is actually shown; never erase their saved values. */
     public static boolean suppressed(String group,boolean portrait,boolean notification,boolean bigEnabled) {
-        return portrait&&notification&&bigEnabled&&("shade_clock".equals(group)||"clock".equals(group)
+        return notification&&bigEnabled&&("shade_clock".equals(group)||"clock".equals(group)
                 ||NATIVE_CLOCK.equals(group)||CarrierPanels.NOTIFICATION.equals(group));
     }
 

@@ -4,6 +4,7 @@ public class RectF {
     public RectF() { }
     public RectF(float left,float top,float right,float bottom) {this.left=left;this.top=top;this.right=right;this.bottom=bottom;}
     public float width() {return right-left;}
+    public boolean contains(float x,float y){return x>=left&&x<right&&y>=top&&y<bottom;}
     public float height() {return bottom-top;}
     public float centerX() {return (left+right)/2;}
     public float centerY() {return (top+bottom)/2;}

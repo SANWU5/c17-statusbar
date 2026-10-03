@@ -25,6 +25,7 @@ import java.util.function.BooleanSupplier;
 public final class FontRepository {
     private static final String MODULE = "dev.puitheme.iosstatusbar";
     private static String mode = "system", revision = "";
+    private static long styleRevision;
     private static Context moduleContext;
     private static boolean contextFailureLogged, fontFailureLogged;
     private static final Object IMPORT_LOCK = new Object();
@@ -35,11 +36,14 @@ public final class FontRepository {
         @Override protected boolean removeEldestEntry(Map.Entry<String,Typeface> entry) { return size() > 96; }
     };
     private FontRepository() { }
+    /** A cheap event token for native renderers; reading it never loads or changes a font. */
+    static synchronized long styleRevision(){return styleRevision;}
 
     /** Release mapped fonts/context when the loaded module is removed; persisted files belong to the app. */
     public static synchronized void releaseRuntime() {
         CACHE.clear();MODE_CACHE.clear();FontWeight.release();moduleContext=null;
         mode="system";revision="";contextFailureLogged=false;fontFailureLogged=false;
+        styleRevision++;
     }
 
     public static synchronized void configure(Context context, String newMode, String newRevision) {
@@ -49,6 +53,7 @@ public final class FontRepository {
         if (newRevision == null) newRevision = "";
         if (!newMode.equals(mode) || !newRevision.equals(revision)) {
             mode = newMode; revision = newRevision; CACHE.clear();MODE_CACHE.clear();FontWeight.release();fontFailureLogged=false;
+            styleRevision++;
             ModuleDiagnostics.info("font","Font source changed: "+mode);
         }
     }

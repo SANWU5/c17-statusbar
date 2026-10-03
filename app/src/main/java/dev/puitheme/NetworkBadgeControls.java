@@ -39,6 +39,9 @@ final class NetworkBadgeControls {
         }
     }
     private State state(View view) {
+        // The independently enabled label owns this exact native TextView. The native
+        // badge hiding switch still applies to all other nodes, including Tigo images.
+        if (SingleNetworkLabelControls.managed(view)) { views.remove(view); return null; }
         if (view == null || view.getId() <= 0) return null;
         State state=views.get(view);
         if(state!=null) {

@@ -69,8 +69,10 @@ public final class ConfigTransfer {
     public static Map<String, Type> types() { return TYPES; }
 
     private static boolean portableString(String key) {
+        if (LockscreenControls.DATE_FORMAT.equals(key)) return true;
         if (NotificationIconArea.MODE.equals(key) || NotificationIconArea.TEXT.equals(key)) return true;
-        if (key.equals(StatusBarSettings.FONT_MODE) || key.equals(StatusBarSettings.SIGNAL_LAYOUT)
+        if (key.equals(StatusBarSettings.FONT_MODE) || key.equals(NativeNetworkBadgeControls.FONT) || key.equals(StatusBarSettings.SIGNAL_LAYOUT)
+                || key.equals(NetworkSpeedControls.DISPLAY_STYLE)
                 || key.equals(StatusBarSettings.BATTERY_STYLE) || key.equals(StatusBarSettings.CLOCK_PATTERN)
                 || key.equals(StatusBarSettings.SHADE_CLOCK_PATTERN)
                 || NotificationBigClockSettings.STRINGS.containsKey(key)
@@ -190,7 +192,7 @@ public final class ConfigTransfer {
                 validated.put(key, true);
                 continue;
             }
-            if (NotificationBigClockSettings.STACK_ENABLED.equals(key)) {
+            if (StatusBarShadeIconSettings.MASTER.equals(key)) {
                 validated.put(key, false);
                 continue;
             }
@@ -208,7 +210,7 @@ public final class ConfigTransfer {
                     if (numericError != null) throw invalid(numericError);
                     if (QsTileCorners.RADIUS.equals(key) && (number < 0f || number > QsTileCorners.MAX_RADIUS))
                         throw invalid("圆角半径应为 0 到 30 dp");
-                    if (NotificationIconArea.MAX_COUNT.equals(key) && (number < 0f || number != Math.floor(number)))
+                    if ((NativeStatusIcons.MAX.equals(key)||NotificationIconArea.MAX_COUNT.equals(key)) && (number < 0f || number != Math.floor(number)))
                         throw invalid("图标数量应为非负整数，0 表示不显示");
                     // Persist finite user values verbatim; rendering has separate physical guards.
                     value = number;
@@ -228,13 +230,26 @@ public final class ConfigTransfer {
                     if (!(value instanceof String)) throw invalid("文本设置类型不正确");
                     value = validateString(key, (String) value);
             }
-            validated.put(key, value);
+            validated.put(key, NotificationGroupStack.MASTER.equals(key) ? false : value);
         }
-        boolean fallback = !customFontAvailable && ("custom".equals(validated.get(StatusBarSettings.FONT_MODE))
-                || "custom".equals(validated.get(NotificationBigClockSettings.FONT)));
+        if(validated.containsKey(NativeDataActivity.MASTER)||validated.containsKey(StatusBarSettings.DATA_ACTIVITY_HIDDEN))
+            validated.put(StatusBarSettings.DATA_ACTIVITY_HIDDEN,!StatusBarSettings.bool(validated,NativeDataActivity.MASTER));
+        // Older exports use seconds. Explicitly import the matching millisecond value even
+        // when this device already has a newer millisecond setting saved.
+        if (!validated.containsKey(NetworkSpeedControls.INTERVAL_MILLIS)
+                && validated.containsKey(NetworkSpeedControls.INTERVAL_SECONDS))
+            validated.put(NetworkSpeedControls.INTERVAL_MILLIS,
+                    SettingsFrameworkMirror.migratedSpeedMillis(validated.get(NetworkSpeedControls.INTERVAL_SECONDS)));
+        boolean fallback = !customFontAvailable && ("custom".equals(validated.get(NativeNetworkBadgeControls.FONT))
+                || "custom".equals(validated.get(StatusBarSettings.FONT_MODE))
+                || "custom".equals(validated.get(NotificationBigClockSettings.FONT))
+                || "custom".equals(validated.get(NotificationBigClockSettings.landscapeKey(NotificationBigClockSettings.FONT))));
         if (!customFontAvailable) {
+            if ("custom".equals(validated.get(NativeNetworkBadgeControls.FONT))) validated.put(NativeNetworkBadgeControls.FONT, "system");
             if ("custom".equals(validated.get(StatusBarSettings.FONT_MODE))) validated.put(StatusBarSettings.FONT_MODE, "system");
             if ("custom".equals(validated.get(NotificationBigClockSettings.FONT))) validated.put(NotificationBigClockSettings.FONT, "system");
+            String landscapeFont = NotificationBigClockSettings.landscapeKey(NotificationBigClockSettings.FONT);
+            if ("custom".equals(validated.get(landscapeFont))) validated.put(landscapeFont, "system");
         }
         return new PreparedImport(validated, fallback);
     }
@@ -254,8 +269,10 @@ public final class ConfigTransfer {
             else if (value instanceof Integer) editor.putInt(key, (Integer) value);
             else editor.putString(key, (String) value);
         }
-        if (!prepared.values.containsKey(StatusBarSettings.DATA_ACTIVITY_HIDDEN))
-            editor.putBoolean(StatusBarSettings.DATA_ACTIVITY_HIDDEN, true);
+        Map<String,Object> arrowState=new LinkedHashMap<>(preferences.getAll());arrowState.putAll(prepared.values);
+        editor.putBoolean(StatusBarSettings.DATA_ACTIVITY_HIDDEN,!StatusBarSettings.bool(arrowState,NativeDataActivity.MASTER));
+        // A partial import must also stop a retired switch already saved on this device.
+        editor.putBoolean(NotificationGroupStack.MASTER, false);
         return editor.commit();
     }
 
@@ -281,14 +298,17 @@ public final class ConfigTransfer {
     }
 
     private static String validateString(String key, String value) throws IOException {
+        String clockKey = NotificationBigClockSettings.portraitKey(key);
         if (value == null || !validUnicode(value)) throw invalid("文本包含无效字符");
         if (NotificationIconArea.MODE.equals(key)) {
             requireChoice(value, "native", "heart", "text", "image");
         } else if (NotificationIconArea.TEXT.equals(key)) {
             if (value.codePointCount(0,value.length()) > 12) throw invalid("通知图标文字最多 12 个字符");
             for(int i=0;i<value.length();i++)if(Character.isISOControl(value.charAt(i)))throw invalid("通知图标文字需要单行");
-        } else if (NotificationBigClockSettings.FOOTER_PATTERN.equals(key)) {
+        } else if (NotificationBigClockSettings.FOOTER_PATTERN.equals(clockKey)) {
             if (NotificationBigClockSettings.footerValidationError(value) != null) throw invalid("配置中的底部内容格式无效");
+        } else if (LockscreenControls.DATE_FORMAT.equals(key)) {
+            if (TimeFormat.validationError(value) != null) throw invalid("配置中的锁屏日期格式无效");
         } else if (key.endsWith("_pattern")) {
             if (TimeFormat.validationError(value) != null) throw invalid("配置中的时间格式无效");
         } else if (key.endsWith("_text")) {
@@ -296,15 +316,19 @@ public final class ConfigTransfer {
                 throw invalid("自定义文字需要单行且不超过 120 个字符");
             for (int i = 0; i < value.length(); i++) if (Character.isISOControl(value.charAt(i)))
                 throw invalid("自定义文字包含控制字符");
-        } else if (NotificationBigClockSettings.FONT.equals(key)) {
+        } else if (NotificationBigClockSettings.FONT.equals(clockKey)) {
             requireChoice(value, "native", "system", "pingfang", "custom");
-        } else if (NotificationBigClockSettings.ALIGNMENT.equals(key)||NotificationBigClockSettings.DATE_ALIGNMENT.equals(key)
-                ||NotificationBigClockSettings.FOOTER_ALIGNMENT.equals(key)) {
+        } else if (NotificationBigClockSettings.ALIGNMENT.equals(clockKey)||NotificationBigClockSettings.DATE_ALIGNMENT.equals(clockKey)
+                ||NotificationBigClockSettings.FOOTER_ALIGNMENT.equals(clockKey)) {
             requireChoice(value, "left", "center", "right");
+        } else if (key.equals(NativeNetworkBadgeControls.FONT)) {
+            requireChoice(value, "native", "global", "system", "pingfang", "custom");
         } else if (key.equals(StatusBarSettings.FONT_MODE)) {
             requireChoice(value, "system", "pingfang", "custom");
         } else if (key.equals(StatusBarSettings.SIGNAL_LAYOUT)) {
             requireChoice(value, "system", "single");
+        } else if (key.equals(NetworkSpeedControls.DISPLAY_STYLE)) {
+            requireChoice(value, "system", "stacked", "inline", "number");
         } else if (key.equals(StatusBarSettings.BATTERY_STYLE)) {
             requireChoice(value, "pui", "native");
         } else if (key.endsWith("_mode")) requireChoice(value, "original", "text", "time");

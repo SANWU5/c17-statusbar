@@ -40,7 +40,8 @@ public final class SettingEditor {
     }
     public static Info forItem(SettingsCatalog.Item item,Map<String,?> values){
         Object value=storedValue(item,values);
-        boolean numeric=SettingsCatalog.NUMERIC.equals(item.type),integer=NotificationIconArea.MAX_COUNT.equals(item.key);
+        boolean numeric=SettingsCatalog.NUMERIC.equals(item.type),integer=NativeStatusIcons.MAX.equals(item.key)||NotificationIconArea.MAX_COUNT.equals(item.key)
+                ||NotificationBigClockSettings.VISIBLE_COUNT.equals(NotificationBigClockSettings.portraitKey(item.key));
         boolean pattern=item.key.endsWith("_pattern"),signed=NumericPolicy.signed(item.key);
         String initial=value==null?"":numeric?valueText(value):value.toString();
         String summary=numeric?"当前值："+formatted(item,value)+"\n默认值："+formatted(item,item.defaultValue)
@@ -62,9 +63,13 @@ public final class SettingEditor {
         return title+(section.isEmpty()?"":" · "+section);
     }
     private static String numericDescription(SettingsCatalog.Item item,Map<String,?> values){
-        String key=item.key;
-        if(QsTileCorners.RADIUS.equals(key))return "统一调整磁贴、音乐、亮度、音量与设备卡片的圆角。0 为直角，允许 0～30 dp；手动输入的小数不按滑块步长取整。\n先试用20秒，确认后保存。";
-        if(NotificationIconArea.MAX_COUNT.equals(key))return "仅用于原生通知图标，必须为非负整数。0 表示不显示图标，不删除通知；可超过滑块建议数量。\n先试用20秒，确认后保存。";
+        String key=NotificationBigClockSettings.portraitKey(item.key);
+        if(QsTileCorners.RADIUS.equals(key))return "统一调整磁贴、音乐、亮度、音量与设备卡片的圆角。0 为直角，允许 0～30 dp；手动输入的小数不按滑块步长取整。\n建议范围内直接保存，不自动开启功能。";
+        if(NotificationIconArea.MAX_COUNT.equals(key))return "仅用于原生通知图标，必须为非负整数。0 表示不显示图标，不删除通知；可超过滑块建议数量。\n建议范围内直接保存；范围外先试用20秒，确认后保存。";
+        if(NativeStatusIcons.MAX.equals(key))return "只计算蓝牙、定位、闹钟等系统提示图标，不包含通知、网络和电池。填写非负整数；0 隐藏提示图标，优先级靠前的先保留。超出实际数量时仅显示现有提示。\n建议范围内直接保存；范围外先试用20秒，未确认自动恢复。";
+        if(NativeStatusIcons.X.equals(key)||NativeStatusIcons.Y.equals(key))return "相对于系统默认位置，水平正值向右、负值向左；垂直正值向下、负值向上。只移动提示图标，保留原生动画；显示位置限制在实际可用空间内，避免覆盖网络区域或被父容器裁切。\n建议范围内直接保存；范围外先试用20秒，未确认自动恢复。";
+        if(NativeStatusIcons.SPACING.equals(key))return "在原生提示图标间距上增加所填距离；0 保留系统间距。实际显示受容器空间限制，不改动蜂窝信号、电池和Wi-Fi的间距。\n建议范围内直接保存；范围外先试用20秒，未确认自动恢复。";
+        if(NotificationBigClockSettings.VISIBLE_COUNT.equals(key))return "设置通知堆叠中完整显示的通知数量，填写 1 到 2147483647 的整数；建议 1～5，可超过建议值。超过实际通知数量时全部正常显示，不生成额外通知。\n建议范围内直接保存；范围外先试用20秒，未确认自动恢复。";
         String detail;
         if(key.endsWith("_weight")||StatusBarSettings.FONT_WEIGHT.equals(key))detail=weightDescription(item,values);
         else if(key.endsWith("offset_x"))detail=positionDescription(item,true);
@@ -73,15 +78,16 @@ public final class SettingEditor {
         else if(key.endsWith("_spacing"))detail="在原生字距上增加或减少所填距离，正值放宽、负值收紧，0 不额外调整。";
         else if(key.endsWith("_line_gap"))detail="调整数字与单位之间的距离，支持正负值，0 不额外增加间距。";
         else if("sp".equals(item.unit))detail="以 sp 设置字号，会跟随系统字体大小缩放。";
-        else if("秒".equals(item.unit))detail="以秒填写时长，支持小数，例如 0.25 表示250毫秒。";
+        else if("ms".equals(item.unit))detail="以毫秒填写网速刷新间隔，1 秒等于1000毫秒。建议 1～500，间隔越短计算和更新越频繁；低于1毫秒按1毫秒处理。";
+        else if("秒".equals(item.unit)||"s".equals(item.unit))detail="以秒填写时长，支持小数，例如 0.25 表示250毫秒。";
         else if("°".equals(item.unit))detail="以度填写渐变方向，不需要输入度数符号。";
         else if("%".equals(item.unit))detail="直接填写百分数，不需要输入 %；例如 100 表示100%。";
         else if("dp".equals(item.unit))detail="以 dp 设置"+item.title+"，按屏幕密度换算为实际显示距离。";
         else detail=item.description;
-        return detail+"\n支持小数和科学计数法，建议范围不限制手动输入。极端值可能造成错位、不可见、卡顿或系统界面异常；实际绘制仍受物理保护。\n先试用20秒，确认后保存；未确认自动恢复，不自动开启功能。";
+        return detail+"\n支持小数和科学计数法，建议范围不限制手动输入。极端值可能造成错位、不可见、卡顿或系统界面异常；实际绘制仍受物理保护。\n建议范围内直接保存；范围外先试用20秒，确认后保存，未确认自动恢复，不自动开启功能。";
     }
     private static String positionDescription(SettingsCatalog.Item item,boolean horizontal){
-        String base="notification_big_clock".equals(item.groupId)
+        String base=item.groupId.startsWith("notification_big_clock")
                 ?item.key.contains("_compact_offset_")?"在初始偏移上额外调整收起位置": "相对该内容的默认布局位置调整"
                 :"相对原生位置调整";
         return base+"："+(horizontal?"正值向右，负值向左":"正值向下，负值向上")+"，0 不增加偏移。";
@@ -89,7 +95,10 @@ public final class SettingEditor {
     private static String weightDescription(SettingsCatalog.Item item,Map<String,?> values){
         String mode;
         if("battery".equals(item.groupId))mode="native";
-        else if("notification_big_clock".equals(item.groupId))mode=StatusBarSettings.string(values,NotificationBigClockSettings.FONT);
+        else if("native_network_badge".equals(item.groupId))mode=StatusBarSettings.string(values,NativeNetworkBadgeControls.FONT);
+        else if(item.groupId.startsWith("notification_big_clock"))mode=StatusBarSettings.string(values,
+                "notification_big_clock_landscape".equals(item.groupId)
+                        ?NotificationBigClockSettings.landscapeKey(NotificationBigClockSettings.FONT):NotificationBigClockSettings.FONT);
         else mode=StatusBarSettings.bool(values,"font_enabled")?StatusBarSettings.string(values,StatusBarSettings.FONT_MODE):"system";
         if("global".equals(mode))mode=StatusBarSettings.bool(values,"font_enabled")?StatusBarSettings.string(values,StatusBarSettings.FONT_MODE):"system";
         String source;
@@ -101,10 +110,12 @@ public final class SettingEditor {
         return "当前来源："+source+"。数值越大通常越粗；保存小数原值，实际绘制映射至1～1000的整数并遵守所选字体的真实轴范围。";
     }
     private static String textDescription(SettingsCatalog.Item item){
+        String key=NotificationBigClockSettings.portraitKey(item.key);
+        if(NativeStatusIcons.PRIORITY.equals(item.key))return "按优先顺序输入，例如：蓝牙,定位,闹钟。也可使用 bluetooth,location,alarm_clock 等系统标识；列表靠前项在数量不足时优先显示，未列出的保持系统顺序。只对当前存在且未被系统屏蔽的提示生效，不创造新图标。";
         if(NotificationIconArea.TEXT.equals(item.key))return "存在可显示通知且显示方式为自定义文字时使用。可输入中文、英文或 emoji，最多12个 Unicode 字符；保持单行。";
-        if(item.key.endsWith("_pattern"))return (NotificationBigClockSettings.FOOTER_PATTERN.equals(item.key)
+        if(item.key.endsWith("_pattern"))return (NotificationBigClockSettings.FOOTER_PATTERN.equals(key)
                 ?"底部内容格式：{text} 插入已设置的纯文本；例如 HH:mm {text}。"
-                :NotificationBigClockSettings.DATE_PATTERN.equals(item.key)?"日期格式：例如 M月d日 {星期}，支持 {农历} 与 {干支}。"
+                :NotificationBigClockSettings.DATE_PATTERN.equals(key)?"日期格式：例如 M月d日 {星期}，支持 {农历} 与 {干支}。"
                 :"时间格式：HH:mm 为24小时制，hh:mm 为12小时制，HH:mm:ss 显示秒；可使用 {星期} 与 {时段}。")
                 +"\n最多"+TimeFormat.MAX_PATTERN+"个字符，保持单行；英文固定文字使用成对单引号。";
         return item.description+(item.description.isEmpty()?"":"\n")+"保持单行，最多"+TimeFormat.MAX_TEXT+"个字符；保存文字不会自动开启对应功能。";

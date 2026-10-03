@@ -21,7 +21,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** Activity-only release checks. This class never downloads or installs an APK. */
+/** Activity-only official release metadata. Installation is a separate explicit, verified operation. */
 public final class GitHubUpdates {
     public static final String REPO_URL = "https://github.com/SANWU5/c17-statusbar";
     public static final String API_URL = "https://api.github.com/repos/SANWU5/c17-statusbar/releases/latest";
@@ -44,9 +44,15 @@ public final class GitHubUpdates {
         public final Status status;
         public final String message, version, body, releaseUrl, apkUrl;
         public final boolean newer;
+        public final long apkSize;
+        public final String apkSha256;
 
         private Result(Status status, String message, String version, String body,
                        String releaseUrl, String apkUrl) {
+            this(status,message,version,body,releaseUrl,apkUrl,0L,"");
+        }
+        private Result(Status status,String message,String version,String body,
+                       String releaseUrl,String apkUrl,long apkSize,String apkSha256) {
             this.status = status;
             this.message = nonNull(message);
             this.version = nonNull(version);
@@ -54,7 +60,9 @@ public final class GitHubUpdates {
             this.releaseUrl = nonNull(releaseUrl);
             this.apkUrl = nonNull(apkUrl);
             this.newer = status == Status.UPDATE_AVAILABLE;
+            this.apkSize=apkSize;this.apkSha256=nonNull(apkSha256);
         }
+        public boolean canInstall(){return newer&&UpdateSecurity.validArtifact(version,releaseUrl,apkUrl,apkSize,apkSha256);}
     }
 
     /** Starts a background request and always delivers its result on the main looper. */
@@ -144,6 +152,7 @@ public final class GitHubUpdates {
                 return error(Status.INVALID_RESPONSE, "更新信息不完整，请到项目主页查看");
             String notes = plainText(release.optString("body", ""), MAX_BODY_CHARACTERS);
             String apk = "";
+            long apkSize=0L;String apkSha256="";
             int selectedScore = -1;
             JSONArray assets = release.optJSONArray("assets");
             if (assets != null) for (int i = 0; i < assets.length(); i++) {
@@ -153,15 +162,20 @@ public final class GitHubUpdates {
                 if (!isApkUrl(candidate)) continue;
                 String name = asset.optString("name", "").toLowerCase(Locale.ROOT);
                 int score = name.contains("c17") ? 2 : name.contains("statusbar") ? 1 : 0;
-                if (score > selectedScore) { apk = candidate; selectedScore = score; }
+                if (score > selectedScore) {
+                    apk=candidate;selectedScore=score;
+                    Object size=asset.opt("size");
+                    apkSize=size instanceof Number?((Number)size).longValue():0L;
+                    apkSha256=UpdateSecurity.digest(asset.optString("digest",""));
+                }
             }
             Integer compared = compareVersion(tag, localVersion);
             if (compared == null)
-                return new Result(Status.UNKNOWN_VERSION, "发现正式发布，但版本号无法自动比较，请手动查看", tag, notes, releaseUrl, apk);
+                return new Result(Status.UNKNOWN_VERSION, "发现正式发布，但版本号无法自动比较，请手动查看", tag, notes, releaseUrl, apk,apkSize,apkSha256);
             if (compared > 0)
-                return new Result(Status.UPDATE_AVAILABLE, "发现新版本 " + tag, tag, notes, releaseUrl, apk);
+                return new Result(Status.UPDATE_AVAILABLE, "发现新版本 " + tag, tag, notes, releaseUrl, apk,apkSize,apkSha256);
             return new Result(Status.UP_TO_DATE, compared < 0 ? "当前本地版本高于最新正式发布（" + tag + "）"
-                    : "当前已是最新正式发布", tag, notes, releaseUrl, apk);
+                    : "当前已是最新正式发布", tag, notes, releaseUrl, apk,apkSize,apkSha256);
         } catch (JSONException | IllegalArgumentException ignored) {
             return error(Status.INVALID_RESPONSE, "无法读取更新信息，请稍后再试");
         }

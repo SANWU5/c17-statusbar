@@ -1,37 +1,48 @@
-# C17 Status Bar · 1.6.0
+# C17 Status Bar · 1.7.1
 
-Author: aiingjie · Package: `dev.puitheme.iosstatusbar` · versionCode: 51
+A SystemUI customization module for ColorOS 17, primarily developed against OnePlus 13. Uses LibXposed API 101; package: `dev.puitheme.iosstatusbar`.
 
-The current version is the **1.6.0 stable release** (versionCode 51), published as [v1.6.0](https://github.com/SANWU5/c17-statusbar/releases/tag/v1.6.0). The primary device reference is OnePlus 13 running ColorOS 17. Desktop regression checks passed 51 groups and 76,430 assertions; no additional device-operation tests were performed for this build. See [Validation](VALIDATION.md) for the exact scope. Export any configuration you wish to retain before updating.
+**1.7.1 stable release / versionCode 63.** Get the APK from [GitHub Releases](https://github.com/SANWU5/c17-statusbar/releases). See the [1.7.1 release notes](docs/RELEASE-1.7.1.zh-CN.md) for changes since 1.6.0 and the [validation record](VALIDATION.md) for actual verification scope.
 
-- Known bugs: **abnormal notification-shade time animation (【通知栏时间动画异常】)** and **notification-shade time misalignment (【通知栏时间异常错位】)** remain in this release.
-- Planned: **swap Wi-Fi and cellular-data positions (【Wi-Fi与蜂窝数据的位置互换】)**.
-- Cooperation/donations: **QQ 2726344450**.
+[中文](README.md) · [GitHub Releases](https://github.com/SANWU5/c17-statusbar/releases) · [Changelog](CHANGELOG.md)
 
-[中文](README.md) · [Changelog](CHANGELOG.md) · [Validation](VALIDATION.md)
+## Features
 
-The app uses Miuix, the component system used by the LSPosed manager. Home, Configuration and About use a regular navigation bar adjoining the system navigation area, without floating gaps or shadows. The liquid-glass renderer and live configuration previews are removed. Configuration is organized into status bar, notification shade, control center and lock screen; dialogs appear above navigation.
+- **Status bar:** Independent controls for time, battery, Wi-Fi, cellular signal, network labels, notification icons and fonts. Swap Wi-Fi / 4G / 5G with cellular signal. Native network badges have their own font, position, size and weight controls, effective only when the custom network label is off.
+- **System hints:** Set X/Y, maximum count and spacing for Bluetooth, location, alarm and similar native hints. Drag the named entries to set priority. Only hints permitted by the system are selected; network and battery areas are excluded.
+- **Speed and activity arrows:** Preserve the native speed number and unit. Refresh intervals use milliseconds, with a recommended range of 1–500 ms. Cellular activity arrows are hidden by default but can be enabled independently, with position, size and light/dark color controls.
+- **Notification shade:** Portrait and landscape large clocks have independent settings. Landscape places the clock above notifications, offers notification-width controls and preserves native notification text and icon sizes. Landscape Clear All has separate position and color controls. Whole-list stacking uses native scrolling and scaling, with 1–5 complete cards recommended. Landscape requires an additional opt-in, off by default. Same-group stacking is hidden and forcibly disabled at runtime.
+- **Control center and materials:** Unified corners, 1×1 tile and recognized device-card icon sizing, tile fill and media-cover backgrounds. C17 highlight removal has separate notification/control-center scopes, light/dark acrylic colors and optional uniform notification colors, while retaining custom tile fills and media backgrounds. New artwork supplies a sampled solid color before prepared blurred artwork fades in; unchanged results reuse caches.
+- **Lock screen:** Customize year/month/day and weekday formatting; hide only the small lock's visual icon while retaining unlock and fingerprint interaction. Date rendering still requires device verification in this final build.
 
-Manually entered numeric values receive a 20-second trial before confirmation. Timeout, leaving the app or cold-start recovery restores the previous value. Slider bounds are suggestions; finite manual values may exceed them, subject to runtime drawing guards. Unified corners are a hard exception: 0–30dp across tiles, media, brightness, volume and device cards. The same value uses consistent physical pixel radii and native continuous-corner coefficients, clamped to each surface’s actual bounds while retaining slider press deformation, materials and touch geometry. The 1×1 icon-size option also covers recognized square device-card glyphs and the device-space entry, retaining battery rings; horizontal multi-device cards remain native.
+The [font catalog](docs/FONT-CATALOG.zh-CN.md) contains 10 variable-font designs with source and license details. Some use system Chinese fallback. Fonts are downloaded on demand; importing a custom font is also supported.
 
-The top-icon page switch remains disabled by default. Phone and control-center LEFT now use the same OEM handoff as RIGHT. Only the verified old notification-page copies are hidden while expanded or switching horizontally; vertical edge phases and full collapse remain native. The large clock replaces qs_footer_clock only in portrait; landscape restores the native time and ordinary notification-clock configuration. Safe mode, keyguard, disabling and detachment restore native state. RIGHT and other accepted features remain unchanged; notification stacking remains unavailable.
+## Settings and maintenance
 
-Battery text gains independent X/Y offsets, size, weight and spacing. Network text hides only when both Wi-Fi and mobile-data switches are confirmed off; unknown state does not trigger this rule. Notification icons support native icons, one heart, text or an imported image. An independent maximum-count option applies only to native icon mode, accepts nonnegative integers and treats 0 as no icons without deleting notifications.
+Home, Configuration and About use a regular bottom bar covering the system gesture area. Settings are organized into status bar, notification shade, control center, lock screen and other categories. Live previews are removed. **Hide launcher icon is at the bottom of Home**; a compatible LSPosed manager's module-settings entry can reopen the app and restore it.
 
-Cellular settings add an optional gap adjustment when no network indicators are shown, disabled by default with a 0dp delta. It changes the native cellular-to-battery boundary only when the Wi-Fi icon and cellular network-type text are confirmed absent and the final visible native icon is cellular, directly before the battery. The adjustment follows RTL layout; disabled or unknown conditions retain native spacing. A disconnected network or an off switch alone does not establish eligibility.
+Feature masters default off; explicitly saved settings are retained. Sliders show recommendations. Valid manual values within those ranges save immediately; **only values outside the recommended range start a 20-second confirmation trial**, with cancellation or timeout restoring the prior value. Unified corners have a hard 0–30dp limit. Short sampling intervals, gradients and complex motion increase work; enable them as needed.
 
-The font catalog offers 10 genuine variable designs: two include Simplified Chinese, while eight Latin fonts use system Chinese fallback. This is a selection, not a popularity ranking. Downloads are on demand, with pinned sources, size, SHA256 and actual weight-axis validation. Cancellation, failure or lifecycle changes preserve the previous font. Full sources and licenses are listed in the [font catalog documentation](docs/FONT-CATALOG.zh-CN.md).
+Startup reads complete framework snapshots and the app's configuration provider. Incomplete or temporarily unavailable data and failed writes retain the last confirmed configuration and retry; unconfirmed trials are not boot settings. Granted Root permits saving without LSPosed activation. Safe mode pauses modifications without deleting settings.
 
-System font weight applies to the actual variation axis, preserving other native axes and italic style and restoring them when disabled. Media backgrounds wait 1.5 seconds after the last content or style change, retaining the previous result during update bursts. Once the new background is prepared, a lightweight alpha crossfade mixes the prepared old and new results without additional blur passes. Unchanged content continues to reuse its blur and material results.
+About provides diagnostic export, log-history clearing and a confirmed reset of all settings. Reset also clears recovery copies and private imported resources, leaving user-exported files intact. With Root granted and a newer project release available, an explicit in-app update downloads and verifies the package, version, signer and file before installation, then removes temporary APKs on completion or failure. Normal uninstall removes app-private data; shared LSPosed logs belong to the framework.
 
-New installations leave custom features disabled, except the mandatory hiding of cellular data arrows. Explicit saved preferences are retained and loaded at boot. Root access permits configuration without LSPosed activation; safe mode restores native rendering. Application data is private and excluded from backup/device transfer; uninstall also releases the loaded SystemUI module's in-memory ownership.
+## Installation
 
-About restores the manual “Check for updates” action. It checks this project's stable GitHub Release and accepts only HTTPS release and APK links belonging to this repository, opening them in the system browser for viewing or download.
+Download published APKs from [GitHub Releases](https://github.com/SANWU5/c17-statusbar/releases). Export settings you wish to retain. Replace-install with the same signer, enable the module and SystemUI scope in LSPosed, then restart SystemUI or the phone to load new code. Ordinary parameter changes notify SystemUI without requiring a restart each time.
 
-If an update reports an incompatible signature, users of the old signing certificate on Android 28 or later can first install the existing official [1.15.0 release](https://github.com/SANWU5/c17-statusbar/releases/tag/v1.15.0) over their app, then install 1.6.0 without uninstalling. Signature verification supports this route; it is not an old-certificate device migration test. Updating old-certificate installations on Android 26/27 is not guaranteed. See the [upgrade notes](docs/PARAMETER-UPGRADE-1.6.0.zh-CN.md).
+See the historical [upgrade notes](docs/PARAMETER-UPGRADE-1.6.0.zh-CN.md) for old-signature migration. Android 26/27 old-signature replacement is not guaranteed. Build checks, device observations and support for other ROMs are recorded separately; desktop checks do not establish complete device acceptance.
 
-Build with JDK17, Gradle, SDK37, AGP9.4.1, Kotlin/Compose2.4.20 and Miuix0.9.4. Java hooks retain Java8 bytecode; Kotlin targets JVM11. See [Windows build instructions](docs/COMPOSE-BUILD.zh-CN.md).
+## Author and donations
 
-Private keys, phone captures, raw SystemUI, personal preferences and logs are excluded from the repository. Imported font/image files remain local and are not embedded in configuration JSON. See [Validation](VALIDATION.md) for build checks and device observations, and [third-party notices](THIRD_PARTY_NOTICES.md) for licensing. Desktop checks are not treated as device tests; no measured power savings are claimed.
+Author **aiingjie** · GitHub [sanwu5](https://github.com/sanwu5) · Coolapk **konwo** · Feedback, cooperation and donations: **QQ 2726344450**.
 
-The display version is now 1.6.0 while Android versionCode increases to 51. Older clients compare display versions and may not offer this update; download the APK from the [1.6.0 release page](https://github.com/SANWU5/c17-statusbar/releases/tag/v1.6.0) and install over the existing app.
+The module and all features are permanently free. Donations are voluntary and unlock nothing; do not pay resellers. First use requires reading the free-use notice and manually entering confirmation. Donation QR codes appear in the app only after tapping their entries.
+
+[WeChat payment QR](docs/donation/wechat.png) · [Alipay payment QR](docs/donation/alipay.jpg)
+
+## Building and licensing
+
+Build with JDK 17, Gradle wrapper, Android SDK 37, AGP 9.4.1, Kotlin/Compose 2.4.20 and Miuix 0.9.4. Java hooks target Java 8 bytecode, Kotlin targets JVM 11, and minSdk/targetSdk are 26/35. See the [Windows Compose build guide](docs/COMPOSE-BUILD.zh-CN.md).
+
+Licensed under [GPL-3.0](LICENSE). Component and font attribution is in [third-party notices](THIRD_PARTY_NOTICES.md). Signing keys, personal settings and logs, phone captures and raw SystemUI files are excluded from the public repository.

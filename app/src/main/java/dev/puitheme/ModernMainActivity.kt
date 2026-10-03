@@ -11,7 +11,6 @@ import android.os.Looper
 import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.View
-import android.view.WindowInsets
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -20,12 +19,18 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowInsetsCompat
 import java.util.concurrent.Executors
 
 /** The settings app uses the same Miuix component system as the current LSPosed manager. */
 class ModernMainActivity : ComponentActivity() {
     var page by mutableIntStateOf(0)
+    var freeNoticeRequired by mutableStateOf(true)
+        private set
+    var donationImage by mutableStateOf<String?>(null)
     var selectedGroup by mutableStateOf<String?>(null)
     var query by mutableStateOf("")
     var category by mutableStateOf("statusbar")
@@ -53,6 +58,13 @@ class ModernMainActivity : ComponentActivity() {
     var updateMessage by mutableStateOf("手动查看 GitHub 最新正式发布")
         private set
     private var latestUpdate: GitHubUpdates.Result? = null
+    private var updateRequest: AppUpdateInstaller.Request? = null
+    var maintenanceRunning by mutableStateOf(false)
+        private set
+    var desktopIconHidden by mutableStateOf(false)
+        private set
+    var desktopIconAvailable by mutableStateOf(true)
+        private set
     var confirmation by mutableStateOf<UiConfirmation?>(null)
     var editing by mutableStateOf<SettingsCatalog.Item?>(null)
     var colorEditing by mutableStateOf<SettingsCatalog.Item?>(null)
@@ -62,7 +74,7 @@ class ModernMainActivity : ComponentActivity() {
     var fontDownloadPercent by mutableIntStateOf(0)
         private set
     private var fontCancellation: FontDownloadRepository.Cancellation? = null
-    val canEdit get() = runtimeActive || rootGranted || lspEnabled
+    val canEdit get() = !freeNoticeRequired && !maintenanceRunning && (runtimeActive || rootGranted || lspEnabled)
     @Volatile private var resumed = false
     @Volatile private var destroyed = false
     private lateinit var raw: SharedPreferences
@@ -72,6 +84,9 @@ class ModernMainActivity : ComponentActivity() {
     private var rootRequest: RootAccess.Request? = null
     private var restartRequest: SystemUiRestart.Request? = null
     private lateinit var navHost: ComposeView
+    private var navigationInsets by mutableStateOf(PaddingValues())
+    var navigationHeight by mutableFloatStateOf(72f)
+        private set
     private lateinit var modalLayer: ComposeView
     private var keyboardOpen = false
     private val handler = Handler(Looper.getMainLooper())
@@ -79,13 +94,16 @@ class ModernMainActivity : ComponentActivity() {
     private var pendingFile: Pair<String, Uri>? = null
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         handler.post {
-            if (!destroyed) values = raw.all
-            handler.removeCallbacks(notifySettings)
-            handler.post(notifySettings)
+            if (!destroyed) {
+                values = raw.all
+                handler.removeCallbacks(notifySettings)
+                if (SettingsSnapshot.notificationAllowed(raw)) handler.post(notifySettings)
+            }
         }
     }
     private val notifySettings = Runnable {
-        contentResolver.notifyChange(Uri.parse(StatusBarSettings.CONTENT_URI), null)
+        if (!destroyed && SettingsSnapshot.notificationAllowed(raw))
+            contentResolver.notifyChange(Uri.parse(StatusBarSettings.CONTENT_URI), null)
     }
     private val importConfig = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) queueFile("import", uri)
@@ -110,7 +128,9 @@ class ModernMainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        freeNoticeRequired = !FreeNotice.accepted(this)
         raw = StatusBarSettings.preferences(this)
+        AppFrameworkStatus.start(this)
         preferences = ActivationGuardPreferences(raw, { resumed && canEdit && !destroyed }, {
             handler.post { toast("激活模块或授予 Root 后即可保存配置") }
         }).withPersistence(this) { handler.post { toast("设置保存失败，请稍后重新保存") } }
@@ -138,11 +158,15 @@ class ModernMainActivity : ComponentActivity() {
         root.addView(content, FrameLayout.LayoutParams(-1, -1))
         navHost = ComposeView(this).apply {
             consumeWindowInsets = false
-            setContent { C17Theme { C17Navigation(page) { selectPage(it) } } }
+            setContent { C17Theme { C17Navigation(page, navigationInsets) { selectPage(it) } } }
         }
-        root.addView(navHost, FrameLayout.LayoutParams(-1, (72 * density).toInt(), Gravity.BOTTOM).apply {
+        root.addView(navHost, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply {
             leftMargin = 0; rightMargin = 0; bottomMargin = 0
         })
+        navHost.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+            val height = (bottom - top) / density
+            if (height > 0 && navigationHeight != height) navigationHeight = height
+        }
         modalLayer = ComposeView(this).apply {
             consumeWindowInsets = false
             setContent { C17Theme { C17OverlayLayer(this@ModernMainActivity) } }
@@ -151,31 +175,23 @@ class ModernMainActivity : ComponentActivity() {
         // Native z-order also matches touch and accessibility order: all app popups own this layer.
         root.addView(modalLayer, FrameLayout.LayoutParams(-1, -1))
         root.setOnApplyWindowInsetsListener { _, insets ->
-            val safeLeft: Int
-            val safeRight: Int
-            val bottom = if (android.os.Build.VERSION.SDK_INT >= 30) {
-                keyboardOpen = insets.isVisible(WindowInsets.Type.ime())
-                val safeSides = insets.getInsets(WindowInsets.Type.navigationBars() or WindowInsets.Type.displayCutout())
-                safeLeft = safeSides.left
-                safeRight = safeSides.right
-                insets.getInsets(WindowInsets.Type.navigationBars()).bottom
-            } else {
-                val cutout = if (android.os.Build.VERSION.SDK_INT >= 28) insets.displayCutout else null
-                safeLeft = maxOf(insets.systemWindowInsetLeft, cutout?.safeInsetLeft ?: 0)
-                safeRight = maxOf(insets.systemWindowInsetRight, cutout?.safeInsetRight ?: 0)
-                insets.systemWindowInsetBottom
-            }
+            val compat = WindowInsetsCompat.toWindowInsetsCompat(insets, root)
+            keyboardOpen = compat.isVisible(WindowInsetsCompat.Type.ime())
+            val safeSides = compat.getInsets(WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.displayCutout())
+            val safeLeft = safeSides.left
+            val safeRight = safeSides.right
+            val bottom = compat.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
             val contentParams = content.layoutParams as FrameLayout.LayoutParams
             if (contentParams.leftMargin != safeLeft || contentParams.rightMargin != safeRight) {
                 contentParams.leftMargin = safeLeft
                 contentParams.rightMargin = safeRight
                 content.layoutParams = contentParams
             }
-            val params = navHost.layoutParams as FrameLayout.LayoutParams
-            params.leftMargin = safeLeft
-            params.rightMargin = safeRight
-            params.bottomMargin = bottom
-            navHost.layoutParams = params
+            // Keep the opaque surface full width and down to the window edge. Only the tab
+            // content uses safe insets, so the system gesture area never exposes the page.
+            val rtl = root.layoutDirection == View.LAYOUT_DIRECTION_RTL
+            navigationInsets = PaddingValues(start = ((if (rtl) safeRight else safeLeft) / density).dp,
+                end = ((if (rtl) safeLeft else safeRight) / density).dp, bottom = (bottom / density).dp)
             updateNavigation()
             insets
         }
@@ -184,6 +200,8 @@ class ModernMainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
+                    freeNoticeRequired -> finish()
+                    donationImage != null -> donationImage = null
                     colorEditing != null -> colorEditing = null
                     downloadingFont != null -> cancelFontDownload()
                     fontCatalogOpen -> fontCatalogOpen = false
@@ -199,14 +217,18 @@ class ModernMainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume(); resumed = true
+        val iconState = LauncherIcon.read(this)
+        desktopIconHidden = iconState.hidden
+        desktopIconAvailable = iconState.success
         values = raw.all
         checkActivation()
-        if (getSharedPreferences("app_migrations", MODE_PRIVATE).getBoolean("root_requested", false) && !rootGranted) requestRoot()
+        if (!freeNoticeRequired && getSharedPreferences("app_migrations", MODE_PRIVATE).getBoolean("root_requested", false) && !rootGranted) requestRoot()
         replayFile()
     }
 
     override fun onPause() {
         if (downloadingFont != null) cancelFontDownload()
+        if (updateRequest?.isInstalling == false) { updateRequest?.cancel(); updateRequest = null; busy = false }
         if (NumericTrial.active()) {
             NumericTrial.rollback()
             confirmation = null
@@ -222,7 +244,7 @@ class ModernMainActivity : ComponentActivity() {
     override fun onDestroy() {
         fontCancellation?.cancel()
         destroyed = true; raw.unregisterOnSharedPreferenceChangeListener(listener)
-        probe?.cancel(); frameworkSubscription?.close(); rootRequest?.cancel(); restartRequest?.cancel()
+        probe?.cancel(); frameworkSubscription?.close(); rootRequest?.cancel(); restartRequest?.cancel(); updateRequest?.cancel()
         handler.removeCallbacksAndMessages(null); work.shutdown()
         super.onDestroy()
     }
@@ -242,7 +264,16 @@ class ModernMainActivity : ComponentActivity() {
     fun syncModalLayer(visible: Boolean) {
         if (::modalLayer.isInitialized) modalLayer.visibility = if (visible) View.VISIBLE else View.GONE
     }
-    private fun updateNavigation() { if (::navHost.isInitialized) navHost.visibility = if (selectedGroup == null && !keyboardOpen) View.VISIBLE else View.GONE }
+    private fun updateNavigation() { if (::navHost.isInitialized) navHost.visibility = if (!freeNoticeRequired && selectedGroup == null && !keyboardOpen) View.VISIBLE else View.GONE }
+    fun acceptFreeNotice(input: String): String? {
+        if (!FreeNotice.matches(input)) return "请完整输入上面的短句，包含标点。"
+        if (!FreeNotice.accept(this, input)) return "确认记录保存失败，请重试。"
+        freeNoticeRequired = false
+        updateNavigation()
+        replayFile()
+        if (resumed && !rootGranted && !checkingRoot && getSharedPreferences("app_migrations", MODE_PRIVATE).getBoolean("root_requested", false)) requestRoot()
+        return null
+    }
     fun value(key: String): Any? = SettingsCatalog.value(values, key)
     fun bool(key: String): Boolean = StatusBarSettings.bool(values, key)
     fun save(key: String, value: Any): Boolean {
@@ -357,10 +388,67 @@ class ModernMainActivity : ComponentActivity() {
     }
     fun chooseNotificationIcon() { if (canEdit) importNotificationIcon.launch(arrayOf("image/png", "image/jpeg", "image/webp")) else toast("请先激活模块或授予 Root") }
     fun chooseLog() { exportLog.launch("C17-diagnostics.txt") }
+    fun clearLogHistory() {
+        if (busy || maintenanceRunning) return
+        confirmation = UiConfirmation("清空日志", "删除本模块保存的历史诊断日志及分享副本，配置不受影响。", "清空") {
+            busy = true
+            work.execute {
+                val result = runCatching { MaintenanceReset.clearLogs(applicationContext) }
+                handler.post { if (!destroyed) { busy = false; toast(if (result.isSuccess) "历史日志已清空" else "清空失败，请稍后重试") } }
+            }
+        }
+    }
+    fun deleteAllSettings() {
+        if (busy || !canEdit || maintenanceRunning) return
+        confirmation = UiConfirmation("删除所有配置", "删除当前配置、恢复备份、导入字体和自定义图标，并恢复全部默认设置。免费声明确认与 Root 请求标识保留。此操作无法撤销，可先导出配置。", "删除并恢复默认") {
+            if (!resumed || !canEdit || busy) return@UiConfirmation
+            pendingFile = null; editing = null; colorEditing = null; fontCatalogOpen = false
+            cancelFontDownload(); handler.removeCallbacks(notifySettings)
+            maintenanceRunning = true; busy = true
+            work.execute {
+                val result = runCatching { MaintenanceReset.reset(applicationContext) }
+                handler.post {
+                    if (!destroyed) {
+                        maintenanceRunning = false; busy = false; values = raw.all; selectedGroup = null
+                        toast(result.getOrNull()?.message ?: "删除未完成，请稍后重试；未确认的旧配置不会重新发布")
+                        if (resumed) { notifySettings.run(); updateNavigation() }
+                    }
+                }
+            }
+        }
+    }
+    private fun installUpdate(result: GitHubUpdates.Result) {
+        if (!resumed || destroyed || busy || maintenanceRunning || !rootGranted) { toast("请先授予 Root 权限"); return }
+        busy = true; updateMessage = "准备下载更新…"
+        updateRequest = AppUpdateInstaller.install(applicationContext, result,
+            { !destroyed && resumed && rootGranted && !maintenanceRunning }, object : AppUpdateInstaller.Callback {
+                override fun onStage(stage: AppUpdateInstaller.Stage) {
+                    if (!destroyed) updateMessage = when (stage) {
+                        AppUpdateInstaller.Stage.DOWNLOADING -> "正在下载正式更新…"
+                        AppUpdateInstaller.Stage.VERIFYING -> "正在校验安装包…"
+                        AppUpdateInstaller.Stage.INSTALLING -> "正在覆盖安装，配置会保留…"
+                    }
+                }
+                override fun onResult(success: Boolean, message: String) {
+                    if (!destroyed) { updateRequest = null; busy = false; updateMessage = message; toast(message) }
+                }
+            })
+    }
+    fun requestDesktopIconHidden(hidden: Boolean) {
+        if (freeNoticeRequired || busy || maintenanceRunning) return
+        val apply = {
+            val result = LauncherIcon.setHidden(this, hidden)
+            if (result.success) desktopIconHidden = result.hidden
+            toast(result.message)
+        }
+        if (hidden) confirmation = UiConfirmation("隐藏桌面图标", "隐藏后，模块和配置继续生效。可从 LSPosed 管理器的“模块设置”重新打开本应用，并在这里恢复图标。", "隐藏", action = apply)
+        else apply()
+    }
+
     fun dismissConfirmation() { confirmation?.cancelAction?.invoke(); confirmation = null }
     fun openUrl(url: String) { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.onFailure { toast("没有可用的浏览器") } }
     fun checkUpdates() {
-        if (!resumed || destroyed || checkingUpdates || busy) return
+        if (!resumed || destroyed || checkingUpdates || busy || maintenanceRunning) return
         checkingUpdates = true
         updateMessage = "正在检查 GitHub 正式发布…"
         val version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName ?: "" }.getOrDefault("")
@@ -379,9 +467,10 @@ class ModernMainActivity : ComponentActivity() {
                     if (result.body.isNotEmpty()) append("\n\n${result.body}")
                 }
                 val download = result.newer && GitHubUpdates.isApkUrl(result.apkUrl)
+                val rootInstall = download && rootGranted && result.canInstall()
                 confirmation = UiConfirmation(if (result.newer) "发现新版本" else "更新检查", details,
-                    if (download) "下载 APK" else "查看正式发布") {
-                    if (download) openUrl(result.apkUrl) else openLatestRelease()
+                    if (rootInstall) "下载并安装" else if (download) "下载 APK" else "查看正式发布") {
+                    if (rootInstall) installUpdate(result) else if (download) openUrl(result.apkUrl) else openLatestRelease()
                 }
             }
         }

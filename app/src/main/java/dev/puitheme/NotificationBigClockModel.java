@@ -27,6 +27,46 @@ final class NotificationBigClockModel {
                 && panelFraction > 0f;
     }
 
+    static boolean eligible(boolean enabled, int orientation, int barState, boolean qsExpanded, float panelFraction) {
+        return eligible(enabled, orientation == 1 || orientation == 2, barState, qsExpanded, panelFraction);
+    }
+
+    /** The landscape header reserves only a compact top band; native notification sizes stay intact. */
+    static Frame landscapeMeasured(float density, float safeTop, float expandedHeight,
+            float compactHeight, float dateHeight, float dateGap, float notificationGap,
+            float offsetY, float compactOffsetY, float dateOffsetY, float weight, int scrollY, float panelFraction) {
+        float d = bounded(density, 1f, .5f, 8f), safe = Math.max(0f, NumericPolicy.drawPixels(safeTop));
+        float date = Math.max(0f, NumericPolicy.drawPixels(dateHeight));
+        float initialDate = safe + 4f * d + NumericPolicy.pixels(offsetY, d);
+        float initialTop = initialDate + date + (date > 0f ? Math.min(6f * d, Math.max(0f, NumericPolicy.pixels(dateGap, d))) : 0f);
+        float expanded = Math.max(0f, NumericPolicy.drawPixels(expandedHeight));
+        float initialBottom = Math.max(initialTop + expanded, initialDate + NumericPolicy.pixels(dateOffsetY, d) + date);
+        float distance = Math.max(1f, initialBottom + 8f * d);
+        float scroll = Math.max(0, scrollY);
+        float p = clamp(scroll / distance, 0f, 1f);
+        // Every pixel of native list scroll moves the landscape header by exactly one pixel.
+        // Interpolating a distant off-screen target over a fixed 64dp range accelerates the
+        // clock ahead of its notifications. Keep glyph size and intrinsic reservation stable.
+        return new Frame(p, initialTop - scroll, expanded,
+                initialDate - scroll + NumericPolicy.pixels(dateOffsetY, d),
+                initialBottom + Math.max(0f, NumericPolicy.pixels(notificationGap, d)), 1f, distance, 0f,
+                clamp(bounded(panelFraction, 0f, 0f, 1f) / .3f, 0f, 1f), Math.round(bounded(weight, 600f, 1f, 1000f)));
+    }
+
+    static float landscapeClockBudget(float height, float density) {
+        float d = bounded(density, 1f, .5f, 8f);
+        return Math.max(0f, Math.min(72f * d, Math.max(0f, NumericPolicy.drawPixels(height)) * .2f));
+    }
+    static float scrollFade(float progress) {
+        float p = clamp(finite(progress) ? progress : 0f, 0f, 1f);
+        return p * p * (3f - 2f * p);
+    }
+
+    /** Sliding out is intrinsic landscape behavior, independent of optional entry blur. */
+    static float landscapeHeaderAlpha(float entryAlpha, float progress) {
+        return bounded(entryAlpha, 0f, 0f, 1f) * (1f - scrollFade(progress));
+    }
+
     /** Measured text is never stretched. All parts use the same absolute native scroll progress. */
     static Frame measured(float panelHeight, float density, float safeTop, float expandedHeight,
             float compactHeight, float dateHeight, float dateGap, float notificationGap,

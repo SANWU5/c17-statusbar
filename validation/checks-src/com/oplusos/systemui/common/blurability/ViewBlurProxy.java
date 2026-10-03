@@ -1,6 +1,8 @@
 package com.oplusos.systemui.common.blurability;
 /** Native apply reads raw BlurConfig fields, independently of the drawable path provider. */
 public class ViewBlurProxy {
+    /** Confirmed native private final owner field; mutable here only to exercise recycling. */
+    public android.view.View view;
     public BlurConfig blurConfig=new BlurConfig();
     public float visibleScalar;
     public Float visibleWeight;
@@ -8,6 +10,7 @@ public class ViewBlurProxy {
     public int applied,failApplyCalls;
     public ViewBlurProxy(){applyBlurConfig();applied=0;}
     public BlurConfig getBlurConfig(){return blurConfig;}
+    public android.view.View getView(){return view;}
     public android.graphics.drawable.Drawable getBlurDrawable(android.graphics.drawable.Drawable fallback){return fallback;}
     public void applyBlurConfig(){
         applied++;visibleScalar=blurConfig.getCornerRadius();visibleWeight=blurConfig.getRadiusWeight();

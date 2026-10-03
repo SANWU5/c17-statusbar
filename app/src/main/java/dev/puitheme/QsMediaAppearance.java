@@ -86,12 +86,13 @@ public final class QsMediaAppearance {
     private static final String MAIN = "half4 main(float2 position) {";
     private static final String SAMPLE = "half4 outputCol = half4(uniBDFBitmap.eval(mapCoords).rgb, 1.0);";
     private static final String COVER_CODE = "uniform shader c17MediaCover;\nuniform shader c17MediaPrevious;\n"
-            + "uniform float c17MediaOpacity;\nuniform float c17MediaPreviousOpacity;\nuniform float c17MediaMix;\n";
+            + "uniform float c17MediaOpacity;\nuniform float c17MediaPreviousOpacity;\nuniform float c17MediaMix;\n"
+            + "uniform float c17MediaPreviousMix;\n";
     private static final int CACHE_EDGE = 384;
     private static final int COVER_EDGE = 256;
     private static final int MAX_BLUR_RADIUS = 64;
-    static final long DEBOUNCE_MS = 1500L;
-    static final long FADE_MS = 250L;
+    static final long DEBOUNCE_MS = 1000L;
+    static final long FADE_MS = QsMediaTransition.IN_MS;
     private static final long FRAME_MS = 16L;
     interface Scheduler {
         long now();
@@ -447,13 +448,13 @@ public final class QsMediaAppearance {
             Swap swap = null;
             recording.set(engine);
             try {
-                try { swap = prepareMaterial(engine, prepared, previous, state.fadeMix); }
+                try { swap = prepareMaterial(engine, prepared, previous, state.fadeMix, state.previousMix); }
                 catch (ReflectiveOperationException | RuntimeException unavailable) {
                     Object shaderOwner = field(engine, "drawableShader");
                     Object nativeShader = field(shaderOwner, "shader");
                     if (shaderOwner != null && nativeShader instanceof RuntimeShader) {
                         failedMaterials.put(shaderOwner, new FailedMaterial((RuntimeShader) nativeShader,
-                                nativeSignature(shaderOwner, 0, new IdentityHashMap<>())));
+                                nativeSignature(shaderOwner, 0, new IdentityHashMap<>()),C17HighlightRemoval.removesOptics(engine)));
                         if (ModuleDiagnostics.enabled()) trace("materialFailure:" + simpleType(unavailable),
                                 "Music material failed " + simpleType(unavailable));
                     }
@@ -485,7 +486,7 @@ public final class QsMediaAppearance {
                 // drawChild receives parent coordinates, before the child's matrix and clipping are applied.
                 canvas.translate(child.getLeft() - parent.getScrollX(), child.getTop() - parent.getScrollY());
                 canvas.concat(child.getMatrix());
-                drawGlow(canvas,child,previous,1f-state.fadeMix);
+                drawGlow(canvas,child,previous,state.previousMix);
                 drawGlow(canvas,child,prepared,state.fadeMix);
             } catch (RuntimeException unavailable) { error(unavailable); }
             finally { canvas.restoreToCount(saved); }
@@ -578,6 +579,7 @@ public final class QsMediaAppearance {
     private void scheduleUpdate(State state,Key key,Style style) {
         boolean sameKey = key == null ? state.desiredKey == null : state.desiredKey != null && state.desiredKey.same(key);
         if (state.desiredSet && sameKey && state.desiredStyle.same(style)) return;
+        boolean newArtwork = key != null && (state.prepared == null || !sameArtwork(state.prepared.key,key));
         scheduler.cancel(state.debounce);
         state.desiredSet = true;
         state.desiredKey = key;
@@ -588,8 +590,45 @@ public final class QsMediaAppearance {
         state.debouncing = true;
         state.deadline = scheduler.now() + DEBOUNCE_MS;
         synchronized (state) { state.generation++; state.pending = null; }
-        // Keep the last complete material throughout native null/rebind bursts and worker delays.
+        // Null/default-cover stages retain the last material; real new artwork immediately owns
+        // its solid fill. Only expensive snapshot/blur work waits for the quiet interval.
+        if (newArtwork && key.background) showNewArtworkColor(state,key,style);
         scheduler.after(state.debounce,DEBOUNCE_MS);
+    }
+
+    private void showNewArtworkColor(State state,Key key,Style style) {
+        View owner = state.owner.get();
+        Bitmap artwork = key.artwork.get();
+        if (owner == null || artwork == null || artwork.isRecycled()) return;
+        try {
+            int color = QsMediaColor.sample(artwork);
+            // A native callback may replace the bitmap during an OEM rebind. Never display a
+            // sampled color for an obsolete revision, even before the expensive worker starts.
+            if (artwork.getGenerationId() != key.generation || state.desiredKey != key) return;
+            Bitmap fill = Bitmap.createBitmap(1,1,Bitmap.Config.ARGB_8888);
+            fill.eraseColor(color);
+            scheduler.cancel(state.fade);
+            state.prepared = new Prepared(key,style,fill,null,0,0,0,true);
+            state.previous = null;
+            state.queuedFade = null;
+            state.hasQueuedFade = false;
+            state.fading = false;
+            state.fromSolid = false;
+            state.fadeMix = 1f;
+            state.previousMix = 0f;
+            invalidate(owner,state.cover.get());
+        } catch (RuntimeException | OutOfMemoryError unavailable) {
+            // Never keep the previous album's image after identifying new artwork when quick
+            // readback is unavailable. Native material remains until the new worker succeeds.
+            scheduler.cancel(state.fade);
+            state.prepared = null;
+            state.previous = null;
+            state.fading = false;
+            state.fadeMix = 1f;
+            state.previousMix = 0f;
+            invalidate(owner,state.cover.get());
+            error(unavailable);
+        }
     }
 
     private void beginQuiet(State state) {
@@ -607,7 +646,7 @@ public final class QsMediaAppearance {
         Style style = state.desiredStyle;
         if (key == null) { state.preparing = false; commitPrepared(state,null); return; }
         Prepared previous = state.prepared;
-        if (previous != null && previous.key.same(key)) {
+        if (previous != null && !previous.solid && previous.key.same(key)) {
             state.preparing = false;
             if (!previous.style.same(style)) {
                 commitPrepared(state,previous.withStyle(style));
@@ -638,6 +677,8 @@ public final class QsMediaAppearance {
         state.hasQueuedFade = false;
         state.fading = false;
         state.fadeMix = 1f;
+        state.previousMix = 0f;
+        state.fromSolid = false;
         state.desiredKey = null;
         state.failureKey = null;
         state.preparing = false;
@@ -651,7 +692,7 @@ public final class QsMediaAppearance {
         View owner = state.owner.get();
         if (removed || !enabled || owner == null || states.get(owner) != state) return;
         boolean animate = scheduler.animationsEnabled();
-        if (state.fading && animate && scheduler.now()-state.fadeStarted < FADE_MS) {
+        if (state.fading && animate && scheduler.now()-state.fadeStarted < state.fadeDuration) {
             // Keep the current visible blend continuous; an exceptional overlapping completion
             // coalesces to one next target instead of allocating a screenshot of the blended frame.
             state.queuedFade = next;
@@ -665,7 +706,11 @@ public final class QsMediaAppearance {
         boolean changed = !sameVisual(previous,next);
         state.previous = changed && animate ? previous : null;
         state.fading = changed && animate;
+        state.fromSolid = state.fading && previous != null && previous.solid && next != null
+                && sameArtwork(previous.key,next.key);
+        state.fadeDuration = state.fromSolid ? FADE_MS : QsMediaTransition.DIRECT_MS;
         state.fadeMix = state.fading ? 0f : 1f;
+        state.previousMix = state.fading ? 1f : 0f;
         state.fadeStarted = scheduler.now();
         state.queuedFade = null;
         state.hasQueuedFade = false;
@@ -684,14 +729,20 @@ public final class QsMediaAppearance {
         return backgrounds && glows;
     }
 
+    private static boolean sameArtwork(Key first,Key second) {
+        return first.artwork.get() != null && first.artwork.get() == second.artwork.get()
+                && first.generation == second.generation && first.revision == second.revision;
+    }
+
     private void animateFrame(State state) {
         View owner = state.owner.get();
         if (removed || !enabled || owner == null || states.get(owner) != state || !state.fading) return;
         if (!owner.isAttachedToWindow()) { clearOwner(owner); return; }
         long elapsed = Math.max(0L,scheduler.now()-state.fadeStarted);
-        float time = scheduler.animationsEnabled() ? Math.min(1f,elapsed/(float)FADE_MS) : 1f;
-        state.fadeMix = time*time*(3f-2f*time);
-        if (time >= 1f) {
+        boolean finished = !scheduler.animationsEnabled() || elapsed >= state.fadeDuration;
+        state.fadeMix = finished ? 1f : QsMediaTransition.next(elapsed,state.fromSolid);
+        state.previousMix = finished ? 0f : QsMediaTransition.previous(elapsed,state.fromSolid);
+        if (finished) {
             state.fading = false;
             state.previous = null;
             if (!background(state.prepared)) releaseMaterials(owner);
@@ -705,7 +756,7 @@ public final class QsMediaAppearance {
             }
         }
         invalidate(owner,state.cover.get());
-        if (state.fading) scheduler.after(state.fade,Math.min(FRAME_MS,FADE_MS-elapsed));
+        if (state.fading) scheduler.after(state.fade,Math.min(FRAME_MS,state.fadeDuration-elapsed));
     }
 
     private void releaseMaterials(View owner) {
@@ -783,8 +834,9 @@ public final class QsMediaAppearance {
         volatile Prepared prepared;
         volatile Prepared previous;
         volatile float fadeMix = 1f;
-        boolean fading,hasQueuedFade;
-        long fadeStarted;
+        volatile float previousMix;
+        boolean fading,hasQueuedFade,fromSolid;
+        long fadeStarted,fadeDuration;
         Prepared queuedFade;
         volatile Style style;
         volatile Key desiredKey;
@@ -949,15 +1001,20 @@ public final class QsMediaAppearance {
         final Key key;
         final Style style;
         final Bitmap background, glow;
+        final boolean solid;
         final int glowInnerWidth, glowInnerHeight, glowPadding;
         final Paint glowPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         final RectF glowDestination = new RectF();
         Prepared(Key key, Style style, Bitmap background, Bitmap glow, int width, int height, int padding) {
+            this(key,style,background,glow,width,height,padding,false);
+        }
+        Prepared(Key key, Style style, Bitmap background, Bitmap glow, int width, int height, int padding, boolean solid) {
             this.key = key; this.style = style; this.background = background; this.glow = glow;
+            this.solid = solid;
             glowInnerWidth = width; glowInnerHeight = height; glowPadding = padding;
         }
         Prepared withStyle(Style style) {
-            return new Prepared(key, style, background, glow, glowInnerWidth, glowInnerHeight, glowPadding);
+            return new Prepared(key, style, background, glow, glowInnerWidth, glowInnerHeight, glowPadding,solid);
         }
     }
 
@@ -1114,8 +1171,9 @@ public final class QsMediaAppearance {
         BitmapShader coverShader,previousShader;
         float width, height;
         float opacity = -1f;
-        float previousOpacity = -1f,fadeMix = -1f;
+        float previousOpacity = -1f,fadeMix = -1f,previousMix = -1f;
         boolean nativeDirty = true;
+        boolean removeOptics;
         Object nativeSignature;
         final Map<String, Object> events = new LinkedHashMap<>();
         WeakReference<RuntimeShader> original = new WeakReference<>(null);
@@ -1126,9 +1184,10 @@ public final class QsMediaAppearance {
     private static final class FailedMaterial {
         final WeakReference<RuntimeShader> original;
         final Object signature;
+        final boolean removeOptics;
         final Map<String,Object> events = new LinkedHashMap<>();
-        FailedMaterial(RuntimeShader original,Object signature) {
-            this.original = new WeakReference<>(original); this.signature = signature;
+        FailedMaterial(RuntimeShader original,Object signature,boolean removeOptics) {
+            this.original = new WeakReference<>(original); this.signature = signature; this.removeOptics = removeOptics;
         }
     }
 
@@ -1149,14 +1208,15 @@ public final class QsMediaAppearance {
         }
     }
 
-    private Swap prepareMaterial(Drawable engine,Prepared prepared,Prepared previous,float fadeMix) throws ReflectiveOperationException {
+    private Swap prepareMaterial(Drawable engine,Prepared prepared,Prepared previous,float fadeMix,float previousMix) throws ReflectiveOperationException {
+        boolean removeOptics = C17HighlightRemoval.removesOptics(engine);
         boolean nextBackground = background(prepared),oldBackground = background(previous);
         if ((!nextBackground && !oldBackground) || !Boolean.TRUE.equals(field(engine, "enableShader")))
             return unavailable("background-or-shader-disabled",engine);
         Object owner = field(engine, "drawableShader");
         Object original = field(owner, "shader");
         FailedMaterial failed = failedMaterials.get(owner);
-        if (failed != null && failed.original.get() == original) return unavailable("native-shader-failed",engine);
+        if (failed != null && failed.original.get() == original && failed.removeOptics == removeOptics) return unavailable("native-shader-failed",engine);
         Object paint = field(engine, "drawableShaderPaint");
         if (!(original instanceof RuntimeShader) || !(paint instanceof Paint)
                 || !Boolean.TRUE.equals(field(owner, "isValid"))) return unavailable("native-shader-not-ready",engine);
@@ -1166,7 +1226,7 @@ public final class QsMediaAppearance {
         if (!Float.isFinite(width) || !Float.isFinite(height) || width <= 0f || height <= 0f || width > 16384f || height > 16384f) return unavailable("native-size-not-ready",engine);
         Material material = materials.get(owner);
         boolean nativeChanged = material == null || material.nativeDirty || material.original.get() != original
-                || material.width != width || material.height != height;
+                || material.width != width || material.height != height || material.removeOptics != removeOptics;
         if (nativeChanged) {
             Object corner = call(field(owner, "mCornerParams"), "getType");
             Object summary = field(owner, "summaryBlendParam");
@@ -1175,11 +1235,12 @@ public final class QsMediaAppearance {
             // OEM shaderStringBuilder is scratch storage: constructor and updateShader clear it
             // after compiling. Reconstruct only at material changes, never once per native draw.
             Object cachedSource = field(owner, "shaderStringBuilder");
-            String source = cachedSource instanceof StringBuilder ? decorate(cachedSource.toString()) : null;
+            String source = !removeOptics && cachedSource instanceof StringBuilder ? decorate(cachedSource.toString()) : null;
             if (source == null) {
                 Class<?> builder = Class.forName("com.oplus.posteffect.agsl.BlurDrawableShaderBaseStringKt", false, owner.getClass().getClassLoader());
                 StringBuilder sourceBuilder = new StringBuilder();
-                invoke(builder, "buildShaderString", sourceBuilder, field(owner, "blendAlgorithmMask"), ((List<?>) summary).size(), corner, false, effects);
+                invoke(builder, "buildShaderString", sourceBuilder, field(owner, "blendAlgorithmMask"), ((List<?>) summary).size(), corner, false,
+                        C17AcrylicMaterial.drawingEffects((List<?>)effects,removeOptics));
                 source = decorate(sourceBuilder.toString());
                 if (ModuleDiagnostics.enabled()) trace("shaderSource:" + simpleType(owner), "Music native shader scratch reconstructed " + simpleType(owner));
             }
@@ -1192,10 +1253,11 @@ public final class QsMediaAppearance {
             replacement.setIntUniform("uEnableBlend", Boolean.TRUE.equals(field(owner, "enableBlend")) ? 1 : 0);
             replacement.setFloatUniform("u_multiBlendParams", QsNativeGlassFill.uniforms((List<?>) summary));
             for (Object effect : (List<?>) effects)
-                if (Boolean.TRUE.equals(call(effect, "isEnabled"))) invoke(effect, "pushUniforms", replacement);
+                if ((!removeOptics || !C17AcrylicMaterial.optical(effect)) && Boolean.TRUE.equals(call(effect, "isEnabled"))) invoke(effect, "pushUniforms", replacement);
             material.nativeSignature = nativeSignature(owner, 0, new IdentityHashMap<>());
             material.original = new WeakReference<>((RuntimeShader) original);
             material.nativeDirty = false;
+            material.removeOptics = removeOptics;
             failedMaterials.remove(owner);
             if (ModuleDiagnostics.enabled()) trace("shaderReady:" + simpleType(engine), "Music artwork material prepared " + simpleType(engine));
         }
@@ -1229,11 +1291,17 @@ public final class QsMediaAppearance {
             material.fadeMix = fadeMix;
             replacement.setFloatUniform("c17MediaMix",fadeMix);
         }
+        if (material.previousMix != previousMix) {
+            material.previousMix = previousMix;
+            replacement.setFloatUniform("c17MediaPreviousMix",previousMix);
+        }
         if (material.swap == null || material.swap.paint != paint)
             material.swap = new Swap(owner, (RuntimeShader) original, replacement, (Paint) paint);
         material.swap.original = (RuntimeShader) original;
         material.swap.paintShader = ((Paint) paint).getShader();
-        return setField(owner, "shader", replacement) ? material.swap : null;
+        if (!setField(owner,"shader",replacement)) return null;
+        C17HighlightRemoval.preparedCustomMaterial(engine,replacement,removeOptics);
+        return material.swap;
     }
 
     private static BitmapShader artworkShader(Bitmap artwork,float width,float height) {
@@ -1250,12 +1318,14 @@ public final class QsMediaAppearance {
         if (sample < 0 || source.indexOf(SAMPLE, sample + SAMPLE.length()) >= 0
                 || source.indexOf(MAIN) < 0 || source.indexOf("c17MediaCover") >= 0) return null;
         // Only wallpaper sampling changes; blend rules and all original optical code continue after this line.
-        return source.replace(SAMPLE, SAMPLE + "\n half4 c17Art=c17MediaCover.eval(position);\n"
-                + " float c17NewWeight=c17MediaOpacity*c17MediaMix;\n"
-                + " float c17OldWeight=c17MediaPreviousOpacity*(1.0-c17MediaMix);\n"
+        return source.replace(SAMPLE, SAMPLE + "\n float c17NewWeight=c17MediaOpacity*c17MediaMix;\n"
+                + " float c17OldWeight=c17MediaPreviousOpacity*c17MediaPreviousMix;\n"
                 + " float3 c17Native=float3(outputCol.rgb);\n"
-                + " float3 c17Result=c17Native*(1.0-c17NewWeight*float(c17Art.a))+float3(c17Art.rgb)*c17NewWeight;\n"
-                // Uniform branch: the second cached texture is sampled only during a real fade.
+                + " float3 c17Result=c17Native;\n"
+                // Only prepared caches are sampled; the previous input is the new artwork's
+                // 1px solid during the incoming fade, never an obsolete artwork/native bridge.
+                + " if(c17NewWeight>0.0){half4 c17Art=c17MediaCover.eval(position);"
+                + "c17Result+=float3(c17Art.rgb)*c17NewWeight-c17Native*c17NewWeight*float(c17Art.a);}\n"
                 + " if(c17OldWeight>0.0){half4 c17Old=c17MediaPrevious.eval(position);"
                 + "c17Result+=float3(c17Old.rgb)*c17OldWeight-c17Native*c17OldWeight*float(c17Old.a);}\n"
                 + " outputCol.rgb=half3(c17Result);")

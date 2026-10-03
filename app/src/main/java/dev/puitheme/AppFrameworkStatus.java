@@ -5,6 +5,7 @@ package dev.puitheme;
 
 import android.os.Handler;
 import android.os.Looper;
+import android.content.Context;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -96,6 +97,18 @@ public final class AppFrameworkStatus {
     }
 
     /** May be called from Application.onCreate; the official listener is registered only once. */
+    public static void start(Context context) {
+        SettingsFrameworkMirror.attach(context);
+        start();
+        // An earlier metadata-only subscription may have preceded the app context.
+        synchronized(LOCK) {
+            for(Map.Entry<XposedService,Connection> entry:SERVICES.entrySet())
+                if(entry.getValue().live&&entry.getValue().result!=null&&entry.getValue().result.compatible)
+                    SettingsFrameworkMirror.bound(entry.getKey());
+        }
+        if(context!=null)SettingsSnapshot.frameworkConnected(context);
+    }
+
     public static void start() {
         synchronized (LOCK) {
             if (started) return;
@@ -147,6 +160,7 @@ public final class AppFrameworkStatus {
                 if (!connection.live || SERVICES.get(service) != connection) return;
                 connection.result = result;
                 publish(bestConnection());
+                if(result.compatible)SettingsFrameworkMirror.bound(service);
             }
         });
     }
@@ -156,6 +170,7 @@ public final class AppFrameworkStatus {
             Connection connection = SERVICES.remove(service);
             if (connection == null) return;
             connection.live = false;
+            SettingsFrameworkMirror.unbound(service);
             publish(bestConnection());
         }
     }

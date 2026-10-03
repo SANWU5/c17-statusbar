@@ -1,6 +1,6 @@
 # 1.6.0 参数与原生布局升级
 
-当前版本为正式版 `1.6.0` / versionCode `51`，正式发布为 [v1.6.0](https://github.com/SANWU5/c17-statusbar/releases/tag/v1.6.0)。最新验证范围见 [验证记录](../VALIDATION.md)。
+本文是已公开正式版 `1.6.0` / versionCode `51` 的历史说明，发布为 [v1.6.0](https://github.com/SANWU5/c17-statusbar/releases/tag/v1.6.0)。其中堆叠禁用、竖屏限定及试用规则不代表当前本地code58；当前操作见 [1.6.1/code58说明](LOCAL-1.6.1-CODE58.zh-CN.md)，最终验证范围见 [验证记录](../VALIDATION.md)。
 
 - 已知bug：**【通知栏时间动画异常】【通知栏时间异常错位】**，本版仍未修复。
 - 待实现：**【Wi-Fi与蜂窝数据的位置互换】**。

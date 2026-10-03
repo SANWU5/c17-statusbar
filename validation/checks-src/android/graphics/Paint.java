@@ -19,8 +19,9 @@ public class Paint {
     public float strokeWidth;
     public PathEffect pathEffect;
     public Shader shader;
+    private ColorFilter colorFilter;
     public Paint(int flags) { }
-    public void set(Paint source) {alpha=source.alpha;color=source.color;textSize=source.textSize;mode=source.mode;letterSpacing=source.letterSpacing;typeface=source.typeface;fakeBold=source.fakeBold;variationSettings=source.variationSettings;}
+    public void set(Paint source) {alpha=source.alpha;color=source.color;textSize=source.textSize;mode=source.mode;letterSpacing=source.letterSpacing;typeface=source.typeface;fakeBold=source.fakeBold;variationSettings=source.variationSettings;colorFilter=source.colorFilter;}
     public void setAlpha(int value) {alpha=value;}
     public int getAlpha() {return alpha;}
     public void setColor(int value) {color=value;alpha=value>>>24;}
@@ -33,9 +34,12 @@ public class Paint {
     public PathEffect setPathEffect(PathEffect value) {PathEffect old=pathEffect;pathEffect=value;return old;}
     public Shader setShader(Shader value) {Shader old=shader;shader=value;return old;}
     public Shader getShader() {return shader;}
+    public ColorFilter setColorFilter(ColorFilter value){ColorFilter old=colorFilter;colorFilter=value;return old;}
+    public ColorFilter getColorFilter(){return colorFilter;}
     public float getTextSize() {return textSize;}
     public void setTextSize(float value) {textSize=value;}
     public void getTextBounds(String value,int start,int end,Rect bounds) {bounds.left=0;bounds.right=(int)((end-start)*textSize*.6f);bounds.top=-(int)textSize;bounds.bottom=0;}
+    public float measureText(CharSequence text,int start,int end) {return (end-start)*textSize*.6f;}
     public Typeface getTypeface() {return typeface;}
     public Typeface setTypeface(Typeface face) {Typeface old=typeface;typeface=face;return old;}
     public String getFontVariationSettings() {return variationSettings;}

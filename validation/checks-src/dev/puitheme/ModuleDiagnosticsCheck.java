@@ -113,7 +113,17 @@ public final class ModuleDiagnosticsCheck {
         ModuleDiagnostics.configure(active);ModuleDiagnostics.error("hook", "fixed error without throwable", null);
         equal(1, pending.size());
         equal("error", new JSONObject(pending.peekLast()).getString("level"));
+        Bundle counters=new Bundle();counters.putBoolean("owner_known",true);counters.putInt("pending_count",2);
+        counters.putString("ssid","private network");counters.putInt("pin",528);
+        ModuleDiagnostics.stage("media","prepare",counters,null);
+        equal(2,pending.size());JSONObject staged=new JSONObject(pending.peekLast());
+        equal("prepare",staged.getJSONObject("details").getString("phase"));
+        equal(2,staged.getJSONObject("details").getJSONObject("metrics").length());
+        equal(false,staged.toString().contains("private network"));equal(false,staged.toString().contains("528"));
+        ModuleDiagnostics.stage("media","prepare",counters,null);equal(2,pending.size());
+        ModuleDiagnostics.stage("media","private phase",counters,null);equal(2,pending.size());
         ModuleDiagnostics.configure(disabled);equal(0, pending.size());
+        ModuleDiagnostics.stage("media","prepare",counters,null);equal(0,pending.size());
 
         File directory = Files.createTempDirectory("c17-diagnostic-check-").toFile();
         try {
@@ -128,6 +138,13 @@ public final class ModuleDiagnosticsCheck {
             equal(true, full.length <= ModuleDiagnostics.MAX_FILE_BYTES * 2L + 4096);
             equal(true, new String(full, StandardCharsets.UTF_8).startsWith("C17 状态栏诊断日志"));
             equal(true, new String(full, StandardCharsets.UTF_8).contains("版本：1.13.1"));
+            byte[] report="设备配置报告\n{\"report_schema\":1}\n".getBytes(StandardCharsets.UTF_8);
+            byte[] withReport=ModuleDiagnostics.snapshotBytes(directory,"1.6.1",report);
+            String reportText=new String(withReport,StandardCharsets.UTF_8);
+            equal(true,reportText.indexOf("设备配置报告")<reportText.indexOf(line));
+            equal(true,withReport.length<=ModuleDiagnostics.MAX_FILE_BYTES*2L+DiagnosticReport.MAX_REPORT_BYTES+4096);
+            try {ModuleDiagnostics.snapshotBytes(directory,"1.6.1",new byte[DiagnosticReport.MAX_REPORT_BYTES+1]);throw new AssertionError("oversized report accepted");}
+            catch(IOException expected){checks++;}
             byte[] preview = ModuleDiagnostics.readTail(current, 65536);
             equal(true, preview.length <= 65536);
             equal(true, new String(preview, StandardCharsets.UTF_8).endsWith("\n"));
@@ -145,6 +162,7 @@ public final class ModuleDiagnosticsCheck {
             if (temporary != null) for (File file : temporary) Files.deleteIfExists(file.toPath());
             Files.deleteIfExists(directory.toPath());
         }
+        checks += DiagnosticReportCheck.run();
         System.out.println("ModuleDiagnosticsCheck passed: " + checks);
     }
 }

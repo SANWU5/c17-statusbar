@@ -71,6 +71,33 @@ public final class NumericTrial {
     public static synchronized long deadline() { return deadline; }
     public static synchronized boolean active() { return initialized && pending != null; }
 
+    /** Finish a trial before maintenance owns the next write, never leave an expiry able to replay later. */
+    public static synchronized boolean cancelForReset(Context context, SharedPreferences preferences) {
+        if (context == null || preferences == null
+                || !ModuleDiagnostics.PACKAGE_NAME.equals(context.getPackageName())) return false;
+        if (!initialized) {
+            Context application = context.getApplicationContext();
+            owner = (application == null ? context : application).createDeviceProtectedStorageContext();
+            raw = preferences;
+            journal = owner.getSharedPreferences(JOURNAL, Context.MODE_PRIVATE);
+            initialized = true;
+            Map<String, ?> record = journal.getAll();
+            pending = record.containsKey("key") ? new HashMap<>(record) : null;
+        }
+        // If the following reset cannot reach disk, retain the last confirmed value rather than
+        // accidentally accepting the temporary one when deleting its recovery journal.
+        if(pending!=null&&!rollback())return false;
+        TIMER.removeCallbacks(EXPIRE);
+        if (!commit(journal.edit().clear())) {
+            restoreJournal();
+            if (pending != null) retryRollback();
+            return false;
+        }
+        pending = null;
+        deadline = 0;
+        return true;
+    }
+
     /** Clearing the journal is the commit: the tested setting is already durable. */
     public static synchronized boolean keep() {
         if (!active()) return false;

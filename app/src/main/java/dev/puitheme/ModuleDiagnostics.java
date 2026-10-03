@@ -30,12 +30,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** Opt-in, bounded diagnostics. Callers must supply fixed stage descriptions, never settings values. */
+/** Opt-in, bounded diagnostics. Text content stays redacted; known numeric settings are structured. */
 public final class ModuleDiagnostics {
     public static final String KEY_ENABLED = "diagnostics_enabled";
     public static final String METHOD_RECORD = "record_statusbar_diagnostic";
@@ -51,6 +52,7 @@ public final class ModuleDiagnostics {
     private static final ArrayDeque<String> PENDING = new ArrayDeque<>();
     private static final RateGate RATE = new RateGate();
     private static final RateGate WRITE_RATE = new RateGate();
+    private static final AtomicLong APPLY_SEQUENCE = new AtomicLong();
     private static Context boundContext;
     private static boolean configured, draining;
     private static volatile boolean enabled;
@@ -110,16 +112,63 @@ public final class ModuleDiagnostics {
         } catch (Throwable ignored) { }
     }
 
+    /** Call only after a confirmed save; a rejected edit must never become a saved-change event. */
+    public static void settingChange(Context context,String key,Object previous,Object next) {
+        if(context == null || !PACKAGE_NAME.equals(context.getPackageName()) || !DiagnosticReport.known(key))return;
+        try {
+            if(!loggingEnabled(context))return;
+            Bundle options=new Bundle();options.putBoolean(KEY_ENABLED,true);configure(context,options);
+            JSONObject details=DiagnosticReport.change(key,previous,next);
+            JSONObject payload=event("setting","已保存配置修改",null).put("details",details);
+            enqueue(payload,"setting|"+details.toString());
+        }catch(Throwable ignored){ }
+    }
+
+    /** One per successful configuration apply, rather than per hook draw or animation frame. */
+    public static void runtimeApplied(Context context,Bundle settings) {
+        if(!enabled() || context == null || !"com.android.systemui".equals(context.getPackageName()))return;
+        try {
+            JSONObject details=new JSONObject().put("kind","runtime_applied")
+                    .put("runtime",ModuleRuntimeStatus.BUILD_TOKEN).put("sequence",APPLY_SEQUENCE.incrementAndGet())
+                    .put("setting_count",settings == null?0:settings.keySet().size()).put("display",DiagnosticReport.display(context));
+            JSONObject payload=event("setting","系统界面配置应用成功",null).put("details",details);
+            enqueue(payload,"runtime_applied|"+details.toString());
+        }catch(Throwable ignored){ }
+    }
+
+    /** Fixed phases and a small whitelist of structural counters; no user text or per-frame sampling. */
+    public static void stage(String source,String phase,Bundle counters,Throwable failure) {
+        if(!enabled() || !DiagnosticReport.phase(phase))return;
+        try {
+            JSONObject metrics=new JSONObject();
+            if(counters != null)for(String key:counters.keySet()) {
+                if(!DiagnosticReport.metricKnown(key))continue;
+                Object value=counters.get(key);
+                if(value instanceof Boolean)metrics.put(key,value);
+                else if(value instanceof Number && Double.isFinite(((Number)value).doubleValue()))metrics.put(key,((Number)value).doubleValue());
+            }
+            JSONObject details=DiagnosticReport.validateDetails(new JSONObject().put("kind","hook_stage").put("phase",phase).put("metrics",metrics));
+            JSONObject payload=event(source,"Hook阶段",failure).put("details",details);
+            enqueue(payload,safeSource(source)+"|"+details.toString()+"|"+(failure == null?"info":failure.getClass().getName()));
+        }catch(Throwable ignored){ }
+    }
+
     private static void emit(String source, String message, Throwable error, boolean failure) {
         try {
             synchronized (STATE_LOCK) { if (configured && !enabled) return; }
             JSONObject payload = event(source, message, error);
             payload.put("level", failure ? "error" : "info");
-            String value = payload.toString();
+            enqueue(payload,(failure ? "error|" : "info|") + valueKey(source, message, error));
+        } catch (Throwable ignored) { }
+    }
+
+    private static void enqueue(JSONObject payload,String rateKey) {
+        try {
+            String value=payload.toString();
             if (value.getBytes(StandardCharsets.UTF_8).length > MAX_EVENT_BYTES) return;
             synchronized (STATE_LOCK) {
                 if (configured && !enabled) return;
-                if (!RATE.accept((failure ? "error|" : "info|") + valueKey(source, message, error), System.currentTimeMillis())) return;
+                if (!RATE.accept(rateKey, System.currentTimeMillis())) return;
                 if (PENDING.size() >= MAX_PENDING) PENDING.removeFirst();
                 PENDING.addLast(value);
             }
@@ -193,7 +242,8 @@ public final class ModuleDiagnostics {
                 if (System.currentTimeMillis() < clearedBefore) clearedBefore = 0;
                 if (eventMillis(safe.optString("timestamp")) <= clearedBefore) return result;
                 if (!WRITE_RATE.accept(safe.optString("source") + "|" + safe.optString("level")
-                        + "|" + safe.optString("message") + "|" + rootCauseClass(safe), System.currentTimeMillis())) return result;
+                        + "|" + safe.optString("message") + "|" + rootCauseClass(safe)
+                        + "|" + (safe.has("details")?safe.getJSONObject("details").toString():""), System.currentTimeMillis())) return result;
                 append(logDirectory(context), safe.toString());
             }
             result.putBoolean("written", true);
@@ -267,6 +317,8 @@ public final class ModuleDiagnostics {
         safe.put("source", safeSource(input.optString("source", "app")));
         safe.put("level", "error".equals(input.optString("level")) ? "error" : "info");
         safe.put("message", sanitizeMessage(input.optString("message", "")));
+        JSONObject details=DiagnosticReport.validateDetails(input.optJSONObject("details"));
+        if(details != null)safe.put("details",details);
         JSONObject exception = input.optJSONObject("exception");
         if (exception != null) {
             JSONObject cleaned = new JSONObject();
@@ -321,7 +373,8 @@ public final class ModuleDiagnostics {
         if ("systemui".equals(value) || "hooks".equals(value)) return "hook";
         if ("settings".equals(value)) return "setting";
         if ("tiles".equals(value)) return "tile";
-        if ("qs_style".equals(value)) return "qs_style";
+        if ("qs_style".equals(value) || "bigclock".equals(value) || "native-stack".equals(value)
+                || "status_hints".equals(value) || "acrylic".equals(value) || "media".equals(value)) return value;
         return "hook".equals(value) || "setting".equals(value) || "update".equals(value)
                 || "tile".equals(value) || "app".equals(value) || "radio".equals(value)
                 || "font".equals(value) || "export".equals(value) || "config".equals(value) ? value : "app";
@@ -457,7 +510,10 @@ public final class ModuleDiagnostics {
             }
             File[] snapshots = new File(context.getCacheDir(), "diagnostic-shares").listFiles();
             if (snapshots != null) for (File file : snapshots)
-                if (file.isFile() && file.getName().matches("[0-9a-f]{32}\\.log")) removeSnapshot(context, file);
+                if (file.isFile() && file.getName().matches("[0-9a-f]{32}\\.log")) {
+                    removeSnapshot(context, file);
+                    if(file.exists())throw new IOException("Cannot clear diagnostic share snapshot");
+                }
         } }
     }
 
@@ -496,13 +552,26 @@ public final class ModuleDiagnostics {
     }
 
     private static byte[] snapshotBytes(Context context) throws IOException {
-        synchronized (FILE_LOCK) { return snapshotBytes(logDirectory(context), installedVersion(context)); }
+        byte[] report;
+        try {
+            JSONObject value=DiagnosticReport.report(context,StatusBarSettings.preferences(context).getAll());
+            report=("设备与脱敏配置报告（JSON）\n"+value.toString(2)+"\n\n近期事件（JSONL）\n").getBytes(StandardCharsets.UTF_8);
+            if(report.length>DiagnosticReport.MAX_REPORT_BYTES)throw new IOException("Diagnostic report exceeds limit");
+        }catch(JSONException unavailable){throw new IOException("Cannot prepare diagnostic report",unavailable);}
+        synchronized (FILE_LOCK) { return snapshotBytes(logDirectory(context), installedVersion(context),report); }
     }
 
     static byte[] snapshotBytes(File directory, String version) throws IOException {
+        return snapshotBytes(directory,version,new byte[0]);
+    }
+
+    static byte[] snapshotBytes(File directory,String version,byte[] report) throws IOException {
+        if(report == null || report.length>DiagnosticReport.MAX_REPORT_BYTES)throw new IOException("Diagnostic report exceeds limit");
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         output.write(("C17 状态栏诊断日志\n版本：" + safeVersion(version)
-                + "\n只记录固定阶段说明和异常类型／调用位置，不记录用户配置内容。\n\n").getBytes(StandardCharsets.UTF_8));
+                + "\n包含设备、显示参数、脱敏配置、近期阶段与异常位置；不记录通知正文、密码、网络名或文件路径。"
+                + "\n复现时请补充方向、步骤、操作快慢与录屏；日志不能精确重放任意手势。\n\n").getBytes(StandardCharsets.UTF_8));
+        output.write(report);
         byte[] buffer = new byte[4096];
         boolean content = false;
         for (String name : new String[]{"c17.log.1", "c17.log"}) {
@@ -566,7 +635,7 @@ public final class ModuleDiagnostics {
         if (!token.matches("[0-9a-f]{32}")) throw new FileNotFoundException("Unknown diagnostic snapshot");
         File file = new File(new File(context.getCacheDir(), "diagnostic-shares"), token + ".log");
         long age = System.currentTimeMillis() - file.lastModified();
-        if (!file.isFile() || age > SNAPSHOT_LIFETIME_MS || file.length() > MAX_FILE_BYTES * 2L + 4096)
+        if (!file.isFile() || age > SNAPSHOT_LIFETIME_MS || file.length() > MAX_FILE_BYTES * 2L + DiagnosticReport.MAX_REPORT_BYTES + 4096)
             throw new FileNotFoundException("Diagnostic snapshot expired");
         return file;
     }

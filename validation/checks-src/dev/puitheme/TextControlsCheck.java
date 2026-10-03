@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.HashMap;
 public final class TextControlsCheck {
     private static int checks;
-    private static void equal(Object expected,Object actual) {checks++;if(!expected.equals(actual))throw new AssertionError("Expected "+expected+", got "+actual);}
+    private static void equal(Object expected,Object actual) {checks++;if(!java.util.Objects.equals(expected,actual))throw new AssertionError("Expected "+expected+", got "+actual);}
     private static void near(float expected,float actual){checks++;if(Math.abs(expected-actual)>.0001)throw new AssertionError(expected+" != "+actual);}
     public static void main(String[] args) throws Exception {
         Handler handler=new Handler(Looper.getMainLooper());TextControls control=new TextControls(handler);Context context=new Context();
@@ -52,7 +52,37 @@ public final class TextControlsCheck {
         shadeClocks(context);
         independentShadeClocks(context);
         classificationCaching(context);
+        nativeStyleIsolation(context);
         System.out.println(checks+" text state, precision, tint and scheduler checks passed");
+    }
+
+    private static void nativeStyleIsolation(Context context) {
+        TextControls controls = new TextControls(new Handler(Looper.getMainLooper()));
+        StatClock view = new StatClock(context);
+        view.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 52f);
+        controls.attach(view);
+        Bundle settings = new Bundle(); settings.putBoolean("clock_controls_enabled", true);
+        settings.putFloat(StatusBarSettings.CLOCK_SCALE, 50f);
+        settings.putFloat(StatusBarSettings.CLOCK_WEIGHT, 824f);
+        controls.configure(settings, StatusBarSettings.COLOR_DEFAULTS, Collections.emptyMap());
+        near(26f, view.getTextSize());
+        for (int i = 0; i < 200; i++) {
+            TextControls.NativeStyleScope scope = controls.beginNativeStyle(view);
+            near(52f, view.getTextSize());
+            equal(true, controls.isInternal()); equal(null, controls.beginNativeStyle(view));
+            controls.beforeMeasure(view); controls.attach(view); near(52f, view.getTextSize());
+            // OEM callbacks may derive a new size from the current Paint.
+            view.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, view.getTextSize());
+            scope.close(); scope.close();
+            near(26f, view.getTextSize()); equal(824, view.getTypeface().weight);
+            equal(false, controls.isInternal());
+        }
+        TextControls.NativeStyleScope changed = controls.beginNativeStyle(view);
+        view.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, 60f);
+        changed.close(); near(30f, view.getTextSize());
+        settings.putBoolean("clock_controls_enabled", false);
+        controls.configure(settings, StatusBarSettings.COLOR_DEFAULTS, Collections.emptyMap());
+        near(60f, view.getTextSize()); equal(null, controls.beginNativeStyle(view));
     }
 
     private static final class ClockResources extends android.content.res.Resources {

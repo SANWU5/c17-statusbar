@@ -6,6 +6,7 @@ public class Canvas {
     public String failNodeOnce;
     public Shader lastShader;
     public Shader lastEffectShader,lastFenceShader;
+    public Paint lastLayerPaint;
     public float clipLeft,clipTop,clipRight,clipBottom,layerLeft,layerTop,layerRight,layerBottom;
     public float effectiveClipLeft,effectiveClipTop,effectiveClipRight,effectiveClipBottom;
     public PorterDuff.Mode rectMode;
@@ -27,6 +28,9 @@ public class Canvas {
     public void restoreToCount(int count) {restores++;saveCount=count;}
     public int getSaveCount() {return saveCount;}
     public int saveLayer(float left,float top,float right,float bottom,Paint paint) {if(failLayerOnce){failLayerOnce=false;throw new IllegalStateException("layer unavailable");}layers++;layerLeft=left;layerTop=top;layerRight=right;layerBottom=bottom;return save();}
+    public int saveLayer(RectF bounds,Paint paint){lastLayerPaint=paint;return bounds==null
+            ?saveLayer(clipBounds.left,clipBounds.top,clipBounds.right,clipBounds.bottom,paint)
+            :saveLayer(bounds.left,bounds.top,bounds.right,bounds.bottom,paint);}
     public int saveLayerAlpha(RectF bounds,int alpha){layers++;layerLeft=bounds.left;layerTop=bounds.top;layerRight=bounds.right;layerBottom=bounds.bottom;return save();}
     public boolean isHardwareAccelerated() {return hardware;}
     public boolean getClipBounds(Rect rect) {rect.left=clipBounds.left;rect.top=clipBounds.top;rect.right=clipBounds.right;rect.bottom=clipBounds.bottom;return true;}

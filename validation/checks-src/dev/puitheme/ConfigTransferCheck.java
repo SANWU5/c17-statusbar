@@ -224,8 +224,14 @@ public final class ConfigTransferCheck {
         equal(true, ConfigTransfer.commit(preferences, prepared));
         equal(1, preferences.editCount);
         equal(1, preferences.commitCount);
-        equal(5, preferences.lastWriteCount);
+        equal(6, preferences.lastWriteCount);
+        equal(false,preferences.values.get(NotificationGroupStack.MASTER));
         equal(true, preferences.values.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+        equal(false,values("\"notification_group_stack_enabled\":true").get(NotificationGroupStack.MASTER));
+        invalidSetting("\"notification_group_stack_enabled\":\"true\"");
+        equal(true,values("\"notification_big_clock_stack_landscape_enabled\":true").get(FeatureOptions.STACK_LANDSCAPE_ENABLED));
+        Map<String,Object> arrowImport=values("\"native_data_activity_enabled\":true,\"data_activity_hidden\":true");
+        equal(true,arrowImport.get(NativeDataActivity.MASTER));equal(false,arrowImport.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
         equal(false, preferences.clearCalled);
         equal(3.25f, preferences.values.get("wifi_offset_x"));
         equal(false, preferences.values.get("data_enabled"));

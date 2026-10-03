@@ -5,8 +5,10 @@ public class Context {
     public Context createPackageContext(String name,int flags){return this;}
     public Context getApplicationContext(){return this;}
     public Context createDeviceProtectedStorageContext(){return this;}
+    public boolean isDeviceProtectedStorage(){return true;}
     public SharedPreferences getSharedPreferences(String name,int mode){throw new UnsupportedOperationException(name);}
     public ContentResolver getContentResolver(){return new ContentResolver();}
     public Object getSystemService(String name){return new android.os.PowerManager();}
     public String getPackageName(){return "dev.puitheme.iosstatusbar";}
+    public android.content.pm.PackageManager getPackageManager(){throw new UnsupportedOperationException("PackageManager fixture unavailable");}
 }

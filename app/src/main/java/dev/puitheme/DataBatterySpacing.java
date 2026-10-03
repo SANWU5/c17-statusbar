@@ -27,7 +27,7 @@ final class DataBatterySpacing {
     private Boolean wifiVisible, labelVisible;
     private int labelSources;
     private boolean enabled, applying, pending, removed;
-    private boolean labelEnabled, labelHidden, labelNormalize;
+    private boolean labelEnabled, labelHidden, labelNormalize, nativeBadgeHidden;
     private boolean wifiInUse, airplane;
     private Boolean wifiEnabled, dataEnabled;
     private String fallback = "";
@@ -90,10 +90,13 @@ final class DataBatterySpacing {
         float nextSpacing = NumericPolicy.setting(SPACING, settings == null ? null : settings.get(SPACING), 0f);
         boolean nextLabelEnabled = options.enabled("label"), nextHidden = options.hideNetworkLabel();
         boolean nextNormalize = options.effective("label", "label_normalize_enabled");
+        boolean nextNativeHidden = options.hideNativeNetworkBadge();
         boolean layoutChanged = enabled != nextEnabled || spacing != nextSpacing;
         enabled = nextEnabled; spacing = nextSpacing;
-        if (labelEnabled != nextLabelEnabled || labelHidden != nextHidden || labelNormalize != nextNormalize) {
+        if (labelEnabled != nextLabelEnabled || labelHidden != nextHidden || labelNormalize != nextNormalize
+                || nativeBadgeHidden != nextNativeHidden) {
             labelEnabled = nextLabelEnabled; labelHidden = nextHidden; labelNormalize = nextNormalize;
+            nativeBadgeHidden = nextNativeHidden;
             refreshLabels();
         }
         if (layoutChanged) refreshSoon();
@@ -136,10 +139,10 @@ final class DataBatterySpacing {
         labelSources = labels.size();
         Boolean next = labelSources == 0 ? null : Boolean.FALSE;
         for (Label label : labels.values()) {
-            if (label.nativeText == null) { next = null; break; }
+            if (label.nativeText == null && (labelEnabled || !nativeBadgeHidden)) { next = null; break; }
             String shown = labelEnabled ? labelHidden ? "" : RadioState.cellularLabel(true,
                     wifiInUse, airplane, label.nativeText, fallback, labelNormalize, wifiEnabled, dataEnabled)
-                    : label.nativeText;
+                    : nativeBadgeHidden ? "" : label.nativeText;
             if (!shown.trim().isEmpty()) next = Boolean.TRUE;
         }
         if (!Objects.equals(labelVisible, next)) { labelVisible = next; refreshSoon(); }

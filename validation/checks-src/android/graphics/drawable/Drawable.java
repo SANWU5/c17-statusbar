@@ -15,6 +15,14 @@ public abstract class Drawable {
     public abstract void draw(Canvas canvas);
     public abstract void setAlpha(int alpha);
     public abstract void setColorFilter(ColorFilter filter);
+    public int getAlpha(){return 255;}
+    public ColorFilter getColorFilter(){return null;}
+    public void setColorFilter(int color,android.graphics.PorterDuff.Mode mode){setColorFilter(new android.graphics.PorterDuffColorFilter(color,mode));}
+    protected boolean onStateChange(int[] value){return false;}
+    protected boolean onLevelChange(int value){return false;}
+    public boolean setVisible(boolean visible,boolean restart){return false;}
+    public void scheduleSelf(Runnable task,long when){if(callback!=null)callback.scheduleDrawable(this,task,when);}
+    public void unscheduleSelf(Runnable task){if(callback!=null)callback.unscheduleDrawable(this,task);}
     public abstract int getOpacity();
     public int getIntrinsicWidth() { return 72; }
     public int getIntrinsicHeight() { return 56; }

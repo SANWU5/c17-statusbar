@@ -23,6 +23,10 @@ public class Typeface {
         }
         variationCreations++;return value;
     }
+    /** Mirrors the hidden framework factory; unlike new Paint's axes this is baked into a face. */
+    public static Typeface createFromTypefaceWithVariation(Typeface family,java.util.List<android.graphics.fonts.FontVariationAxis> axes) {
+        return withVariation(family==null?DEFAULT:family,axes.toArray(new android.graphics.fonts.FontVariationAxis[0]));
+    }
     private static final java.util.Map<String,Typeface> cache=new java.util.HashMap<>();
     public static Typeface create(String family, int style) { return new Typeface(); }
     public static Typeface create(Typeface family,int weight,boolean italic) {

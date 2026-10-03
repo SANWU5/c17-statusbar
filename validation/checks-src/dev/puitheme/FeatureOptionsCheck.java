@@ -17,6 +17,19 @@ public final class FeatureOptionsCheck {
         Map<String,Boolean> expectedBooleans = new HashMap<>(FeatureOptions.DEFAULTS);
         expectedBooleans.put(StatusBarSettings.DIAGNOSTICS_ENABLED, false);
         expectedBooleans.put(StatusBarSettings.SAFE_MODE, false);
+        expectedBooleans.put(NetworkIconOrder.SWAP, false);
+        expectedBooleans.put(C17HighlightRemoval.ENABLED, false);
+        expectedBooleans.put(C17HighlightRemoval.BACKGROUND_ENABLED, false);
+        expectedBooleans.put(C17HighlightRemoval.NOTIFICATION_ENABLED, true);
+        expectedBooleans.put(C17HighlightRemoval.CONTROL_ENABLED, true);
+        expectedBooleans.put(C17HighlightRemoval.UNIFORM_NOTIFICATION_ENABLED, false);
+        expectedBooleans.put(LockscreenControls.DATE_ENABLED, false);
+        expectedBooleans.put(LockscreenControls.HIDE_LOCK, false);
+        expectedBooleans.putAll(NotificationClearMotion.booleanDefaults());
+        expectedBooleans.put(NotificationGroupStack.MASTER, false);
+        expectedBooleans.putAll(NativeStatusIcons.booleanDefaults());
+        expectedBooleans.putAll(NativeNetworkBadgeControls.booleanDefaults());
+        expectedBooleans.putAll(NetworkSpeedControls.BOOLEANS);
         expectedBooleans.putAll(QsTileAppearance.BOOLEANS);
         expectedBooleans.putAll(QsTileCorners.BOOLEANS);
         expectedBooleans.putAll(QsMediaAppearance.BOOLEANS);
@@ -27,6 +40,8 @@ public final class FeatureOptionsCheck {
         expectedBooleans.putAll(QsTileIconSize.BOOLEANS);
         expectedBooleans.putAll(StatusBarShadeIconSettings.BOOLEANS);
         equal(expectedBooleans, StatusBarSettings.BOOLEAN_DEFAULTS);
+        equal(false,StatusBarSettings.bool(new HashMap<String,Object>(),NativeNetworkBadgeControls.MASTER));
+        equal(false,FeatureOptions.DEFAULTS.containsKey(NativeNetworkBadgeControls.MASTER));
         equal(false, StatusBarSettings.BOOLEAN_DEFAULTS.get(QsTileCorners.MASTER));
         equal(false, StatusBarSettings.bool(new HashMap<String,Object>(), QsTileCorners.MASTER));
         equal(false, FeatureOptions.DEFAULTS.containsKey(QsTileCorners.MASTER));
@@ -40,7 +55,40 @@ public final class FeatureOptionsCheck {
         equal(false, defaults.enabled("unknown"));
         equal(false, defaults.isEnabled("unknown"));
         equal(10, FeatureOptions.GROUPS.length);
-        equal(81, FeatureOptions.DEFAULTS.size());
+        equal(84, FeatureOptions.DEFAULTS.size());
+        equal(false,defaults.isEnabled(FeatureOptions.STACK_LANDSCAPE_ENABLED));
+        Map<String,Object> landscapeStack=new HashMap<>();landscapeStack.put(FeatureOptions.STACK_LANDSCAPE_ENABLED,true);
+        equal(true,FeatureOptions.from(landscapeStack).isEnabled(FeatureOptions.STACK_LANDSCAPE_ENABLED));
+        equal(false,StatusBarSettings.bool(landscapeStack,NotificationBigClockSettings.STACK_ENABLED));
+        equal(false,FeatureOptions.GROUP_BY_KEY.containsKey(FeatureOptions.STACK_LANDSCAPE_ENABLED));
+        for(Object retired:new Object[]{true,false,"true",0,null}){
+            landscapeStack.put(NotificationGroupStack.MASTER,retired);
+            equal(false,StatusBarSettings.bool(landscapeStack,NotificationGroupStack.MASTER));
+        }
+        equal(false,defaults.isEnabled(NativeDataActivity.MASTER));
+        Map<String,Object> arrows=new HashMap<>();arrows.put(NativeDataActivity.MASTER,true);
+        equal(true,FeatureOptions.from(arrows).isEnabled(NativeDataActivity.MASTER));
+        equal(false,StatusBarSettings.bool(arrows,StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+        equal(false,FeatureOptions.from(arrows).effective("data",StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+        for(Object oldHidden:new Object[]{true,false,"false",null}){
+            arrows.put(StatusBarSettings.DATA_ACTIVITY_HIDDEN,oldHidden);
+            equal(false,StatusBarSettings.bool(arrows,StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+        }
+        arrows.put(NativeDataActivity.MASTER,false);equal(true,StatusBarSettings.bool(arrows,StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+        Map<String,Object> signalSelection = new HashMap<>();
+        signalSelection.put("data_enabled",true); signalSelection.put("data_icon_enabled",true);
+        signalSelection.put("data_single_enabled",false);
+        FeatureOptions selection = FeatureOptions.from(signalSelection);
+        equal(true,selection.singleSignal("single")); equal(false,selection.singleSignal("system"));
+        equal(true,selection.hideNativeNetworkBadge());
+        signalSelection.put("data_badge_hidden",false);
+        equal(false,FeatureOptions.from(signalSelection).hideNativeNetworkBadge());
+        signalSelection.put("data_enabled",false); signalSelection.put("data_badge_hidden",true);
+        equal(false,FeatureOptions.from(signalSelection).singleSignal("single"));
+        equal(false,FeatureOptions.from(signalSelection).hideNativeNetworkBadge());
+        signalSelection.put("data_enabled",true); signalSelection.put(StatusBarSettings.SAFE_MODE,true);
+        equal(false,FeatureOptions.from(signalSelection).singleSignal("single"));
+        equal(false,FeatureOptions.from(signalSelection).hideNativeNetworkBadge());
         equal(false, defaults.isEnabled(DataBatterySpacing.ENABLED));
         equal(false, defaults.effective("data", DataBatterySpacing.ENABLED));
         Map<String,Object> spacing = new HashMap<>();spacing.put(DataBatterySpacing.ENABLED,true);
@@ -101,7 +149,8 @@ public final class FeatureOptionsCheck {
         }
 
         for (String key : FeatureOptions.DEFAULTS.keySet()) {
-            if (StatusBarSettings.DATA_ACTIVITY_HIDDEN.equals(key)) continue;
+            if (StatusBarSettings.DATA_ACTIVITY_HIDDEN.equals(key)||FeatureOptions.STACK_LANDSCAPE_ENABLED.equals(key)
+                    ||NativeDataActivity.MASTER.equals(key)||NativeDataActivity.COLOR_ENABLED.equals(key)) continue;
             String group = FeatureOptions.GROUP_BY_KEY.get(key);
             equal(true, group != null);
             Map<String, Object> values = new HashMap<>();

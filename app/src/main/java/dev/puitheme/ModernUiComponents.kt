@@ -4,7 +4,10 @@
 package dev.puitheme
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,10 +16,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -39,6 +45,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -46,9 +54,6 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.ColorPicker
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.NavigationBar
-import top.yukonga.miuix.kmp.basic.NavigationBarItem
-import top.yukonga.miuix.kmp.basic.NavigationBarDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
@@ -253,6 +258,7 @@ fun UiInputDialog(
     integer: Boolean = false,
     allowNegative: Boolean = true,
     pattern: Boolean = false,
+    confirmLabelForValue: (String) -> String = { "确定" },
     onDismiss: () -> Unit,
     onConfirm: (String) -> String?,
 ) {
@@ -304,7 +310,7 @@ fun UiInputDialog(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             UiDialogError(error)
-            UiDialogActions(onDismiss = { keyboard?.hide(); onDismiss() }, confirmLabel = if (numeric) "试用 20 秒" else "保存", onConfirm = confirm)
+            UiDialogActions(onDismiss = { keyboard?.hide(); onDismiss() }, confirmLabel = confirmLabelForValue(value), onConfirm = confirm)
         }
     }
 }
@@ -523,31 +529,41 @@ private fun parseArgb(text: String): Int? {
     }
 }
 
-/** Standard edge-to-edge navigation, adjoining the system navigation inset. */
+/** Ordinary navigation: an opaque surface through the gesture inset, with safe tab targets. */
 @Composable
-fun C17Navigation(page: Int, onPage: (Int) -> Unit) {
+fun C17Navigation(page: Int, safeInsets: PaddingValues = PaddingValues(), onPage: (Int) -> Unit) {
     val labels = arrayOf("主页", "配置", "关于")
     val icons = arrayOf(MiuixIcons.Home, MiuixIcons.Settings, MiuixIcons.Info)
     Column(
-        modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surfaceContainer),
-        verticalArrangement = Arrangement.Center,
+        modifier = Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.surfaceContainer),
     ) {
-        NavigationBar(
-            color = MiuixTheme.colorScheme.surfaceContainer,
-            showDivider = true,
-            defaultWindowInsetsPadding = false,
-        ) {
+        Box(Modifier.fillMaxWidth().height(0.5.dp)
+            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)))
+        Row(Modifier.fillMaxWidth().padding(safeInsets).heightIn(min = 68.dp).selectableGroup(),
+            verticalAlignment = Alignment.CenterVertically) {
             labels.forEachIndexed { index, label ->
-                NavigationBarItem(
-                    selected = page == index,
-                    onClick = { onPage(index) },
-                    icon = icons[index],
-                    label = label,
-                    colors = NavigationBarDefaults.navigationBarItemColors(
-                        unselectedContentColor = MiuixTheme.colorScheme.onSurface,
-                        selectedContentColor = MiuixTheme.colorScheme.primary,
-                    ),
-                )
+                val selected = page == index
+                val tint by animateColorAsState(
+                    if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    animationSpec = tween(180), label = "navigation-content-$index")
+                val indicator by animateColorAsState(
+                    if (selected) MiuixTheme.colorScheme.primary.copy(alpha = 0.13f) else Color.Transparent,
+                    animationSpec = tween(180), label = "navigation-indicator-$index")
+                Column(Modifier.weight(1f)
+                    .heightIn(min = 64.dp)
+                    .selectable(selected = selected, role = Role.Tab,
+                        interactionSource = remember { MutableInteractionSource() }, indication = null,
+                        onClick = { onPage(index) })
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Box(Modifier.size(56.dp, 32.dp).clip(RoundedCornerShape(16.dp))
+                        .background(indicator), contentAlignment = Alignment.Center) {
+                        Icon(icons[index], contentDescription = null, modifier = Modifier.size(24.dp), tint = tint)
+                    }
+                    Text(label, color = tint, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
     }

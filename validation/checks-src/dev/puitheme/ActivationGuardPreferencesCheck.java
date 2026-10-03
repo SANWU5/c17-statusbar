@@ -40,12 +40,21 @@ public final class ActivationGuardPreferencesCheck {
         active.set(true);
         equal(true, guarded.edit().remove("offset").commit());
         equal(3, raw.writes); equal(false, guarded.contains("offset"));
-        equal(true, guarded.edit().clear().commit()); equal(4, raw.writes); equal(1, guarded.getAll().size());
+        equal(true, guarded.edit().clear().commit()); equal(4, raw.writes); equal(3, guarded.getAll().size());
         equal(true,guarded.getBoolean(StatusBarSettings.DATA_ACTIVITY_HIDDEN,false));
+        equal(false,guarded.getBoolean(StatusBarShadeIconSettings.MASTER,true));
         guarded.edit().putBoolean(StatusBarSettings.DATA_ACTIVITY_HIDDEN,false).apply();
         equal(true,raw.values.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
         guarded.edit().putString(StatusBarSettings.DATA_ACTIVITY_HIDDEN,"bad legacy type").apply();
         equal(true,raw.values.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+        guarded.edit().putBoolean(NativeDataActivity.MASTER,true).putBoolean(StatusBarSettings.DATA_ACTIVITY_HIDDEN,true).apply();
+        equal(false,raw.values.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));equal(false,guarded.getBoolean(StatusBarSettings.DATA_ACTIVITY_HIDDEN,true));
+        guarded.edit().putFloat(NativeDataActivity.X,-2.5f).apply();equal(false,raw.values.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+        guarded.edit().putBoolean(NotificationGroupStack.MASTER,true).apply();equal(false,raw.values.get(NotificationGroupStack.MASTER));
+        equal(false,guarded.getBoolean(NotificationGroupStack.MASTER,true));
+        guarded.edit().remove(NativeDataActivity.MASTER).apply();equal(true,raw.values.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+        guarded.edit().putBoolean(NativeDataActivity.MASTER,true).clear().apply();equal(false,raw.values.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
+        guarded.edit().clear().apply();equal(true,raw.values.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
         bigClockConflicts();
         System.out.println("Activation preference guard checks passed: " + checks);
     }

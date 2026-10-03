@@ -40,11 +40,18 @@ public final class NotificationBigClock {
         void sample(View stack, float[] offsets);
     }
     private static final String PREFIX = "notification_big_clock_";
-    private volatile Settings settings = new Settings(null);
+    private volatile Settings portraitSettings = new Settings(null, PREFIX);
+    private volatile Settings landscapeSettings = new Settings(null, NotificationBigClockSettings.LANDSCAPE_PREFIX);
+    private volatile Settings settings = portraitSettings;
+    private final NotificationGroupStack groupStack = new NotificationGroupStack();
+    private final android.graphics.Matrix stackMapping = new android.graphics.Matrix();
+    private final float[] stackPoint = new float[2];
+    private final Rect notificationClip = new Rect();
     private final Map<View, HeaderState> headers = new WeakHashMap<>();
     private final Map<View, StackState> stacks = new WeakHashMap<>();
     private final Map<View, FakeState> fakeClocks = new WeakHashMap<>();
-    private final NotificationBigClockStack notificationStack = new NotificationBigClockStack();
+    private final NotificationLandscapeLayout landscapeLayout = new NotificationLandscapeLayout();
+    private NotificationClearMotion clearMotion;
     // Compatibility retirement only: this instance never calls show() or owns a RIGHT copy.
     private final StatusBarFixedIcons fixedStatusIcons = new StatusBarFixedIcons();
     private final StatusBarPhoneRightIcons phoneRightIcons = new StatusBarPhoneRightIcons();
@@ -98,85 +105,90 @@ public final class NotificationBigClock {
         final float scale, compactScale, weight, compactWeight, offsetY, offsetX;
         final float maxSize, compactMaxSize, compactOffsetX, compactOffsetY, letterSpacing;
         final float dateSize, dateWeight, dateOffsetX, dateOffsetY, dateGap, notificationGap;
+        final boolean notificationWidthEnabled;
+        final float notificationWidth;
         final float tailWidth1, tailWidth2, tailWidth3;
         final float footerSize, footerWeight, footerOffsetX, footerOffsetY, footerMargin;
         final int colorLight, colorDark, dateColorLight, dateColorDark, footerColorLight, footerColorDark;
         final boolean clockLightAlpha, clockDarkAlpha, dateLightAlpha, dateDarkAlpha, footerLightAlpha, footerDarkAlpha;
-        Settings(Bundle source) {
+        Settings(Bundle source, String prefix) {
             statusIconsEnabled = bool(source, StatusBarShadeIconSettings.MASTER, false);
             safeMode = SafetyMode.enabled(source);
-            enabled = bool(source, PREFIX + "enabled", false);
+            enabled = bool(source, prefix + "enabled", false);
             // Either layout policy hides the exact Phone and notification slots until both
             // native panels truly close. The control-center left-page policy is independent.
             rightStatusIconsEnabled = statusIconsEnabled || enabled;
-            glass = bool(source, PREFIX + "glass", true);
-            glassBorderEnabled = bool(source, PREFIX + "glass_border_enabled", true);
-            glassBorderWidth = number(source, PREFIX + "glass_border_width", .65f, 0f, Float.MAX_VALUE);
-            borderColorLight = color(source, PREFIX + "glass_border_color_light", Color.WHITE);
-            borderColorDark = color(source, PREFIX + "glass_border_color_dark", Color.WHITE);
-            borderLightAlpha = alpha(source, PREFIX + "glass_border_color_light", borderColorLight);
-            borderDarkAlpha = alpha(source, PREFIX + "glass_border_color_dark", borderColorDark);
-            entryEffectEnabled = bool(source, PREFIX + "entry_effect_enabled", true);
-            entryBlurRadius = number(source, PREFIX + "entry_blur_radius", 12f, 0f, Float.MAX_VALUE);
-            entryFadeStrength = number(source, PREFIX + "entry_fade_strength", 100f, 0f, 100f);
-            entryCompletion = number(source, PREFIX + "entry_completion", 85f, 1f, 100f);
-            entryTravel = number(source, PREFIX + "entry_travel", 32f, 0f, Float.MAX_VALUE);
-            notificationEdgeEnabled = bool(source, PREFIX + "notification_edge_enabled", true);
-            notificationEdgeSafeDistance = number(source, PREFIX + "notification_edge_safe_distance", 18f, 0f, Float.MAX_VALUE);
-            notificationEdgeRange = number(source, PREFIX + "notification_edge_range", 24f, 0f, Float.MAX_VALUE);
-            notificationEdgeBlurRadius = number(source, PREFIX + "notification_edge_blur_radius", 8f, 0f, Float.MAX_VALUE);
-            pattern = pattern(source, PREFIX + "pattern", "HH:mm");
-            datePattern = pattern(source, PREFIX + "date_pattern", NotificationBigClockSettings.DATE_DEFAULT);
-            dateEnabled = bool(source, PREFIX + "date_enabled", true);
-            footerEnabled = bool(source, PREFIX + "footer_enabled", false);
-            String footerFormat = string(source, PREFIX + "footer_pattern", "{text}");
+            glass = bool(source, prefix + "glass", true);
+            glassBorderEnabled = bool(source, prefix + "glass_border_enabled", true);
+            glassBorderWidth = number(source, prefix + "glass_border_width", .65f, 0f, Float.MAX_VALUE);
+            borderColorLight = color(source, prefix + "glass_border_color_light", Color.WHITE);
+            borderColorDark = color(source, prefix + "glass_border_color_dark", Color.WHITE);
+            borderLightAlpha = alpha(source, prefix + "glass_border_color_light", borderColorLight);
+            borderDarkAlpha = alpha(source, prefix + "glass_border_color_dark", borderColorDark);
+            entryEffectEnabled = bool(source, prefix + "entry_effect_enabled", true);
+            entryBlurRadius = number(source, prefix + "entry_blur_radius", 12f, 0f, Float.MAX_VALUE);
+            entryFadeStrength = number(source, prefix + "entry_fade_strength", 100f, 0f, 100f);
+            entryCompletion = number(source, prefix + "entry_completion", 85f, 1f, 100f);
+            entryTravel = number(source, prefix + "entry_travel", 32f, 0f, Float.MAX_VALUE);
+            notificationEdgeEnabled = bool(source, prefix + "notification_edge_enabled", true);
+            notificationEdgeSafeDistance = number(source, prefix + "notification_edge_safe_distance", 18f, 0f, Float.MAX_VALUE);
+            notificationEdgeRange = number(source, prefix + "notification_edge_range", 24f, 0f, Float.MAX_VALUE);
+            notificationEdgeBlurRadius = number(source, prefix + "notification_edge_blur_radius", 8f, 0f, Float.MAX_VALUE);
+            pattern = pattern(source, prefix + "pattern", "HH:mm");
+            datePattern = pattern(source, prefix + "date_pattern", NotificationBigClockSettings.DATE_DEFAULT);
+            dateEnabled = bool(source, prefix + "date_enabled", true);
+            footerEnabled = bool(source, prefix + "footer_enabled", false);
+            String footerFormat = string(source, prefix + "footer_pattern", "{text}");
             footerPattern = TimeFormat.contentValidationError(footerFormat) == null ? footerFormat : "{text}";
-            footerText = string(source, PREFIX + "footer_text", "");
+            footerText = string(source, prefix + "footer_text", "");
             seconds = TimeFormat.hasSeconds(pattern) || (dateEnabled && TimeFormat.hasSeconds(datePattern))
                     || (footerEnabled && TimeFormat.contentHasSeconds(footerPattern));
-            scale = number(source, PREFIX + "scale", 100f, 0f, Float.MAX_VALUE);
-            compactScale = number(source, PREFIX + "compact_scale", 36f, 0f, Float.MAX_VALUE);
-            weight = number(source, PREFIX + "weight", 600f, 1f, 1000f);
+            scale = number(source, prefix + "scale", 100f, 0f, Float.MAX_VALUE);
+            compactScale = number(source, prefix + "compact_scale", 36f, 0f, Float.MAX_VALUE);
+            weight = number(source, prefix + "weight", 600f, 1f, 1000f);
             // Retain the legacy preference in exports; collapsing never changes the selected weight.
             compactWeight = weight;
-            offsetY = number(source, PREFIX + "offset_y", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
-            offsetX = number(source, PREFIX + "offset_x", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
-            maxSize = number(source, PREFIX + "max_size", 180f, 0f, Float.MAX_VALUE);
-            compactMaxSize = number(source, PREFIX + "compact_max_size", 64f, 0f, Float.MAX_VALUE);
-            compactOffsetX = number(source, PREFIX + "compact_offset_x", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
-            compactOffsetY = number(source, PREFIX + "compact_offset_y", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
-            letterSpacing = number(source, PREFIX + "letter_spacing", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
-            dateSize = number(source, PREFIX + "date_size", 15f, 0f, Float.MAX_VALUE);
-            dateWeight = number(source, PREFIX + "date_weight", 600f, 1f, 1000f);
-            dateOffsetX = number(source, PREFIX + "date_offset_x", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
-            dateOffsetY = number(source, PREFIX + "date_offset_y", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
-            dateGap = number(source, PREFIX + "date_gap", 12f, 0f, Float.MAX_VALUE);
-            notificationGap = bool(source, PREFIX + "notification_gap_enabled", true)
-                    ? number(source, PREFIX + "notification_gap", 18f, 0f, Float.MAX_VALUE) : 0f;
-            tailWidth1 = number(source, NotificationBigClockSettings.TAIL_WIDTH_1, 96f, 0f, Float.MAX_VALUE);
-            tailWidth2 = number(source, NotificationBigClockSettings.TAIL_WIDTH_2, 92f, 0f, Float.MAX_VALUE);
-            tailWidth3 = number(source, NotificationBigClockSettings.TAIL_WIDTH_3, 88f, 0f, Float.MAX_VALUE);
-            footerSize = number(source, PREFIX + "footer_size", 13f, 0f, Float.MAX_VALUE);
-            footerWeight = number(source, PREFIX + "footer_weight", 400f, 1f, 1000f);
-            footerOffsetX = number(source, PREFIX + "footer_offset_x", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
-            footerOffsetY = number(source, PREFIX + "footer_offset_y", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
-            footerMargin = number(source, PREFIX + "footer_margin", 24f, 0f, Float.MAX_VALUE);
-            font = string(source, PREFIX + "font", "native");
-            alignment = string(source, PREFIX + "alignment", "center");
-            dateAlignment = string(source, PREFIX + "date_alignment", "center");
-            footerAlignment = string(source, PREFIX + "footer_alignment", "center");
-            colorLight = color(source, PREFIX + "color_light", Color.WHITE);
-            colorDark = color(source, PREFIX + "color_dark", Color.WHITE);
-            dateColorLight = color(source, PREFIX + "date_color_light", Color.WHITE);
-            dateColorDark = color(source, PREFIX + "date_color_dark", Color.WHITE);
-            footerColorLight = color(source, PREFIX + "footer_color_light", Color.WHITE);
-            footerColorDark = color(source, PREFIX + "footer_color_dark", Color.WHITE);
-            clockLightAlpha = alpha(source, PREFIX + "color_light", colorLight);
-            clockDarkAlpha = alpha(source, PREFIX + "color_dark", colorDark);
-            dateLightAlpha = alpha(source, PREFIX + "date_color_light", dateColorLight);
-            dateDarkAlpha = alpha(source, PREFIX + "date_color_dark", dateColorDark);
-            footerLightAlpha = alpha(source, PREFIX + "footer_color_light", footerColorLight);
-            footerDarkAlpha = alpha(source, PREFIX + "footer_color_dark", footerColorDark);
+            offsetY = number(source, prefix + "offset_y", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
+            offsetX = number(source, prefix + "offset_x", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
+            maxSize = number(source, prefix + "max_size", 180f, 0f, Float.MAX_VALUE);
+            compactMaxSize = number(source, prefix + "compact_max_size", 64f, 0f, Float.MAX_VALUE);
+            compactOffsetX = number(source, prefix + "compact_offset_x", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
+            compactOffsetY = number(source, prefix + "compact_offset_y", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
+            letterSpacing = number(source, prefix + "letter_spacing", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
+            dateSize = number(source, prefix + "date_size", 15f, 0f, Float.MAX_VALUE);
+            dateWeight = number(source, prefix + "date_weight", 600f, 1f, 1000f);
+            dateOffsetX = number(source, prefix + "date_offset_x", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
+            dateOffsetY = number(source, prefix + "date_offset_y", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
+            dateGap = number(source, prefix + "date_gap", 12f, 0f, Float.MAX_VALUE);
+            notificationGap = bool(source, prefix + "notification_gap_enabled", true)
+                    ? number(source, prefix + "notification_gap", 18f, 0f, Float.MAX_VALUE) : 0f;
+            notificationWidthEnabled=NotificationBigClockSettings.LANDSCAPE_PREFIX.equals(prefix)
+                    &&bool(source,NotificationBigClockSettings.LANDSCAPE_NOTIFICATION_WIDTH_ENABLED,false);
+            notificationWidth=number(source,NotificationBigClockSettings.LANDSCAPE_NOTIFICATION_WIDTH,100f,0f,Float.MAX_VALUE);
+            tailWidth1 = number(source, prefix + "tail_width_1", 96f, 0f, Float.MAX_VALUE);
+            tailWidth2 = number(source, prefix + "tail_width_2", 92f, 0f, Float.MAX_VALUE);
+            tailWidth3 = number(source, prefix + "tail_width_3", 88f, 0f, Float.MAX_VALUE);
+            footerSize = number(source, prefix + "footer_size", 13f, 0f, Float.MAX_VALUE);
+            footerWeight = number(source, prefix + "footer_weight", 400f, 1f, 1000f);
+            footerOffsetX = number(source, prefix + "footer_offset_x", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
+            footerOffsetY = number(source, prefix + "footer_offset_y", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
+            footerMargin = number(source, prefix + "footer_margin", 24f, 0f, Float.MAX_VALUE);
+            font = string(source, prefix + "font", "native");
+            alignment = string(source, prefix + "alignment", "center");
+            dateAlignment = string(source, prefix + "date_alignment", "center");
+            footerAlignment = string(source, prefix + "footer_alignment", "center");
+            colorLight = color(source, prefix + "color_light", Color.WHITE);
+            colorDark = color(source, prefix + "color_dark", Color.WHITE);
+            dateColorLight = color(source, prefix + "date_color_light", Color.WHITE);
+            dateColorDark = color(source, prefix + "date_color_dark", Color.WHITE);
+            footerColorLight = color(source, prefix + "footer_color_light", Color.WHITE);
+            footerColorDark = color(source, prefix + "footer_color_dark", Color.WHITE);
+            clockLightAlpha = alpha(source, prefix + "color_light", colorLight);
+            clockDarkAlpha = alpha(source, prefix + "color_dark", colorDark);
+            dateLightAlpha = alpha(source, prefix + "date_color_light", dateColorLight);
+            dateDarkAlpha = alpha(source, prefix + "date_color_dark", dateColorDark);
+            footerLightAlpha = alpha(source, prefix + "footer_color_light", footerColorLight);
+            footerDarkAlpha = alpha(source, prefix + "footer_color_dark", footerColorDark);
         }
         private static Object value(Bundle source, String key) { return source == null ? null : source.get(key); }
         private static boolean bool(Bundle source, String key, boolean fallback) {
@@ -287,7 +299,10 @@ public final class NotificationBigClock {
 
     /** May be called when settings are reloaded; view work is dispatched through the existing panel. */
     public void configure(Bundle source) {
-        settings = new Settings(source);
+        portraitSettings = new Settings(source, PREFIX);
+        landscapeSettings = new Settings(source, NotificationBigClockSettings.LANDSCAPE_PREFIX);
+        selectOrientation();
+        groupStack.configure(source);
         // Retire the previous fixed-row policy before a native Phone-only alpha owner may run.
         fixedStatusIcons.setPhoneCaptureAllowed(false);
         fixedStatusIcons.hide();
@@ -307,18 +322,53 @@ public final class NotificationBigClock {
             clearSeparateQsStatus();
         }
         fixedStatusIcons.configureDiagnostics();
-        notificationStack.configure(source);
         View host = panel.get();
         if (host == null) host = separateQsPanel.get();
         if (host != null) host.post(() -> {
             fixedStatusIcons.resetFailure();
             closingStatusIcons.resetFailure();
             if (overlay != null) overlay.clearStyle();
+            for (View stack : stacks.keySet()) {
+                if (!managesLandscape(stack)) landscapeLayout.release(stack);
+                else stack.requestLayout();
+            }
             boolean wasActive = active;
             refresh();
             if (wasActive == active) notifyVisibilityChanged();
         });
     }
+
+    private void selectOrientation() {
+        Settings previous=settings;
+        View host=panel.get();
+        settings=landscape(host)?landscapeSettings:portraitSettings;
+        if(previous!=settings&&overlay!=null)overlay.clearStyle();
+        if(previous!=settings)notificationRightIcons.configure(settings.rightStatusIconsEnabled&&!settings.safeMode,
+                settings.enabled&&!settings.safeMode);
+    }
+    public boolean notificationPage() {
+        return !settings.safeMode && !ModuleLifecycle.removed() && barState==0 && !qsExpanded && fraction>0f;
+    }
+    /** Native shade target calculation precedes the clock/fake-header visibility callbacks.
+     * Retain its stack parameters for that whole scene, including a hidden/reopening page;
+     * the real shade ruler identity still excludes keyguard inside NotificationNativeStack. */
+    public boolean notificationStackScene() {
+        return !settings.safeMode&&!ModuleLifecycle.removed()&&barState==0;
+    }
+    /** Backdrop/clock owners must not use the broader hook gate which also includes groups. */
+    public boolean clockLayoutEnabled(View host) {
+        Settings selected=landscape(host)?landscapeSettings:portraitSettings;
+        return selected.enabled&&!selected.safeMode&&!ModuleLifecycle.removed();
+    }
+    public void prepareGroup(View container) { groupStack.prepareNative(container,true); }
+    /** Order changes precede the native measurement of its cached first-card height. */
+    public void prepareGroupMeasure(View container) { groupStack.prepareMeasure(container); }
+    public void prepareGroup(View container,boolean calculatingTargets) {
+        groupStack.prepareNative(container,calculatingTargets);
+    }
+    public int nativeGroupVisibleCount(View container,int count) { return groupStack.visibleChildren(container,count); }
+    public void detachGroup(View container) { groupStack.detach(container); }
+    public String groupStackDiagnostics() { return groupStack.diagnosticSummary(); }
 
     /** Hook OplusQSSimpleHeader.onInit / onFinishInflate after native child initialization. */
     public void onHeaderInflated(View header) {
@@ -382,9 +432,32 @@ public final class NotificationBigClock {
     public void onPanelMotionState(boolean running, boolean settledClosed) {
         panelSettledClosed = settledClosed && !running;
         refreshStatusIcons();
+        if (statusIconsSettledClosed()) {
+            groupStack.resetGesture();
+        }
     }
 
     public void setReboundReader(ReboundReader reader) { reboundReader = reader; }
+    public void setClearMotion(NotificationClearMotion motion) { clearMotion = motion; }
+
+    private boolean landscape(View view) {
+        return view != null && view.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+    }
+    private boolean managesLandscape(View stack) {
+        return settings.enabled && !settings.safeMode && !ModuleLifecycle.removed()
+                && landscape(stack) && (barState == 0 || barState == -1);
+    }
+    public int notificationWidthSpec(View stack, int nativeSpec) {
+        float width=landscapeSettings.notificationWidthEnabled?landscapeSettings.notificationWidth:100f;
+        return landscapeLayout.measure(stack, nativeSpec, managesLandscape(stack),width);
+    }
+    public void onNotificationLayout(View stack) {
+        landscapeLayout.layout(stack, managesLandscape(stack));
+        if (overlay != null) {
+            overlay.measuredSettings = null;
+            overlay.scheduleWidgets();
+        }
+    }
 
     /** Called after the native vertical spring has updated its existing notification/QS views. */
     public void onPanelTranslationChanged(View nativePanel, float translationY) {
@@ -415,8 +488,14 @@ public final class NotificationBigClock {
             overlay = null; scrollY = 0; overDistance = 0f;
             nativePanelTranslationY = nativeHeaderRebound = nativeFooterRebound = 0f;
         }
+        selectOrientation();
         fraction = NotificationBigClockModel.bounded(expandedFraction, 0f, 0f, 1f);
+        boolean changedState = barState != nativeBarState;
         barState = nativeBarState; qsExpanded = inQs;
+        if (changedState) for (View stack : stacks.keySet()) {
+            if (!managesLandscape(stack)) landscapeLayout.release(stack);
+            else stack.requestLayout();
+        }
         refresh();
     }
 
@@ -515,11 +594,11 @@ public final class NotificationBigClock {
     private float stackY(View stack, float panelY) {
         View host = panel.get();
         if (host == null || stack == null) return panelY;
-        android.graphics.Matrix mapping = new android.graphics.Matrix();
-        host.transformMatrixToGlobal(mapping); stack.transformMatrixToLocal(mapping);
-        float[] point = {host.getWidth() * .5f, panelY};
-        mapping.mapPoints(point);
-        return NotificationBigClockModel.finite(point[1]) ? point[1] : panelY;
+        stackMapping.reset();
+        host.transformMatrixToGlobal(stackMapping); stack.transformMatrixToLocal(stackMapping);
+        stackPoint[0]=host.getWidth()*.5f;stackPoint[1]=panelY;
+        stackMapping.mapPoints(stackPoint);
+        return NotificationBigClockModel.finite(stackPoint[1]) ? stackPoint[1] : panelY;
     }
 
     /** Before the native stack's View.draw(Canvas), including its hardware RenderNode path. */
@@ -527,8 +606,7 @@ public final class NotificationBigClock {
         if (canvas == null || stack == null) return;
         float top = headerBottomInStack(stack);
         if (NotificationBigClockModel.finite(top)) {
-            Rect clip = new Rect();
-            if (canvas.getClipBounds(clip)) canvas.clipRect(clip.left, top, clip.right, clip.bottom);
+            if (canvas.getClipBounds(notificationClip)) canvas.clipRect(notificationClip.left, top, notificationClip.right, notificationClip.bottom);
         }
     }
 
@@ -570,6 +648,16 @@ public final class NotificationBigClock {
             if (current && boundary.contains(stack, origin, x, y, headerBottomInStack(stack))) return true;
         }
         return false;
+    }
+
+    /** Called before native UP dispatch, only for the actual NSSL receiving the gesture. */
+    public boolean foldedNotificationTap(View stack, android.view.MotionEvent event,
+            NotificationCardTouchBoundary boundary) throws ReflectiveOperationException {
+        return groupStack.tap(stack,event);
+    }
+
+    public void expandNotifications() {
+        groupStack.expandPending();
     }
 
     /** Native clocks and the shared tick can update together; format each time bucket once. */
@@ -788,51 +876,14 @@ public final class NotificationBigClock {
         closingPhoneNotifications.clear();
     }
 
-    /** Runs after native targets are calculated and before native application/animation. */
+    /** Native layout/application only invalidates this clock's own widget snapshot. */
     public void onStackLayoutUpdated(View stack) {
-        if (stack == null) return;
-        boolean enabled = eligible();
-        float reserve = enabled ? footerReservation(stack) : 0f;
-        float bottomBoundary = reserve > 0f ? stack.getHeight() - reserve : Float.NaN;
-        notificationStack.apply(stack, enabled ? geometry().progress : 0f, enabled, bottomBoundary);
-        // Native parallax keeps requesting row layouts after overDistance is reset to zero.
-        // Sample those live springs in this frame, including their release and return motion.
-        if (enabled && overlay != null) overlay.scheduleWidgets();
+        if(stack!=null&&active&&eligible()&&overlay!=null)overlay.scheduleWidgets();
     }
-
-    public void onStackLayoutStarting(View stack) { notificationStack.beginNativeLayout(stack); }
-
-    /** Superclass and per-row state writers share one native application transaction. */
-    public void onStackApplicationStarting(View stack) { notificationStack.beginNativeApplication(stack); }
-
-    public void onStackApplicationFinished(View stack) { notificationStack.endNativeApplication(stack); }
-
-    public Object withNativeTailOutline(View row, NotificationBigClockStack.NativeOutlineAction nativeDraw)
-            throws Throwable {
-        return eligible() ? notificationStack.withNativeTailOutline(row, nativeDraw) : nativeDraw.draw();
-    }
-
-    public Object withNativeTailContent(View content, Canvas canvas,
-            NotificationBigClockStack.NativeOutlineAction nativeDraw) throws Throwable {
-        return eligible() ? notificationStack.withNativeTailContent(content, canvas, nativeDraw) : nativeDraw.draw();
-    }
-
-    public int nativeTailTargetClipWidth(Object stateExtension, int nativeWidth) {
-        return eligible() ? notificationStack.nativeTailTargetClipWidth(stateExtension, nativeWidth) : nativeWidth;
-    }
-
-    public int nativeTailRowClipWidth(Object rowExtension, int nativeWidth) {
-        return eligible() ? notificationStack.nativeTailRowClipWidth(rowExtension, nativeWidth) : nativeWidth;
-    }
-
-    public void onNativeTailWidthChanged(Object rowExtension) {
-        if (eligible()) notificationStack.onNativeTailWidthChanged(rowExtension);
-    }
-
-    public void onStackLayoutFinished(View stack) { notificationStack.endNativeLayout(stack); }
 
     public void onStackDetached(View stack) {
-        notificationStack.detach(stack);
+        landscapeLayout.detach(stack);
+        groupStack.resetGesture();
         NotificationClockEdge.detach(stack);
         StackState previous = stacks.remove(stack);
         if (previous != null) restorePadding(stack, previous);
@@ -847,6 +898,8 @@ public final class NotificationBigClock {
 
     /** Configuration changes, page switches and feature disable all release our native overrides. */
     public void restore() {
+        // Closing just the clock must not force active native groups into a measure loop.
+        if(!groupStack.enabled())groupStack.restore();
         fixedStatusIcons.hide();
         if (!hideNotificationLeft()) {
             phoneRightIcons.restore();
@@ -859,11 +912,12 @@ public final class NotificationBigClock {
     private void restoreClock() {
         boolean wasActive = active;
         active = false;
+        if (clearMotion != null) clearMotion.onLandscapeRegion(panel.get(), panel.get(), false, 0f, 0f);
         nativeHeaderRebound = nativeFooterRebound = 0f;
         restoreClosingSources();
         appliedReservation = Float.NaN;
-        notificationStack.restoreAll();
         if (overlay != null) {
+            overlay.unscheduleWidgets();
             if (pageMotion != null) overlay.unregisterMotion(pageMotion);
             overlay.resetMotion();
             overlay.headerMotion.setTranslationY(0f);
@@ -876,6 +930,7 @@ public final class NotificationBigClock {
             if (entry.getKey() != null) entry.getValue().restore(entry.getKey(), true);
         fakeClocks.clear();
         for (Map.Entry<View, StackState> entry : new ArrayList<>(stacks.entrySet())) {
+            if (!managesLandscape(entry.getKey())) landscapeLayout.release(entry.getKey());
             restorePadding(entry.getKey(), entry.getValue());
             NotificationClockEdge.detach(entry.getKey());
         }
@@ -883,6 +938,7 @@ public final class NotificationBigClock {
     }
 
     public void onConfigurationChanged() {
+        selectOrientation();
         fixedStatusIcons.resetFailure();
         closingStatusIcons.resetFailure();
         if (overlay != null) overlay.clearStyle();
@@ -892,6 +948,7 @@ public final class NotificationBigClock {
     private void detachOverlay() {
         fixedStatusIcons.hide();
         restoreClosingSources();
+        if (overlay != null) overlay.unscheduleWidgets();
         if (overlay != null && pageMotion != null) overlay.unregisterMotion(pageMotion);
         if (overlay != null && overlay.nativeClock != null) overlay.nativeClock.detach();
         if (overlay != null && overlay.getParent() instanceof ViewGroup)
@@ -910,7 +967,7 @@ public final class NotificationBigClock {
         float displayed = fraction;
         if (active && !panelSettledClosed && displayed <= 0f) displayed = .0001f;
         return host != null && !headers.isEmpty() && NotificationBigClockModel.eligible(settings.enabled,
-                host.getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT,
+                settings.safeMode ? Configuration.ORIENTATION_UNDEFINED : host.getResources().getConfiguration().orientation,
                 barState, qsExpanded, displayed);
     }
 
@@ -944,6 +1001,7 @@ public final class NotificationBigClock {
         if (!(host instanceof FrameLayout)) { restore(); return; }
         boolean entering = !active;
         active = true;
+        for (View stack : stacks.keySet()) landscapeLayout.layout(stack, managesLandscape(stack));
         if (overlay == null) {
             overlay = new ClockView(host.getContext());
             ((FrameLayout) host).addView(overlay, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -954,11 +1012,7 @@ public final class NotificationBigClock {
         for (HeaderState header : new ArrayList<>(headers.values())) {
             header.hide();
         }
-        float reservation = geometry().reservedBottom;
-        if (entering || reservation != appliedReservation) {
-            appliedReservation = reservation;
-            for (Map.Entry<View, StackState> entry : new ArrayList<>(stacks.entrySet())) applyPadding(entry.getKey(), entry.getValue());
-        }
+        synchronizeReservation(geometry().reservedBottom);
         overlay.refreshText(false); overlay.scheduleWidgets();
         for (Map.Entry<View, StackState> entry : new ArrayList<>(stacks.entrySet())) {
             View stack = entry.getKey();
@@ -995,6 +1049,14 @@ public final class NotificationBigClock {
             invoke(stack, "setIntrinsicPadding", new Class<?>[]{Integer.TYPE}, state.rawIntrinsic);
         if (NotificationBigClockModel.finite(state.rawTop))
             invoke(stack, "updateTopPadding", new Class<?>[]{Float.TYPE, Boolean.TYPE}, state.rawTop, false);
+    }
+
+    /** A real text/native layout can complete after the panel event. Commit that same
+     * measured reservation before drawing, rather than waiting for another notification. */
+    private void synchronizeReservation(float reservation) {
+        if (!active || !NotificationBigClockModel.finite(reservation) || appliedReservation == reservation) return;
+        appliedReservation = reservation;
+        for (Map.Entry<View, StackState> entry : stacks.entrySet()) applyPadding(entry.getKey(), entry.getValue());
     }
 
     private void restorePadding(View stack, StackState state) {
@@ -1039,6 +1101,29 @@ public final class NotificationBigClock {
         return null;
     }
 
+    /** Small owned-widget typography cache. Stable spring frames never reapply fonts or remeasure text. */
+    private static final class Typography {
+        Object settings,style;String text;float size,spacing,height;int weight;
+        boolean matches(Object s,Object st,String t,float z,int w,float sp,float h) {
+            return settings==s&&style==st&&t.equals(text)&&size==z&&weight==w&&spacing==sp&&height==h;
+        }
+        void record(Object s,Object st,String t,float z,int w,float sp,float h) {
+            settings=s;style=st;text=t;size=z;weight=w;spacing=sp;height=h;
+        }
+    }
+
+    /** Detached probes create a real TextView Layout too. Later text/font changes require
+     * LayoutParams in checkForRelayout(), even though these probes have no parent. */
+    static void ensureOwnedWidgetLayout(View widget) {
+        if(widget.getLayoutParams()==null)
+            widget.setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+    static boolean widgetHostReady(View widget,View currentOverlay,View host,boolean active) {
+        return active&&widget==currentOverlay&&host!=null&&widget.getParent()==host
+                &&widget.isAttachedToWindow()&&host.isAttachedToWindow()&&widget.getVisibility()==View.VISIBLE;
+    }
+
     /** Three real text widgets retain shaping, emoji fallback and native clock proportions. */
     private final class ClockView extends FrameLayout {
         final ClockText clock, timeProbe;
@@ -1046,16 +1131,22 @@ public final class NotificationBigClock {
         NotificationClockFont.Resolver heightFont;
         final FrameLayout headerMotion, footerMotion;
         final TextView dateLabel, footerLabel, probe;
+        final Map<TextView, Typography> typography=new WeakHashMap<>();
         final Map<Integer, Typeface> faces = new java.util.LinkedHashMap<Integer, Typeface>(40, .75f, true) {
             @Override protected boolean removeEldestEntry(Map.Entry<Integer, Typeface> entry) { return size() > 40; }
         };
         NotificationClockStyle.Style nativeStyle;
         Settings textSettings, measuredSettings;
+        NotificationBigClockModel.Frame cachedFrame;
+        int measurementRevision,frameRevision=-1,frameScroll;
+        float frameFraction;
         long textBucket = Long.MIN_VALUE;
         String time = "", date = "", footer = "";
         int measuredWidth, measuredHeight;
         float expandedSize, compactSize, expandedWidth, expandedHeight, compactHeight, compactAxisRatio, dateHeight;
-        float safeTop, safeBottom;
+        float expandedAxisRatio = 1f;
+        float safeTop, safeBottom, safeLeft, safeRight, contentLeft, contentRight;
+        float measuredContentLeft, measuredContentRight, measuredSafeTop, measuredSafeBottom;
         float visibleHeaderBottom = Float.NaN, appliedEntryBlur = -1f;
         final android.graphics.Matrix headerToStack = new android.graphics.Matrix();
         final android.graphics.RectF headerInk = new android.graphics.RectF();
@@ -1067,6 +1158,7 @@ public final class NotificationBigClock {
         int statusHeightResource = -1;
         ViewTreeObserver widgetObserver;
         final ViewTreeObserver.OnPreDrawListener widgetFrame = () -> {
+            if (!widgetHostReady(this,overlay,panel.get(),active)) {unscheduleWidgets();return true;}
             if (!active || !eligible()) return true;
             float oldHeader = nativeHeaderRebound, oldFooter = nativeFooterRebound;
             sampleRebound();
@@ -1113,6 +1205,7 @@ public final class NotificationBigClock {
         boolean hasPageOffset() { return Math.abs(headerMotion.getTranslationX()) > .5f || Math.abs(footerMotion.getTranslationX()) > .5f; }
         TextView label(Context context) {
             TextView view = new TextView(context);
+            ensureOwnedWidgetLayout(view);
             view.setSingleLine(true); view.setIncludeFontPadding(false); view.setClickable(false);
             view.setFocusable(false); view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             view.setFontFeatureSettings("tnum");
@@ -1121,18 +1214,20 @@ public final class NotificationBigClock {
             return view;
         }
         void clearStyle() {
-            faces.clear(); nativeStyle = null; measuredSettings = null; textSettings = null;
+            faces.clear(); typography.clear(); nativeStyle = null; measuredSettings = null; textSettings = null;
             statusHeightResource = -1;
             heightFont = NotificationClockFont.create(getContext(), NotificationClockStyle.nativeDigitTemplate(panel.get()));
             if (nativeClock != null) nativeClock.cancel();
         }
         void scheduleWidgets() {
+            if(!widgetHostReady(this,overlay,panel.get(),active))return;
             observeWidgets();
             if (widgetsScheduled) return;
             widgetsScheduled = true;
             invalidate();
         }
         void observeWidgets() {
+            if(!widgetHostReady(this,overlay,panel.get(),active))return;
             if (widgetObserver != null && widgetObserver.isAlive()) return;
             ViewTreeObserver observer = getViewTreeObserver();
             if (!observer.isAlive()) return;
@@ -1184,12 +1279,12 @@ public final class NotificationBigClock {
         }
         int hostWidth() {
             View host = panel.get();
-            return getWidth() > 0 ? getWidth() : host != null && host.getWidth() > 0 ? host.getWidth()
+            return host != null && host.getWidth() > 0 ? host.getWidth() : getWidth() > 0 ? getWidth()
                     : getResources().getDisplayMetrics().widthPixels;
         }
         int hostHeight() {
             View host = panel.get();
-            return getHeight() > 0 ? getHeight() : host != null && host.getHeight() > 0 ? host.getHeight()
+            return host != null && host.getHeight() > 0 ? host.getHeight() : getHeight() > 0 ? getHeight()
                     : getResources().getDisplayMetrics().heightPixels;
         }
         Typeface fallbackFace(int requestedWeight, boolean time) {
@@ -1208,6 +1303,9 @@ public final class NotificationBigClock {
             textStyle(view, text, size, weight, spacing, 1f);
         }
         void textStyle(TextView view, String text, float size, int weight, float spacing, float heightRatio) {
+            ensureOwnedWidgetLayout(view);
+            Typography cached=typography.get(view);
+            if(cached!=null&&cached.matches(settings,nativeStyle,text,size,weight,spacing,heightRatio))return;
             boolean time = view instanceof ClockText;
             Typeface nativeHeight = time && "native".equals(settings.font) && heightFont != null
                     ? heightFont.typeface(Math.max(1, Math.min(1000, weight)), heightRatio) : null;
@@ -1222,8 +1320,12 @@ public final class NotificationBigClock {
             String features = nativeStyle.fontFeatureSettings == null ? "tnum" : nativeStyle.fontFeatureSettings;
             if (!features.equals(view.getFontFeatureSettings())) view.setFontFeatureSettings(features);
             if (!text.contentEquals(view.getText())) view.setText(text);
+            if(cached==null){cached=new Typography();typography.put(view,cached);}
+            cached.record(settings,nativeStyle,text,size,weight,spacing,heightRatio);
         }
         void measureText(View view) {
+            ensureOwnedWidgetLayout(view);
+            if(!view.isLayoutRequested()&&view.getMeasuredWidth()>0&&view.getMeasuredHeight()>0)return;
             view.measure(MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
                     MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
         }
@@ -1254,30 +1356,75 @@ public final class NotificationBigClock {
                 safeTop = Math.max(safeTop, iconTop + icons.getHeight());
             }
             safeBottom = Math.max(bottom, 12f * density());
+            safeLeft = insets == null ? 0f : insets.getSystemWindowInsetLeft();
+            safeRight = insets == null ? 0f : insets.getSystemWindowInsetRight();
+            if (Build.VERSION.SDK_INT >= 28 && insets != null && insets.getDisplayCutout() != null) {
+                safeLeft = Math.max(safeLeft, insets.getDisplayCutout().getSafeInsetLeft());
+                safeRight = Math.max(safeRight, insets.getDisplayCutout().getSafeInsetRight());
+            }
+        }
+        void updateContentBounds() {
+            contentLeft = 24f * density(); contentRight = hostWidth() - contentLeft;
+            if (!landscape(panel.get())) return;
+            float portrait = Math.min(getResources().getDisplayMetrics().widthPixels,
+                    getResources().getDisplayMetrics().heightPixels);
+            float column = Math.min(portrait, Math.max(1f, hostWidth() - safeLeft - safeRight));
+            contentLeft = safeLeft + (hostWidth() - safeLeft - safeRight - column) / 2f + 16f * density();
+            contentRight = contentLeft + Math.max(1f, column - 32f * density());
+            View host = panel.get();
+            for (View stack : stacks.keySet()) {
+                if (!(stack instanceof ViewGroup) || !currentReboundStack(stack, host)) continue;
+                float percentage = landscapeSettings.notificationWidthEnabled ? landscapeSettings.notificationWidth : 100f;
+                int columnWidth = landscapeLayout.columnWidth(stack, Math.round(hostWidth() - safeLeft - safeRight), percentage);
+                float left = landscapeLayout.columnLeft(stack, columnWidth);
+                View ancestor = stack.getParent() instanceof View ? (View) stack.getParent() : null;
+                while (ancestor != null && ancestor != host) {
+                    left += ancestor.getLeft();
+                    ancestor = ancestor.getParent() instanceof View ? (View) ancestor.getParent() : null;
+                }
+                if (ancestor != host) continue;
+                int padding = Math.min(Math.max(0, (columnWidth - 1) / 2),
+                        landscapeLayout.sidePadding(stack, Math.round(16f * density())));
+                contentLeft = left + padding;
+                contentRight = left + columnWidth - padding;
+                return;
+            }
         }
         void prepareMeasurements() {
             refreshText(false);
             updateSafeInsets();
+            updateContentBounds();
             int width = hostWidth(), height = hostHeight();
             Settings s = settings;
-            if (s == measuredSettings && width == measuredWidth && height == measuredHeight) return;
+            if (s == measuredSettings && width == measuredWidth && height == measuredHeight
+                    && measuredContentLeft == contentLeft && measuredContentRight == contentRight
+                    && measuredSafeTop == safeTop && measuredSafeBottom == safeBottom) return;
             TextView nativeClock = sourceClock();
             NotificationClockStyle.Style style = NotificationClockStyle.resolve(panel.get(),
                     nativeClock == null ? Typeface.DEFAULT : nativeClock.getTypeface());
             if (style != nativeStyle) { nativeStyle = style; faces.clear(); }
-            float widthLimit = Math.max(1f, width - 48f * density());
+            boolean horizontal = landscape(panel.get());
+            float widthLimit = Math.max(1f, contentRight - contentLeft);
             float spacing = nativeStyle.letterSpacing + s.letterSpacing;
             float max = NumericPolicy.textPixels((double) s.maxSize * density() * s.scale / 100d);
-            expandedSize = fit(timeProbe, time, max, (int) s.weight, spacing, widthLimit, height * .44f);
-            textStyle(timeProbe, time, expandedSize, (int) s.weight, spacing); measureText(timeProbe);
+            expandedAxisRatio = 1f;
+            // Landscape movement is position/opacity/blur only. A native group may
+            // briefly narrow its measured column during an animation; that width is
+            // an alignment constraint, never a reason to resize user-selected ink.
+            // Do not compress the native HGHT axis to a compact header budget either.
+            expandedSize = horizontal ? max
+                    : fit(timeProbe, time, max, (int) s.weight, spacing, widthLimit, height * .44f);
+            textStyle(timeProbe, time, expandedSize, (int) s.weight, spacing, expandedAxisRatio); measureText(timeProbe);
             expandedWidth = timeProbe.getMeasuredWidth();
             expandedHeight = expandedSize > 0f ? timeProbe.getMeasuredHeight() : 0f;
             float compactMax = NumericPolicy.textPixels((double) s.compactMaxSize * density());
-            compactSize = Math.min(compactMax, NumericPolicy.textPixels((double) expandedSize * s.compactScale / 100d));
+            compactSize = horizontal ? expandedSize
+                    : Math.min(compactMax, NumericPolicy.textPixels((double) expandedSize * s.compactScale / 100d));
             compactAxisRatio = expandedSize > 0f ? compactSize / expandedSize : 1f;
-            if ("native".equals(s.font) && heightFont != null && expandedSize > 0f) {
+            if (horizontal) compactHeight = expandedHeight;
+            else if ("native".equals(s.font) && heightFont != null && expandedSize > 0f) {
                 // HGHT includes a fixed stroke/height base. Measure its real outline, never assume H is pixels.
-                textStyle(timeProbe, time, expandedSize, (int) s.weight, spacing, compactAxisRatio);
+                textStyle(timeProbe, time, expandedSize, (int) s.weight, spacing, expandedAxisRatio * compactAxisRatio);
                 measureText(timeProbe); compactHeight = timeProbe.getMeasuredHeight();
             } else compactHeight = expandedSize > 0f ? Math.min(height * .22f,
                     expandedHeight * compactSize / expandedSize) : 0f;
@@ -1289,13 +1436,23 @@ public final class NotificationBigClock {
                     (int) s.footerWeight, 0f, widthLimit, height * .15f);
             textStyle(footerLabel, footer, footerSize, (int) s.footerWeight, 0f); measureText(footerLabel);
             measuredSettings = s; measuredWidth = width; measuredHeight = height;
+            measuredContentLeft = contentLeft; measuredContentRight = contentRight;
+            measuredSafeTop = safeTop; measuredSafeBottom = safeBottom;
+            ++measurementRevision;
         }
         NotificationBigClockModel.Frame frame() {
             prepareMeasurements();
+            if(cachedFrame!=null&&frameRevision==measurementRevision&&frameScroll==scrollY
+                    &&frameFraction==fraction)return cachedFrame;
             Settings s = settings;
-            return NotificationBigClockModel.measured(hostHeight(), density(), safeTop, expandedHeight,
+            if (landscape(panel.get())) cachedFrame=NotificationBigClockModel.landscapeMeasured(density(), safeTop,
+                    expandedHeight, compactHeight, dateHeight, s.dateGap, s.notificationGap, s.offsetY,
+                    s.compactOffsetY, s.dateOffsetY, s.weight, scrollY, fraction);
+            else cachedFrame=NotificationBigClockModel.measured(hostHeight(), density(), safeTop, expandedHeight,
                     compactHeight, dateHeight, s.dateGap, s.notificationGap, s.offsetY,
                     s.compactOffsetY, s.dateOffsetY, s.weight, s.compactWeight, scrollY, 0f, fraction);
+            frameRevision=measurementRevision;frameScroll=scrollY;frameFraction=fraction;
+            return cachedFrame;
         }
         float headerBottomIn(View stack) {
             if (headerMotion.getVisibility() != View.VISIBLE) return Float.NaN;
@@ -1352,9 +1509,8 @@ public final class NotificationBigClock {
             return horizontal(view.getMeasuredWidth(), alignment, offset);
         }
         float horizontal(float textWidth, String alignment, float offset) {
-            float inset = 24f * density(), width = hostWidth();
-            float x = "left".equals(alignment) ? inset : "right".equals(alignment)
-                    ? width - inset - textWidth : (width - textWidth) / 2f;
+            float x = "left".equals(alignment) ? contentLeft : "right".equals(alignment)
+                    ? contentRight - textWidth : (contentLeft + contentRight - textWidth) / 2f;
             return NumericPolicy.drawPixels(x + NumericPolicy.pixels(offset, density()));
         }
         void place(View view, float x, float y, boolean visible) {
@@ -1399,14 +1555,17 @@ public final class NotificationBigClock {
             updateWidgets(true);
         }
         void updateWidgets(boolean readRebound) {
-            if (updating || !active || !eligible()) return;
+            if (updating || !widgetHostReady(this,overlay,panel.get(),active) || !eligible()) return;
             updating = true;
             try {
                 if (readRebound) sampleRebound();
                 NotificationBigClockModel.Frame f = frame(); Settings s = settings;
+                synchronizeReservation(f.reservedBottom);
                 boolean variableHeight = "native".equals(s.font) && heightFont != null;
-                float heightRatio = Math.max(.001f, 1f + (compactAxisRatio - 1f) * f.progress);
-                float size = variableHeight ? expandedSize : expandedSize + (compactSize - expandedSize) * f.progress;
+                boolean horizontalClock = landscape(panel.get());
+                float sizeProgress=horizontalClock?0f:f.progress;
+                float heightRatio = Math.max(.001f, expandedAxisRatio * (1f + (compactAxisRatio - 1f) * sizeProgress));
+                float size = variableHeight ? expandedSize : expandedSize + (compactSize - expandedSize) * sizeProgress;
                 int animatedWeight = Math.round(s.weight);
                 textStyle(clock, time, size, animatedWeight, nativeStyle.letterSpacing + s.letterSpacing,
                         variableHeight ? heightRatio : 1f);
@@ -1432,8 +1591,13 @@ public final class NotificationBigClock {
                 float reveal = NotificationBigClockModel.clamp(fraction / (s.entryCompletion / 100f), 0f, 1f);
                 float easedReveal = reveal * reveal * (3f - 2f * reveal);
                 float entryAlpha = s.entryEffectEnabled ? 1f - (1f - easedReveal) * s.entryFadeStrength / 100f : f.entryAlpha;
-                headerMotion.setAlpha(entryAlpha); clock.setAlpha(1f); dateLabel.setAlpha(1f); footerLabel.setAlpha(entryAlpha);
+                float scrollEffect = horizontalClock ? NotificationBigClockModel.scrollFade(f.progress) : 0f;
+                headerMotion.setAlpha(horizontalClock
+                        ? NotificationBigClockModel.landscapeHeaderAlpha(entryAlpha, f.progress) : entryAlpha);
+                clock.setAlpha(1f); dateLabel.setAlpha(1f); footerLabel.setAlpha(entryAlpha);
                 float blur = s.entryEffectEnabled ? Math.min(64f, NumericPolicy.pixels(s.entryBlurRadius, density())) * (1f - easedReveal) : 0f;
+                if (s.entryEffectEnabled)
+                    blur = Math.max(blur, Math.min(64f, NumericPolicy.pixels(s.entryBlurRadius, density())) * scrollEffect);
                 blur = Math.round(blur * 4f) / 4f;
                 if (Build.VERSION.SDK_INT >= 31 && !entryBlurFailed && blur != appliedEntryBlur) {
                     try { EntryBlur.apply(headerMotion, footerMotion, blur); appliedEntryBlur = blur; }
@@ -1442,7 +1606,7 @@ public final class NotificationBigClock {
                         ModuleDiagnostics.error("bigclock", "Clock entry blur unavailable; gesture fade retained", unavailable);
                     }
                 }
-                float x = s.offsetX + s.compactOffsetX * f.progress;
+                float x = s.offsetX + s.compactOffsetX * sizeProgress;
                 boolean nativeReady = nativeClock != null && nativeClock.isAvailable()
                         && nativeClock.setTypography(clock.getTypeface(), size, clock.getCurrentTextColor(),
                                 nativeStyle.letterSpacing + s.letterSpacing, clock.getFontVariationSettings());
@@ -1483,6 +1647,8 @@ public final class NotificationBigClock {
                     footerMotion.layout(0, footerStart, hostWidth(), footerStart + footerLabel.getMeasuredHeight());
                     place(footerLabel, horizontal(footerLabel, s.footerAlignment, s.footerOffsetX), footerY - footerStart, true);
                 } else footerLabel.setVisibility(View.GONE);
+                if (clearMotion != null) clearMotion.onLandscapeRegion(panel.get(), panel.get(), landscape(panel.get()),
+                        contentRight + 16f * density(), hostWidth() - safeRight - 16f * density());
                 if (pageMotion != null && active) registerMotion(pageMotion);
             } finally { updating = false; }
         }
@@ -1499,11 +1665,17 @@ public final class NotificationBigClock {
 
     /** Only the independent clock/date group receives entry blur; never the notification tree. */
     private static final class EntryBlur {
+        private static final android.graphics.RenderEffect[] effects=new android.graphics.RenderEffect[257];
         static void apply(View header, View footer, float radius) {
-            android.graphics.RenderEffect effect = radius <= 0f ? null
-                    : android.graphics.RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.DECAL);
+            int index=Math.max(0,Math.min(256,Math.round(radius*4f)));
+            android.graphics.RenderEffect effect=null;
+            if(index>0) {
+                effect=effects[index];
+                if(effect==null)effects[index]=effect=android.graphics.RenderEffect.createBlurEffect(index/4f,index/4f,Shader.TileMode.DECAL);
+            }
             header.setRenderEffect(effect);
-            footer.setRenderEffect(effect);
+            // Custom footer content is independent of the clock's scroll/entry blur.
+            footer.setRenderEffect(null);
         }
     }
 
@@ -1518,7 +1690,8 @@ public final class NotificationBigClock {
         int gradientColor;
         float gradientTop, gradientBottom;
         ClockText(Context context) {
-            super(context); setSingleLine(true); setHorizontallyScrolling(false);
+            super(context); ensureOwnedWidgetLayout(this);
+            setSingleLine(true); setHorizontallyScrolling(false);
             setIncludeFontPadding(false); setClickable(false); setFocusable(false);
             setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); setFontFeatureSettings("tnum");
             int pad = Math.max(1, Math.round(density() * 2f)); setPadding(pad, pad, pad, pad);
