@@ -6,7 +6,24 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 
 /** Native XML replay: fixed-width host, MATCH_PARENT texts, number bottom/unit top margins. */
-public final class NetworkSpeedView extends FrameLayout {
+public final class NetworkSpeedView extends FrameLayout implements com.android.systemui.statusbar.StatusIconDisplayable {
+    public com.oplus.systemui.statusbar.phone.netspeed.NetworkSpeedIconState mState;
+    public boolean mBlocked;
+    public String mSlot="network_speed";
+    public int mVisibleState=-1,tint,stateUpdates;
+    public final java.util.Map<Integer,Object> tags=new java.util.HashMap<>();
+    public String getSlot(){return mSlot;}
+    public void setSlot(String value){mSlot=value;}
+    public boolean isIconVisible(){return mState!=null&&mState.visible;}
+    public boolean isIconBlocked(){return mBlocked;}
+    public void setBlocked(boolean value){mBlocked=value;}
+    public void setVisibleState(int value,boolean animate){mVisibleState=value;}
+    public void setIconTint(int color){tint=color;mSpeedNumber.setTextColor(color);mSpeedUnit.setTextColor(color);}
+    public void applyNetworkState(com.oplus.systemui.statusbar.phone.netspeed.NetworkSpeedIconState state){
+        if(state==null){mState=null;setVisibility(GONE);return;}
+        stateUpdates++;mState=state.copy();mSpeedNumber.setText(Long.toString(state.speedText));mSpeedUnit.setText("KB/s");
+    }
+    @Override public Object getTag(int id){return tags.get(id);}
     public final NativeTextView mSpeedNumber=new NativeTextView(),mSpeedUnit=new NativeTextView();
     public boolean rtl;
     public int nativeHeight=24;

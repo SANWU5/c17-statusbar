@@ -12,7 +12,7 @@ import java.util.Map;
 public final class FeatureOptions {
     /** Whole-list stacking has an independent opt-in for landscape. */
     public static final String STACK_LANDSCAPE_ENABLED = "notification_big_clock_stack_landscape_enabled";
-    public static final String[] GROUPS = {"speed", "data", "wifi", "label", "clock", "shade_clock", "carrier", "font", "battery", "tiles"};
+    public static final String[] GROUPS = {"speed", "data", "wifi", "label", "clock", "shade_clock", "classic_clock", "carrier", "font", "battery", "tiles"};
     public static final Map<String, Boolean> DEFAULTS;
     /** Maps each switch to its owning UI group, in display order. */
     public static final Map<String, String> GROUP_BY_KEY;
@@ -33,7 +33,7 @@ public final class FeatureOptions {
             add(defaults, groups, group, group + "_size_enabled", true);
             add(defaults, groups, group, group + "_color_enabled", true);
         }
-        for (String group : new String[]{"speed", "label", "clock", "shade_clock", "carrier"})
+        for (String group : new String[]{"speed", "label", "clock", "shade_clock", "classic_clock", "carrier"})
             add(defaults, groups, group, group + "_text_style_enabled", true);
         add(defaults, groups, "speed", "speed_lines_enabled", true);
         add(defaults, groups, "data", "data_icon_enabled", true);
@@ -51,8 +51,9 @@ public final class FeatureOptions {
         // This existing switch controls formatting, not the whole clock group.
         add(defaults, groups, "clock", "clock_enabled", false);
         add(defaults, groups, "shade_clock", "shade_clock_enabled", false);
+        add(defaults, groups, "classic_clock", "classic_clock_enabled", false);
         add(defaults, groups, "carrier", "carrier_replace_enabled", true);
-        for (String panel : CarrierPanels.GROUPS)
+        for (String panel : CarrierPanels.ALL_GROUPS)
             for (String suffix : new String[]{"enabled", "replace_enabled", "position_enabled",
                     "size_enabled", "color_enabled", "text_style_enabled"})
                 add(defaults, groups, "carrier", CarrierPanels.key(panel, suffix),
@@ -97,7 +98,7 @@ public final class FeatureOptions {
     }
 
     public static String masterKey(String group) {
-        return "clock".equals(group) || "shade_clock".equals(group) ? group + "_controls_enabled" : group + "_enabled";
+        return "clock".equals(group) || "shade_clock".equals(group) || "classic_clock".equals(group) ? group + "_controls_enabled" : group + "_enabled";
     }
 
     public boolean enabled(String group) {
@@ -119,7 +120,7 @@ public final class FeatureOptions {
     public boolean hideNetworkLabel() { return effective("label", StatusBarSettings.LABEL_HIDDEN); }
     public boolean hideNativeNetworkBadge() { return effective("data", "data_badge_hidden"); }
     public boolean singleSignal(String layout) {
-        return effective("data", "data_icon_enabled") && "single".equals(layout);
+        return enabled("data") && "single".equals(layout);
     }
     public Map<String, Boolean> values() { return values; }
 }

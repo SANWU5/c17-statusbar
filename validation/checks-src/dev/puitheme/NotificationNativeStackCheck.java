@@ -70,7 +70,8 @@ public final class NotificationNativeStackCheck {
         private Object getCurrentStackRuler(){return current;}
         public void updateStackedNotification(List<?> rows,Ambient ambient,float fraction){}
     }
-    private static Bundle settings(float count){Bundle b=new Bundle();b.putBoolean(NotificationBigClockSettings.STACK_ENABLED,true);b.putFloat(NotificationBigClockSettings.VISIBLE_COUNT,count);return b;}
+    private static Bundle settings(float count){Bundle b=new Bundle();b.putBoolean(NotificationBigClockSettings.STACK_ENABLED,true);
+        b.putBoolean(NotificationBigClockSettings.MASTER,true);b.putFloat(NotificationBigClockSettings.VISIBLE_COUNT,count);return b;}
     private static NotificationNativeStack helper(float count)throws Throwable {
         NotificationNativeStack nativeStack=new NotificationNativeStack();nativeStack.configure(settings(count));
         NotificationNativeStack.Access access=new NotificationNativeStack.Access(Extension.class,Ruler.class,
@@ -80,7 +81,7 @@ public final class NotificationNativeStackCheck {
         return nativeStack;
     }
     public static void main(String[] args)throws Throwable {
-        nativeScrollAndDimensions();scopesAndFallback();independentMasters();nativeSceneAndFlow();liveOrientationAndFlow();
+        nativeScrollAndDimensions();scopesAndFallback();directionDependencies();nativeSceneAndFlow();liveOrientationAndFlow();savedClockDependency();
         System.out.println("Notification native stack checks passed: "+checks);
     }
     private static void liveOrientationAndFlow()throws Throwable {
@@ -99,6 +100,7 @@ public final class NotificationNativeStackCheck {
             equal(1000,helper.bottomBorder(ruler.stackAlgorithmManager,rows,1000));return null;
         });
         Bundle optIn=settings(1);optIn.putBoolean(FeatureOptions.STACK_LANDSCAPE_ENABLED,true);
+        optIn.putBoolean(NotificationBigClockSettings.LANDSCAPE_MASTER,true);
         // Landscape clock/group switches cannot substitute the independent whole-stack opt-in.
         Bundle old=settings(1);old.putBoolean(NotificationBigClockSettings.LANDSCAPE_MASTER,true);
         old.putBoolean(NotificationGroupStack.MASTER,true);helper.configure(old);
@@ -223,13 +225,13 @@ public final class NotificationNativeStackCheck {
         check(!helper.resolve(new ClassLoader(null){}));check(helper.updateMethod()==null&&helper.currentMethod()==null&&helper.applyMethod()==null);
         equal(1000,helper.bottomBorder(ruler.stackAlgorithmManager,rows,1000));
     }
-    private static void independentMasters()throws Throwable {
+    private static void directionDependencies()throws Throwable {
         NotificationNativeStack helper=helper(1);Ruler ruler=new Ruler();Extension extension=new Extension();extension.current=ruler;Ambient ambient=new Ambient();
         List<Row> rows=new ArrayList<>();rows.add(new Row(100,120));rows.add(new Row(232,120));
         for(boolean group:new boolean[]{false,true})for(boolean portrait:new boolean[]{false,true})for(boolean landscape:new boolean[]{false,true}){
             Bundle bundle=settings(1);bundle.putBoolean(NotificationGroupStack.MASTER,group);
             bundle.putBoolean(NotificationBigClockSettings.MASTER,portrait);bundle.putBoolean(NotificationBigClockSettings.LANDSCAPE_MASTER,landscape);
-            helper.configure(bundle);helper.withNativeUpdate(extension,ambient,true,()->{equal(244,helper.bottomBorder(ruler.stackAlgorithmManager,rows,1000));return null;});
+            helper.configure(bundle);helper.withNativeUpdate(extension,ambient,true,()->{equal(portrait?244:1000,helper.bottomBorder(ruler.stackAlgorithmManager,rows,1000));return null;});
         }
         for(float count:new float[]{0,-20,Float.NaN,Float.POSITIVE_INFINITY,1}){
             helper.configure(settings(count));helper.withNativeUpdate(extension,ambient,true,()->{equal(244,helper.bottomBorder(ruler.stackAlgorithmManager,rows,1000));return null;});
@@ -243,5 +245,44 @@ public final class NotificationNativeStackCheck {
         helper.configure(settings(1));helper.hooksReady(false);check(!helper.enabled());check(!helper.currentStacked(ruler,false));
         helper.configure(settings(1));check(!helper.enabled()); // Partial hook failure cannot re-enable by saving.
         helper.hooksReady(true);check(helper.enabled());helper.reset();check(!helper.enabled());
+    }
+    private static void savedClockDependency()throws Throwable {
+        NotificationNativeStack helper=helper(1);Ruler ruler=new Ruler();Extension extension=new Extension();extension.current=ruler;
+        Ambient ambient=new Ambient();List<Row> rows=new ArrayList<>();rows.add(new Row(100,120));rows.add(new Row(232,120));
+        Flow flow=(Flow)ruler._isStackedNotification;
+        // An old or imported master=true snapshot cannot enable unsupported clock-less stacking.
+        Bundle imported=new Bundle();imported.putBoolean(NotificationBigClockSettings.STACK_ENABLED,true);
+        imported.putBoolean(FeatureOptions.STACK_LANDSCAPE_ENABLED,true);imported.putFloat(NotificationBigClockSettings.VISIBLE_COUNT,4f);
+        helper.configure(imported);check(!helper.enabled());check(!helper.currentStacked(ruler,false));check(!flow.value);
+        helper.withNativeUpdate(extension,ambient,()->{equal(1000,helper.bottomBorder(ruler.stackAlgorithmManager,rows,1000));return null;});
+        check(imported.getBoolean(NotificationBigClockSettings.STACK_ENABLED,false));check(((Number)imported.get(NotificationBigClockSettings.VISIBLE_COUNT)).floatValue()==4f);
+        for(boolean master:new boolean[]{false,true})for(boolean portrait:new boolean[]{false,true})
+                for(boolean landscape:new boolean[]{false,true})for(boolean landscapeStack:new boolean[]{false,true}) {
+            Bundle saved=new Bundle();saved.putBoolean(NotificationBigClockSettings.STACK_ENABLED,master);
+            saved.putBoolean(NotificationBigClockSettings.MASTER,portrait);saved.putBoolean(NotificationBigClockSettings.LANDSCAPE_MASTER,landscape);
+            saved.putBoolean(FeatureOptions.STACK_LANDSCAPE_ENABLED,landscapeStack);
+            helper.configure(saved);
+            for(int orientation:new int[]{Configuration.ORIENTATION_PORTRAIT,Configuration.ORIENTATION_LANDSCAPE,Configuration.ORIENTATION_UNDEFINED}) {
+                ruler.context.resources.getConfiguration().orientation=orientation;helper.configurationChanged();
+                boolean active=master&&(orientation==Configuration.ORIENTATION_PORTRAIT&&portrait
+                        ||orientation==Configuration.ORIENTATION_LANDSCAPE&&landscape&&landscapeStack);
+                check(helper.currentStacked(ruler,false)==active);check(flow.value==active);
+                helper.withNativeUpdate(extension,ambient,()->{equal(active?244:1000,helper.bottomBorder(ruler.stackAlgorithmManager,rows,1000));return null;});
+            }
+            check(saved.getBoolean(NotificationBigClockSettings.STACK_ENABLED,false)==master);
+        }
+        ruler.context.resources.getConfiguration().orientation=Configuration.ORIENTATION_PORTRAIT;
+        Bundle active=settings(1);helper.configure(active);check(helper.currentStacked(ruler,false));check(flow.value);
+        active.putBoolean(NotificationBigClockSettings.MASTER,false);helper.configure(active);
+        check(!flow.value);check(!helper.currentStacked(ruler,false)); // Closing the clock restores native collectors immediately.
+        check(active.getBoolean(NotificationBigClockSettings.STACK_ENABLED,false));
+        active.putBoolean(NotificationBigClockSettings.LANDSCAPE_MASTER,true);
+        active.putBoolean(FeatureOptions.STACK_LANDSCAPE_ENABLED,true);helper.configure(active);
+        check(!helper.currentStacked(ruler,false));
+        ruler.context.resources.getConfiguration().orientation=Configuration.ORIENTATION_LANDSCAPE;helper.configurationChanged();
+        check(helper.currentStacked(ruler,false));check(flow.value);
+        active.putBoolean(NotificationBigClockSettings.LANDSCAPE_MASTER,false);helper.configure(active);
+        check(!flow.value);check(!helper.currentStacked(ruler,false));
+        ruler.currentIsStackedNotification=true;check(helper.currentStacked(ruler,true)); // OEM's own value remains its responsibility.
     }
 }

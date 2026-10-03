@@ -4,11 +4,15 @@ package dev.puitheme
 
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
+import android.database.ContentObserver
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -69,6 +73,20 @@ class ModernMainActivity : ComponentActivity() {
     var editing by mutableStateOf<SettingsCatalog.Item?>(null)
     var colorEditing by mutableStateOf<SettingsCatalog.Item?>(null)
     var fontCatalogOpen by mutableStateOf(false)
+    var notificationOverridesOpen by mutableStateOf(false)
+    var iconAssignmentsOpen by mutableStateOf(false)
+    var iconAssignmentCategory by mutableStateOf("hint")
+    var shadeWallpaperOpen by mutableStateOf(false)
+    var panelMode by mutableStateOf(PanelMode.UNKNOWN)
+        private set
+    var iconLibraryOpen by mutableStateOf(false)
+    var iconPacks by mutableStateOf<List<IconPackRepository.Pack>>(emptyList())
+        private set
+    var applicationChoices by mutableStateOf<List<ApplicationChoice>>(emptyList())
+        private set
+    var iconPackDownloading by mutableStateOf(false)
+        private set
+    private var iconPackCancellation: IconPackDownload.Cancellation? = null
     var downloadingFont by mutableStateOf<FontCatalog.Entry?>(null)
         private set
     var fontDownloadPercent by mutableIntStateOf(0)
@@ -92,6 +110,15 @@ class ModernMainActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private val work = Executors.newSingleThreadExecutor()
     private var pendingFile: Pair<String, Uri>? = null
+    private var wallpaperImportScene: String? = null
+    private val wallpaperResourcesLock = Any()
+    private val preparedWallpapers = mutableSetOf<ShadeWallpaperRepository.PreparedWallpaper>()
+    private val panelModeObserver = object : ContentObserver(handler) {
+        override fun onChange(selfChange: Boolean) { refreshPanelMode() }
+    }
+    private fun refreshPanelMode() {
+        if (!destroyed) panelMode = PanelMode.query(this).getString("mode", PanelMode.UNKNOWN)
+    }
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         handler.post {
             if (!destroyed) {
@@ -117,6 +144,16 @@ class ModernMainActivity : ComponentActivity() {
     private val importNotificationIcon = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) queueFile("notification_icon", uri)
     }
+    private val importIconPack = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) queueFile("icon_pack", uri)
+    }
+    private val importPuiTheme = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) queueFile("pui_theme", uri)
+    }
+    private val importShadeWallpaper = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val scene = wallpaperImportScene
+        if (uri != null && ShadeWallpaperSettings.available() && ShadeWallpaperSettings.validScene(scene)) queueFile("wallpaper:$scene", uri)
+    }
     private val exportLog = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) work.execute {
             runCatching { ModuleDiagnostics.writeExport(this, uri) }
@@ -131,6 +168,12 @@ class ModernMainActivity : ComponentActivity() {
         freeNoticeRequired = !FreeNotice.accepted(this)
         raw = StatusBarSettings.preferences(this)
         AppFrameworkStatus.start(this)
+        refreshPanelMode()
+        runCatching {
+            contentResolver.registerContentObserver(Settings.System.getUriFor(PanelMode.SETTING), false, panelModeObserver)
+            contentResolver.registerContentObserver(Settings.System.getUriFor(PanelMode.DEFAULT_SETTING), false, panelModeObserver)
+        }
+        wallpaperImportScene = savedInstanceState?.getString("wallpaper_scene")?.takeIf { ShadeWallpaperSettings.validScene(it) }
         preferences = ActivationGuardPreferences(raw, { resumed && canEdit && !destroyed }, {
             handler.post { toast("激活模块或授予 Root 后即可保存配置") }
         }).withPersistence(this) { handler.post { toast("设置保存失败，请稍后重新保存") } }
@@ -205,6 +248,11 @@ class ModernMainActivity : ComponentActivity() {
                     colorEditing != null -> colorEditing = null
                     downloadingFont != null -> cancelFontDownload()
                     fontCatalogOpen -> fontCatalogOpen = false
+                    iconPackDownloading -> cancelIconPackDownload()
+                    iconAssignmentsOpen -> if (!busy) iconAssignmentsOpen = false
+                    shadeWallpaperOpen -> if (!busy) shadeWallpaperOpen = false
+                    iconLibraryOpen -> if (!busy) iconLibraryOpen = false
+                    notificationOverridesOpen -> notificationOverridesOpen = false
                     editing != null -> editing = null
                     confirmation != null -> dismissConfirmation()
                     selectedGroup != null -> { selectedGroup = null; updateNavigation() }
@@ -217,6 +265,7 @@ class ModernMainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume(); resumed = true
+        refreshPanelMode()
         val iconState = LauncherIcon.read(this)
         desktopIconHidden = iconState.hidden
         desktopIconAvailable = iconState.success
@@ -228,6 +277,7 @@ class ModernMainActivity : ComponentActivity() {
 
     override fun onPause() {
         if (downloadingFont != null) cancelFontDownload()
+        if (iconPackDownloading) cancelIconPackDownload()
         if (updateRequest?.isInstalling == false) { updateRequest?.cancel(); updateRequest = null; busy = false }
         if (NumericTrial.active()) {
             NumericTrial.rollback()
@@ -243,15 +293,22 @@ class ModernMainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         fontCancellation?.cancel()
+        iconPackCancellation?.cancel()
         destroyed = true; raw.unregisterOnSharedPreferenceChangeListener(listener)
+        runCatching { contentResolver.unregisterContentObserver(panelModeObserver) }
         probe?.cancel(); frameworkSubscription?.close(); rootRequest?.cancel(); restartRequest?.cancel(); updateRequest?.cancel()
         handler.removeCallbacksAndMessages(null); work.shutdown()
+        val abandonedWallpapers = synchronized(wallpaperResourcesLock) {
+            preparedWallpapers.toList().also { preparedWallpapers.clear() }
+        }
+        abandonedWallpapers.forEach { it.close() }
         super.onDestroy()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putInt("page", page); outState.putString("group", selectedGroup)
         outState.putString("query", query); outState.putString("category", category)
+        outState.putString("wallpaper_scene", wallpaperImportScene)
         pendingFile?.let { outState.putString("file_kind", it.first); outState.putString("file_uri", it.second.toString()) }
         super.onSaveInstanceState(outState)
     }
@@ -262,9 +319,10 @@ class ModernMainActivity : ComponentActivity() {
     fun openGroup(id: String) { selectedGroup = id; updateNavigation() }
     fun closeGroup() { selectedGroup = null; updateNavigation() }
     fun syncModalLayer(visible: Boolean) {
+        updateNavigation()
         if (::modalLayer.isInitialized) modalLayer.visibility = if (visible) View.VISIBLE else View.GONE
     }
-    private fun updateNavigation() { if (::navHost.isInitialized) navHost.visibility = if (!freeNoticeRequired && selectedGroup == null && !keyboardOpen) View.VISIBLE else View.GONE }
+    private fun updateNavigation() { if (::navHost.isInitialized) navHost.visibility = if (!freeNoticeRequired && selectedGroup == null && !keyboardOpen && !iconLibraryOpen && !iconAssignmentsOpen) View.VISIBLE else View.GONE }
     fun acceptFreeNotice(input: String): String? {
         if (!FreeNotice.matches(input)) return "请完整输入上面的短句，包含标点。"
         if (!FreeNotice.accept(this, input)) return "确认记录保存失败，请重试。"
@@ -275,9 +333,24 @@ class ModernMainActivity : ComponentActivity() {
         return null
     }
     fun value(key: String): Any? = SettingsCatalog.value(values, key)
-    fun bool(key: String): Boolean = StatusBarSettings.bool(values, key)
+    fun bool(key: String): Boolean = if (key.startsWith("shade_wallpaper_") && !ShadeWallpaperSettings.available()) false else StatusBarSettings.bool(values, key)
     fun save(key: String, value: Any): Boolean {
         if (!resumed || !canEdit) { toast("激活模块或授予 Root 后即可保存配置"); return false }
+        val featureUnavailable = ShadeWallpaperSettings.unavailableReason(key)
+        if (featureUnavailable.isNotEmpty()) { toast(featureUnavailable); return false }
+        if (value is String) {
+            val invalid = when (key) {
+                NotificationIconOverrides.RULES -> NotificationIconOverrides.validationError(value)
+                IconPackAssignments.ASSIGNMENTS -> IconPackAssignments.validationError(value)
+                IconPackRepository.LAYERS -> runCatching { IconPackRepository.layers(value); null }.getOrElse { it.message ?: "图标库配置无效" }
+                else -> null
+            }
+            if (invalid != null) { toast(invalid); return false }
+        }
+        if (value == true) {
+            val unavailable = SettingsCatalog.unavailableReason(key, raw.all)
+            if (unavailable.isNotEmpty()) { toast(unavailable); return false }
+        }
         val editor = preferences.edit()
         when (value) {
             is Boolean -> editor.putBoolean(key, value)
@@ -403,13 +476,16 @@ class ModernMainActivity : ComponentActivity() {
         confirmation = UiConfirmation("删除所有配置", "删除当前配置、恢复备份、导入字体和自定义图标，并恢复全部默认设置。免费声明确认与 Root 请求标识保留。此操作无法撤销，可先导出配置。", "删除并恢复默认") {
             if (!resumed || !canEdit || busy) return@UiConfirmation
             pendingFile = null; editing = null; colorEditing = null; fontCatalogOpen = false
+            iconLibraryOpen = false; notificationOverridesOpen = false
+            iconAssignmentsOpen = false; shadeWallpaperOpen = false
+            cancelIconPackDownload()
             cancelFontDownload(); handler.removeCallbacks(notifySettings)
             maintenanceRunning = true; busy = true
             work.execute {
                 val result = runCatching { MaintenanceReset.reset(applicationContext) }
                 handler.post {
                     if (!destroyed) {
-                        maintenanceRunning = false; busy = false; values = raw.all; selectedGroup = null
+                        maintenanceRunning = false; busy = false; values = raw.all; selectedGroup = null; iconPacks = emptyList()
                         toast(result.getOrNull()?.message ?: "删除未完成，请稍后重试；未确认的旧配置不会重新发布")
                         if (resumed) { notifySettings.run(); updateNavigation() }
                     }
@@ -491,6 +567,12 @@ class ModernMainActivity : ComponentActivity() {
         busy = true
         if (action.first == "font") { prepareFont(action.second); return }
         if (action.first == "notification_icon") { prepareNotificationIcon(action.second); return }
+        if (action.first == "icon_pack") { prepareIconPack(action.second); return }
+        if (action.first == "pui_theme") { preparePuiTheme(action.second); return }
+        if (action.first.startsWith("wallpaper:") && !ShadeWallpaperSettings.available()) {
+            pendingFile = null; busy = false; toast(ShadeWallpaperSettings.unavailableReason()); return
+        }
+        if (action.first.startsWith("wallpaper:")) { prepareShadeWallpaper(action.first.substringAfter(':'), action.second); return }
         val snapshot = values
         work.execute {
             try {
@@ -572,6 +654,279 @@ class ModernMainActivity : ComponentActivity() {
                 }
             } catch (error: Exception) { runOnUiThread { pendingFile = null; busy = false; toast("图片导入失败：${error.message}") } }
         }
+    }
+    fun openShadeWallpaperImport(scene: String) {
+        if (!ShadeWallpaperSettings.available()) { toast(ShadeWallpaperSettings.unavailableReason()); return }
+        if (!canEdit || busy || !ShadeWallpaperSettings.validScene(scene)) return
+        wallpaperImportScene = scene
+        importShadeWallpaper.launch(arrayOf("image/png", "image/jpeg", "image/webp"))
+    }
+    private fun prepareShadeWallpaper(scene: String, uri: Uri) {
+        if (!ShadeWallpaperSettings.available()) { pendingFile = null; busy = false; return }
+        work.execute {
+            try {
+                val prepared = ShadeWallpaperRepository.prepare(applicationContext, uri, scene)
+                val accepted = synchronized(wallpaperResourcesLock) {
+                    !destroyed && preparedWallpapers.add(prepared)
+                }
+                if (!accepted) { prepared.close(); return@execute }
+                val posted = handler.post {
+                    if (destroyed) {
+                        synchronized(wallpaperResourcesLock) { preparedWallpapers.remove(prepared) }
+                        prepared.close(); return@post
+                    }
+                    try {
+                        prepared.use {
+                            val key = ShadeWallpaperSettings.revisionKey(scene)
+                            val previous = raw.all[key]
+                            prepared.commit({ resumed && canEdit && !destroyed }, {
+                                preferences.edit().putString(key, prepared.revision).commit()
+                            }, {
+                                val restore = raw.edit()
+                                if (previous is String) restore.putString(key, previous) else restore.remove(key)
+                                check(restore.commit()) { "壁纸配置恢复失败" }
+                            })
+                            pendingFile = null; busy = false
+                            work.execute { ShadeWallpaperRepository.prune(applicationContext, scene, prepared.revision) }
+                            toast("${ShadeWallpaperSettings.title(scene)}壁纸已导入")
+                        }
+                    } catch (error: Exception) { pendingFile = null; busy = false; toast("壁纸导入失败：${error.message}") }
+                    finally { synchronized(wallpaperResourcesLock) { preparedWallpapers.remove(prepared) } }
+                }
+                if (!posted) {
+                    synchronized(wallpaperResourcesLock) { preparedWallpapers.remove(prepared) }
+                    prepared.close()
+                }
+            } catch (error: Exception) {
+                handler.post { if (!destroyed) { pendingFile = null; busy = false; toast("壁纸导入失败：${error.message}") } }
+            }
+        }
+    }
+    fun deleteShadeWallpaper(scene: String) {
+        if (!resumed || !canEdit || busy || !ShadeWallpaperSettings.validScene(scene)) return
+        val saved = preferences.edit().putBoolean(ShadeWallpaperSettings.enabledKey(scene), false)
+            .putString(ShadeWallpaperSettings.revisionKey(scene), "").commit()
+        if (!saved) { toast("壁纸配置保存失败，图片已保留"); return }
+        busy = true
+        work.execute {
+            val result = runCatching { ShadeWallpaperRepository.delete(applicationContext, scene) }
+            handler.post { if (!destroyed) { busy = false; toast(if (result.isSuccess) "这张壁纸已删除" else "配置已关闭，图片删除失败，请重试") } }
+        }
+    }
+    fun openNotificationOverrides() {
+        notificationOverridesOpen = true
+        work.execute {
+            val apps = runCatching {
+                packageManager.getInstalledApplications(PackageManager.MATCH_DISABLED_COMPONENTS).map { info ->
+                    ApplicationChoice(info.packageName, runCatching { info.loadLabel(packageManager).toString() }.getOrDefault(info.packageName),
+                        info.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0)
+                }.distinctBy { it.packageName }.sortedBy { it.label.lowercase() }
+            }.getOrDefault(emptyList())
+            handler.post { if (!destroyed) applicationChoices = apps }
+        }
+    }
+    fun applicationLabel(packageName: String): String = applicationChoices.firstOrNull { it.packageName == packageName }?.label ?: packageName
+    private fun saveManagedString(key: String, json: String): Boolean {
+        if (!resumed || !canEdit || destroyed) { toast("激活模块或授予 Root 后即可保存配置"); return false }
+        val result = runCatching { preferences.edit().putString(key, json).commit() }.getOrDefault(false)
+        values = raw.all
+        if (!result) toast("配置未能完整保存，请重试")
+        return result
+    }
+    fun saveNotificationOverride(packageName: String, text: String, enabled: Boolean, oldPackage: String? = null): String {
+        if (!resumed || !canEdit || busy) return "请先激活模块或授予 Root"
+        return try {
+            var source = value(NotificationIconOverrides.RULES)?.toString() ?: "[]"
+            if (packageName != oldPackage && NotificationIconOverrides.rules(source).any { it.packageName == packageName })
+                return "该应用已设置，请编辑现有规则"
+            if (!oldPackage.isNullOrBlank() && oldPackage != packageName) source = NotificationIconOverrides.remove(source, oldPackage)
+            val updated = NotificationIconOverrides.put(source, packageName, text, enabled)
+            if (saveManagedString(NotificationIconOverrides.RULES, updated)) "" else "保存失败，请重试"
+        } catch (error: Exception) { error.message ?: "应用规则无效" }
+    }
+    fun removeNotificationOverride(packageName: String) {
+        if (busy) return
+        runCatching { NotificationIconOverrides.remove(value(NotificationIconOverrides.RULES)?.toString() ?: "[]", packageName) }
+            .onSuccess { saveManagedString(NotificationIconOverrides.RULES, it) }.onFailure { toast(it.message ?: "规则删除失败") }
+    }
+    fun saveNotificationAppIconOverride(packageName: String, sourcePackage: String, enabled: Boolean, previousPackage: String? = null): String {
+        if (!resumed || !canEdit || busy) return "请先激活模块或授予 Root"
+        return try {
+            var source = value(NotificationIconOverrides.RULES)?.toString() ?: "[]"
+            if (packageName != previousPackage && NotificationIconOverrides.rules(source).any { it.packageName == packageName })
+                return "该应用已设置，请编辑现有规则"
+            if (!previousPackage.isNullOrBlank() && previousPackage != packageName) source = NotificationIconOverrides.remove(source, previousPackage)
+            val updated = NotificationIconOverrides.putAppIcon(source, packageName, sourcePackage, enabled)
+            if (enabled) packageManager.getApplicationInfo(sourcePackage, 0)
+            if (saveManagedString(NotificationIconOverrides.RULES, updated)) "" else "保存失败，请重试"
+        } catch (error: Exception) { error.message?.takeIf { it.isNotBlank() } ?: "所选应用图标不可用" }
+    }
+    fun openIconAssignments(category: String = "hint") {
+        iconAssignmentCategory = category.takeIf { it in listOf("hint", "wifi", "cellular", "battery") } ?: "hint"
+        iconAssignmentsOpen = true; updateNavigation(); refreshIconLibraries()
+    }
+    fun saveIconAssignment(targetRole: String, packId: String, sourceRole: String): String {
+        if (!resumed || !canEdit || busy) return "请先激活模块或授予 Root"
+        return try {
+            val pack = iconPacks.firstOrNull { it.id == packId } ?: return "图标库已不存在，请重新选择"
+            if (configuredLayers().none { it.id == packId && it.enabled }) return "请先启用所选图标库"
+            if (!pack.manifest.icons.containsKey(sourceRole)) return "所选图案已不存在"
+            val updated = IconPackAssignments.put(value(IconPackAssignments.ASSIGNMENTS)?.toString() ?: "[]", targetRole, packId, sourceRole)
+            if (saveManagedString(IconPackAssignments.ASSIGNMENTS, updated)) "" else "保存失败，请重试"
+        } catch (error: Exception) { error.message ?: "图标替换规则无效" }
+    }
+    fun removeIconAssignment(targetRole: String) {
+        runCatching { IconPackAssignments.remove(value(IconPackAssignments.ASSIGNMENTS)?.toString() ?: "[]", targetRole) }
+            .onSuccess { saveManagedString(IconPackAssignments.ASSIGNMENTS, it) }.onFailure { toast(it.message ?: "恢复失败") }
+    }
+    fun openIconLibrary() { iconLibraryOpen = true; updateNavigation(); refreshIconLibraries() }
+    private fun refreshIconLibraries() {
+        work.execute {
+            val result = runCatching {
+                IconPackRepository.installBundled(applicationContext)
+                IconPackRepository.list(applicationContext)
+            }
+            handler.post { if (!destroyed) {
+                result.onSuccess { packs ->
+                    iconPacks = packs
+                    if (resumed && canEdit) {
+                        val layers = configuredLayers().toMutableList()
+                        val known = layers.map { it.id }.toSet()
+                        packs.filter { it.id !in known }.forEach { layers.add(IconPackRepository.Layer(it.id, false, false)) }
+                        if (layers.size != known.size) saveIconLayers(layers)
+                    }
+                }.onFailure { toast("图标库读取失败：${it.message}") }
+            } }
+        }
+    }
+    private fun configuredLayers(): List<IconPackRepository.Layer> = IconPackRepository.layers(value(IconPackRepository.LAYERS)?.toString() ?: "[]")
+    private fun saveIconLayers(layers: List<IconPackRepository.Layer>): Boolean {
+        return try { saveManagedString(IconPackRepository.LAYERS, IconPackRepository.layersJson(layers)) }
+        catch (error: Exception) { toast(error.message ?: "图标库配置无效"); false }
+    }
+    fun setIconPackEnabled(id: String, enabled: Boolean) {
+        if (busy || !canEdit || !resumed) return
+        runCatching {
+            val layers = configuredLayers().toMutableList()
+            val index = layers.indexOfFirst { it.id == id }
+            if (index >= 0) layers[index] = IconPackRepository.Layer(id, enabled, layers[index].autoMatch)
+            else layers.add(IconPackRepository.Layer(id, enabled, false))
+            saveIconLayers(layers)
+        }.onFailure { toast(it.message ?: "图标库状态保存失败") }
+    }
+    fun setIconLibraryAutoMatch(id: String, autoMatch: Boolean) {
+        if (busy || !canEdit || !resumed) return
+        runCatching {
+            val layers = configuredLayers().toMutableList()
+            val index = layers.indexOfFirst { it.id == id }
+            if (index >= 0) layers[index] = IconPackRepository.Layer(id, layers[index].enabled, autoMatch)
+            else layers.add(IconPackRepository.Layer(id, false, autoMatch))
+            saveIconLayers(layers)
+        }.onFailure { toast(it.message?.takeIf { text -> text.isNotBlank() } ?: "图标库使用方式保存失败") }
+    }
+    fun saveIconPackOrder(order: List<String>): Boolean {
+        if (busy || !canEdit || !resumed) return false
+        return try {
+            check(order.distinct().size == order.size && order.toSet() == iconPacks.map { it.id }.toSet()) { "图标库列表已变化，请重新排序" }
+            val previous = configuredLayers()
+            val reordered = order.map { id -> previous.firstOrNull { it.id == id } ?: IconPackRepository.Layer(id, false, false) }
+                .toMutableList()
+            // Missing imported files retain their saved disabled/enabled/order records, rather than losing configuration silently.
+            reordered.addAll(previous.filter { it.id !in order })
+            saveIconLayers(reordered)
+        } catch (error: Exception) { toast(error.message ?: "排序未能保存"); false }
+    }
+    fun renameIconPack(id: String, name: String) {
+        if (busy || !canEdit || !resumed) return
+        busy = true
+        work.execute {
+            val result = runCatching { IconPackRepository.rename(applicationContext, id, name) }
+            handler.post { if (!destroyed) {
+                busy = false
+                result.onSuccess { pack -> iconPacks = iconPacks.map { if (it.id == id) pack else it }; toast("名称已保存") }
+                    .onFailure { toast("重命名失败：${it.message}") }
+            } }
+        }
+    }
+    fun deleteIconPack(id: String, name: String) {
+        if (busy || !canEdit) return
+        iconLibraryOpen = false
+        confirmation = UiConfirmation("删除图标库", "删除“${name}”及其导入文件，其他图标库与原生样式保留。", "删除",
+            cancelAction = { iconLibraryOpen = true }) {
+            if (!resumed || !canEdit || busy) { toast("权限状态已变化，请重新打开图标库"); return@UiConfirmation }
+            val remaining = runCatching { configuredLayers().filter { it.id != id } }.getOrElse {
+                toast(it.message ?: "图标库配置读取失败"); return@UiConfirmation
+            }
+            if (!saveIconLayers(remaining)) { iconLibraryOpen = true; return@UiConfirmation }
+            busy = true
+            work.execute {
+                val result = runCatching { IconPackRepository.delete(applicationContext, id) }
+                handler.post { if (!destroyed) {
+                    busy = false; iconLibraryOpen = true
+                    result.onSuccess { iconPacks = iconPacks.filter { it.id != id }; toast("图标库已删除") }
+                        .onFailure { toast("图标库已停用，文件删除失败：${it.message}"); refreshIconLibraries() }
+                } }
+            }
+        }
+    }
+    fun chooseIconPack() {
+        if (canEdit && !busy) importIconPack.launch(arrayOf("*/*")) else toast("请先激活模块或授予 Root")
+    }
+    fun openPuiThemeImport() {
+        if (canEdit && !busy) importPuiTheme.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+        else toast("请先激活模块或授予 Root")
+    }
+    private fun preparePuiTheme(uri: Uri) {
+        work.execute {
+            try { completeIconPack(IconPackRepository.preparePuiTheme(applicationContext, uri), null) }
+            catch (error: Exception) { handler.post { if (!destroyed) {
+                pendingFile = null; busy = false; toast("PUI 主题导入失败：${error.message}")
+            } } }
+        }
+    }
+    private fun prepareIconPack(uri: Uri) {
+        work.execute {
+            try { completeIconPack(IconPackRepository.prepare(applicationContext, uri, ""), null) }
+            catch (error: Exception) { handler.post { if (!destroyed) {
+                pendingFile = null; busy = false; toast("图标库导入失败：${error.message}")
+            } } }
+        }
+    }
+    fun downloadIconPack(source: String, name: String) {
+        if (!resumed || !canEdit || busy || destroyed) return
+        if (source.isBlank()) { toast("请填写 GitHub 仓库或下载网址"); return }
+        val token = IconPackDownload.Cancellation()
+        iconPackCancellation = token; iconPackDownloading = true; busy = true
+        work.execute {
+            try { completeIconPack(IconPackRepository.prepareDownload(applicationContext, source, name, token), token) }
+            catch (error: Exception) { handler.post { if (!destroyed && iconPackCancellation === token) {
+                iconPackCancellation = null; iconPackDownloading = false; busy = false
+                toast("图标库下载失败：${error.message}")
+            } } }
+        }
+    }
+    private fun completeIconPack(prepared: IconPackRepository.PreparedPack, token: IconPackDownload.Cancellation?) {
+        handler.post {
+            try { prepared.use {
+                if (token != null && iconPackCancellation !== token) return@post
+                val layers = configuredLayers().toMutableList()
+                val wasImported = iconPacks.any { it.id == prepared.pack.id }
+                val pack = prepared.commit { resumed && canEdit && !destroyed && (token == null || !token.getAsBoolean()) }
+                if (layers.none { it.id == pack.id }) layers.add(IconPackRepository.Layer(pack.id, false, false))
+                val saved = saveIconLayers(layers)
+                iconPacks = iconPacks.filter { it.id != pack.id } + pack
+                toast(if (!saved) "图标库文件已导入，排序配置未保存；请在管理页重试" else if (wasImported) "相同图标库已更新名称，原启用状态保留" else "图标库已导入，默认禁用；启用后可逐项选择")
+            } } catch (error: Exception) { if (!destroyed) toast("图标库导入失败：${error.message}") }
+            finally {
+                prepared.close()
+                if (token == null || iconPackCancellation === token) {
+                    pendingFile = null; iconPackCancellation = null; iconPackDownloading = false; busy = false
+                }
+            }
+        }
+    }
+    fun cancelIconPackDownload() {
+        iconPackCancellation?.cancel(); iconPackCancellation = null; iconPackDownloading = false; busy = false
     }
     fun pickColor(item: SettingsCatalog.Item) {
         if (!canEdit) { toast("请先激活模块或授予 Root"); return }

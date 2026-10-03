@@ -111,7 +111,9 @@ public class View implements ViewParent, Drawable.Callback {
     public boolean getClipToOutline(){return clipToOutline;}
     public void setClipToOutline(boolean value){clipToOutline=value;}
     public View findViewById(int id) { return null; }
-    public int getId() { return -1; }
+    private int viewId=-1;
+    public int getId() { return viewId; }
+    public void setId(int value) {viewId=value;}
     public CharSequence getContentDescription() { return description; }
     public void setContentDescription(CharSequence value) { description=value; }
     public int getMinimumWidth() { return minimumWidth; }

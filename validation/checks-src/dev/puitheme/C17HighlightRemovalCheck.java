@@ -193,6 +193,7 @@ public final class C17HighlightRemovalCheck {
         checks += C17AcrylicMaterialCheck.run();
         checks += C17QsSurfaceCheck.run();
         checks += C17NotificationColorCheck.run();
+        checks += C17HeadsUpScopeCheck.run();
         System.out.println("C17HighlightRemovalCheck: " + checks + " checks passed (10000 live frames, reusable arrays, OFF/safe/release ownership)");
     }
 

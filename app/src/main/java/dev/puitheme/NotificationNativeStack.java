@@ -32,6 +32,7 @@ public final class NotificationNativeStack {
     public static final String EXPANDABLE="com.android.systemui.statusbar.notification.row.ExpandableView";
     private boolean enabled;
     private boolean landscapeEnabled;
+    private boolean portraitClockEnabled,landscapeClockEnabled;
     private boolean hooksReady;
     private int completeCount=1;
     private Access access;
@@ -42,7 +43,7 @@ public final class NotificationNativeStack {
     private final ThreadLocal<Scope> scenes=new ThreadLocal<>();
     private final Map<Object,FlowState> observedRulers=new WeakHashMap<>();
     // The real ruler owns a Context. Resolve Resources once; its live Configuration follows
-    // rotation even when the independent big-clock feature is disabled or has no callback.
+    // rotation without relying on the big-clock callback order.
     private final Map<Object,Resources> rulerResources=new WeakHashMap<>();
     private static final class FlowState {
         boolean nativeValue,applied;
@@ -117,9 +118,12 @@ public final class NotificationNativeStack {
         }
     }
     public void configure(Bundle source) {
-        enabled=source!=null&&!SafetyMode.enabled(source)
-                &&Boolean.TRUE.equals(source.get(NotificationBigClockSettings.STACK_ENABLED));
+        portraitClockEnabled=NotificationBigClockSettings.enabled(source,false);
+        landscapeClockEnabled=NotificationBigClockSettings.enabled(source,true);
         landscapeEnabled=source!=null&&Boolean.TRUE.equals(source.get(FeatureOptions.STACK_LANDSCAPE_ENABLED));
+        enabled=source!=null&&!SafetyMode.enabled(source)
+                &&Boolean.TRUE.equals(source.get(NotificationBigClockSettings.STACK_ENABLED))
+                &&(portraitClockEnabled||landscapeClockEnabled&&landscapeEnabled);
         Object value=source==null?null:source.get(NotificationBigClockSettings.VISIBLE_COUNT);
         float count=value instanceof Number?((Number)value).floatValue():1f;
         completeCount=!finite(count)?1:Math.max(1,count>=Integer.MAX_VALUE?Integer.MAX_VALUE:Math.round(count));
@@ -128,6 +132,7 @@ public final class NotificationNativeStack {
     public boolean enabled(){return enabled&&hooksReady&&access!=null&&!ModuleLifecycle.removed();}
     /** Read only on an explicit diagnostic/probe. Counting never allocates a frame log. */
     public String diagnosticSummary(){return "whole requested="+enabled+" landscape="+landscapeEnabled+" ready="+hooksReady+" resolved="+(access!=null)
+            +" portraitClock="+portraitClockEnabled+" landscapeClock="+landscapeClockEnabled
             +" update="+updateCalls+" shade="+shadeCalls+" current="+currentCalls+" apply="+applyCalls
             +" changed="+borderChanges+" rows="+lastRows+" eligible="+lastEligibleRows+" count="+completeCount+" native="+lastNativeBorder
             +" chosen="+lastAppliedBorder+" stage="+lastStage;}
@@ -242,8 +247,8 @@ public final class NotificationNativeStack {
                 rulerResources.put(ruler,resources);
             }
             int orientation=resources.getConfiguration().orientation;
-            return orientation==Configuration.ORIENTATION_PORTRAIT
-                    ||orientation==Configuration.ORIENTATION_LANDSCAPE&&landscapeEnabled;
+            return orientation==Configuration.ORIENTATION_PORTRAIT&&portraitClockEnabled
+                    ||orientation==Configuration.ORIENTATION_LANDSCAPE&&landscapeEnabled&&landscapeClockEnabled;
         }catch(ReflectiveOperationException|RuntimeException unsupported){return false;}
     }
     /**

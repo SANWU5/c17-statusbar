@@ -1,16 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.84" android:scaleY="0.84">
-    <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="5.5" android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M54.73,41.27 C51.47,38.02 46.97,36 42,36 C32.06,36 24,44.06 24,54 C24,63.94 32.06,72 42,72 C46.97,72 51.47,69.98 54.73,66.73" />
-    <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="3.5" android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M42,44.5 L42,54 L48.5,58" />
-    <path android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="5.5" android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M62,46 L65,43 L65,65 M72,43 L81,43 L73,65" />
+    <!-- Solid C-clock and 17 fit inside the adaptive icon 66dp safe circle. -->
+    <group android:translateX="13.04" android:translateY="13.04"
+        android:scaleX="0.064" android:scaleY="0.064">
+        <path android:fillColor="#FFFFFFFF"
+            android:pathData="M906,360 C915,370 915,376 908,384 L840,451 C834,458 827,459 819,451 C770,404 708,375 642,375 C492,375 372,487 371,631 C371,763 471,867 605,867 C632,867 658,861 682,851 C687,849 689,849 689,855 L689,975 C689,981 686,983 680,985 C654,992 627,996 601,996 C393,996 238,841 239,632 C239,416 420,240 641,240 C749,240 847,284 906,360 Z" />
+        <path android:fillColor="#FFFFFFFF"
+            android:pathData="M613,458 C613,452 618,447 624,448 C630,448 635,453 634,459 L624,605 L704,568 C710,565 716,568 719,574 C722,580 719,586 713,589 L619,633 C612,636 603,630 604,622 Z" />
+        <path android:fillColor="#FFFFFFFF"
+            android:pathData="M639,625 C639,641.57 625.57,655 609,655 C592.43,655 579,641.57 579,625 C579,608.43 592.43,595 609,595 C625.57,595 639,608.43 639,625 Z" />
+        <path android:fillColor="#FFFFFFFF"
+            android:pathData="M711,711 L763,673 C767,670 770,670 775,670 L810,670 C816,670 820,674 820,680 L820,974 C820,980 816,984 810,984 L761,984 C755,984 751,980 751,974 L751,758 L717,778 C711,782 706,779 706,773 L706,721 C706,716 707,714 711,711 Z" />
+        <path android:fillColor="#FFFFFFFF"
+            android:pathData="M863,670 L1060,670 C1066,670 1070,674 1070,680 L1070,716 C1070,721 1069,724 1067,729 L945,975 C942,981 938,984 931,984 L869,984 C860,984 856,980 861,970 L984,734 L863,734 C857,734 853,730 853,724 L853,680 C853,674 857,670 863,670 Z" />
     </group>
 </vector>

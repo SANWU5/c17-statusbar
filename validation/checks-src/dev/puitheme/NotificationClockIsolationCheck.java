@@ -28,16 +28,19 @@ public final class NotificationClockIsolationCheck {
         b.putBoolean(NotificationBigClockSettings.LANDSCAPE_NOTIFICATION_WIDTH_ENABLED,true);
         b.putFloat(NotificationBigClockSettings.LANDSCAPE_NOTIFICATION_WIDTH,200f);
         landscape=ctor.newInstance(b,NotificationBigClockSettings.LANDSCAPE_PREFIX);
-        check((Float)read(landscape,"maxSize")==180f);check((Float)read(landscape,"scale")==125f);
+        check((Float)read(landscape,"maxSize")==180f);check((Float)b.get(NotificationBigClockSettings.landscapeKey(NotificationBigClockSettings.SCALE))==125f);
         check((Float)read(landscape,"notificationWidth")==200f);check((Float)read(landscape,"offsetY")==-19.26f);
         check((Float)b.get(NotificationBigClockSettings.MAX_SIZE)==164f);
         // Native space/clamping never rewrites a user's time size, position, or input trial.
         NotificationLandscapeLayout.width(1800,1440,(Float)read(landscape,"notificationWidth"));
         check((Float)b.get(NotificationBigClockSettings.LANDSCAPE_NOTIFICATION_WIDTH)==200f);
-        check((Float)read(landscape,"maxSize")==180f);check((Float)read(landscape,"scale")==125f);
+        check((Float)read(landscape,"maxSize")==180f);check((Float)b.get(NotificationBigClockSettings.landscapeKey(NotificationBigClockSettings.SCALE))==125f);
         for(Map.Entry<String,Float> item:NotificationBigClockSettings.NUMBERS.entrySet())if(!item.getKey().startsWith(NotificationBigClockSettings.LANDSCAPE_PREFIX)
                 &&!item.getKey().equals(NotificationBigClockSettings.STACK_GAP)&&!item.getKey().equals(NotificationBigClockSettings.STACK_INSET))
+            if(!item.getKey().equals(NotificationBigClockSettings.SCREEN_PADDING))
             check(item.getValue().equals(NotificationBigClockSettings.NUMBERS.get(NotificationBigClockSettings.landscapeKey(item.getKey()))));
+        check(NotificationBigClockSettings.NUMBERS.get(NotificationBigClockSettings.SCREEN_PADDING)==24f);
+        check(!NotificationBigClockSettings.NUMBERS.containsKey(NotificationBigClockSettings.landscapeKey(NotificationBigClockSettings.SCREEN_PADDING)));
         check(NotificationBigClockSettings.positiveSize(NotificationBigClockSettings.landscapeKey(NotificationBigClockSettings.MAX_SIZE)));
         Class<?> cache=Class.forName("dev.puitheme.NotificationBigClock$Typography");Constructor<?> cacheCtor=cache.getDeclaredConstructor();cacheCtor.setAccessible(true);
         Object typography=cacheCtor.newInstance();java.lang.reflect.Method record=cache.getDeclaredMethod("record",Object.class,Object.class,String.class,float.class,int.class,float.class,float.class);

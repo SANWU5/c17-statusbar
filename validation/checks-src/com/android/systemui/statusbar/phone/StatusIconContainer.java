@@ -9,6 +9,7 @@ public class StatusIconContainer extends ViewGroup {
     public NetworkIconOrder ordering;
     public dev.puitheme.NativeStatusIcons hints;
     public int childReads;
+    public void updateStates() { }
     public StatusIconContainer() { super(null); }
     @Override public View getChildAt(int index) { childReads++;int mapped=ordering == null ? index : ordering.childIndex(this,index);return super.getChildAt(hints==null?mapped:hints.childIndex(this,mapped)); }
     public static final class StatusIconState extends com.android.systemui.statusbar.notification.stack.ViewState {

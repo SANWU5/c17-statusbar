@@ -61,6 +61,7 @@ public class Canvas {
     public void scale(float x,float y,float px,float py) {scaleX*=x;scaleY*=y;pivotX=px;pivotY=py;}
     public void scale(float x,float y) {scaleX*=x;scaleY*=y;}
     public void drawText(String value,float x,float y,Paint paint) {text=value;textAlpha=paint.getAlpha();textColor=paint.getColor();textX=x;textY=y;textSize=paint.getTextSize();textSpacing=paint.getLetterSpacing();textTypeface=paint.getTypeface();textEffectiveWeight=paint.effectiveWeight();}
+    public void drawText(CharSequence value,int start,int end,float x,float y,Paint paint){drawText(value.subSequence(start,end).toString(),x,y,paint);}
     public void drawPath(Path value,Paint paint) {
         PorterDuff.Mode mode=paint.mode instanceof PorterDuffXfermode ? ((PorterDuffXfermode)paint.mode).mode : null;
         if(mode==PorterDuff.Mode.DST_OUT) {maskAlpha=paint.getAlpha();maskStyle=paint.style;maskStroke=paint.strokeWidth;}

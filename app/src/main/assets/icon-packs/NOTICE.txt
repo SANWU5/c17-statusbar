@@ -1,0 +1,24 @@
+C17 imported icon-pack archive support
+
+libarchive-android 1.1.6 (official Maven AAR)
+Upstream: https://github.com/zhanghai/libarchive-android
+Pinned source tag: v1.1.6, d3ee9c472173fcaf28e737f59dd34ef6cf3d1c88
+Java/JNI bindings Copyright 2023 Google LLC, Apache License 2.0.
+This is not an officially supported Google product.
+
+The AAR bundles libarchive and its compression/crypto dependencies. Original notices
+and license texts are retained in licenses/. The bundled source submodules at v1.1.6:
+libarchive 9525f90ca4bd14c7b335e2f8c84a4607b0af6bdf (BSD)
+bzip2 6a8690fc8d26c815e798c588f796eabe9d684cf0 (bzip2 license)
+lz4 ebb370ca83af193212df4dcbadcc5d87bc0de2f0 (BSD)
+zstd f8745da6ff1ad1e7bab384bd1f9d742439278e99 (BSD option)
+mbedtls 2fc8413bfcb51354c8e679141b17b3f1a5942561 (Apache-2.0 option)
+xz / liblzma a522a226545730551f7e7c2685fab27cf567746c (0BSD; liblzma only)
+Android platform zlib is supplied by the operating system.
+
+RAR4/RAR5 are read using libarchive's read-only native decoders. Encrypted, split,
+linked or malformed entries are not supported by the C17 importer. No archive-owned
+path is extracted or executed. ZIP uses the Java platform reader.
+
+Third-party imported icon images retain their own licenses. They are not bundled
+with C17 by default and are not automatically relicensed under GPL-3.0-only.

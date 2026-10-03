@@ -1,6 +1,14 @@
 # 第三方声明
 
-本文记录正式版 `1.6.0` / versionCode 51 的当前依赖与历史技术来源。软件、字体和第三方资源分别保留其自身许可，不统一改为本项目的软件许可。
+## 自定义图标库归档解码
+
+图标库使用 [zhanghai/libarchive-android](https://github.com/zhanghai/libarchive-android) 的官方 Maven AAR `me.zhanghai.android.libarchive:library:1.1.6`，源代码标签 `v1.1.6`（提交 `d3ee9c472173fcaf28e737f59dd34ef6cf3d1c88`）。Java/JNI 接口 Copyright 2023 Google LLC，采用 Apache License 2.0；该项目并非 Google 官方支持产品。
+
+RAR4/RAR5 使用其实际原生只读解码器，ZIP 使用 Java 平台接口；本模块不执行包内代码，不按归档自带路径解压，拒绝加密、分卷、链接和超限资源。Android 原生 RAR 解码与真实视觉效果仍需分别实机验证，桌面 JSON/ZIP 检查不代表这些场景已验收。
+
+该 AAR 内含 libarchive、bzip2、liblzma、lz4、zstd、mbedtls；各自固定源提交、完整许可与版权声明随 APK 放在 `assets/icon-packs/NOTICE.txt` 与 `assets/icon-packs/licenses/`。Android zlib 由系统提供。独立[图标包规范和原创教学示例](https://github.com/SANWU5/c17-icon-packs)采用 MIT；用户导入资源保留各自许可，不按模块 GPL 许可自动重新授权。
+
+本文记录项目当前依赖与历史技术来源。软件、字体和第三方资源分别保留其自身许可，不统一改为本项目的软件许可。
 
 ## 控制中心磁贴圆角技术参考
 

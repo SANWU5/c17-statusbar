@@ -27,6 +27,7 @@ public final class C17HighlightRemoval {
     public static final String ENABLED = "c17_highlight_removal_enabled";
     public static final String NOTIFICATION_ENABLED = "c17_highlight_removal_notification_enabled";
     public static final String CONTROL_ENABLED = "c17_highlight_removal_control_center_enabled";
+    public static final String HEADS_UP_ENABLED = "c17_highlight_removal_heads_up_enabled";
     public static final String UNIFORM_NOTIFICATION_ENABLED = "c17_notification_color_unified_enabled";
     public static final String BACKGROUND_ENABLED = "c17_acrylic_background_enabled";
     public static final String LIGHT_BACKGROUND = "c17_acrylic_light_background_color";
@@ -49,10 +50,12 @@ public final class C17HighlightRemoval {
     private static final String NOTIFICATION_BACKGROUND = "com.android.systemui.statusbar.notification.row.NotificationBackgroundView";
     private static final String NOTIFICATION_EXTENSION = "com.oplus.systemui.statusbar.notification.row.NotificationBackgroundViewExtImp";
     private static final String NOTIFICATION_ROW = "com.android.systemui.statusbar.notification.row.ActivatableNotificationView";
+    private static final String EXPANDABLE_ROW = "com.android.systemui.statusbar.notification.row.ExpandableNotificationRow";
+    private static final String HEADS_UP_LAYOUT = "com.oplus.systemui.notification.headsup.windowframe.HeadsUpLayout";
     private static final String MEDIA_LIGHT = "com.oplus.systemui.qs.media.multilight.MultiLightDrawable";
     private static final String MEDIA_BACKGROUND = "com.oplus.systemui.qs.media.multilight.OplusQsMediaBackgroundDrawable";
     private static final String MEDIA_SPOTLIGHT = "com.oplus.systemui.qs.media.QsMediaSpotLightHelper";
-    private static final int UNKNOWN = 0, NOTIFICATION = 1, CONTROL = 2;
+    private static final int UNKNOWN = 0, NOTIFICATION = 1, CONTROL = 2, HEADS_UP = 3;
     private static final String[] SURFACE_TYPES = {
             "com.android.systemui.statusbar.notification.row.ActivatableNotificationView",
             "com.android.systemui.statusbar.notification.row.NotificationBackgroundView",
@@ -83,6 +86,7 @@ public final class C17HighlightRemoval {
     private final Map<Class<?>, EffectAccess> effectAccess = new ConcurrentHashMap<>();
     private final Map<Class<?>, Boolean> surfaceTypes = new ConcurrentHashMap<>();
     private final Map<Class<?>, Integer> scopeTypes = new ConcurrentHashMap<>();
+    private final Map<View, NotificationOwner> notificationOwners = Collections.synchronizedMap(new WeakHashMap<>());
     private final Map<Class<?>, BlurAccess> blurAccess = new ConcurrentHashMap<>();
     private final Map<Class<?>, ProxyAccess> proxyAccess = new ConcurrentHashMap<>();
     private final Map<Class<?>, WrapperAccess> wrapperAccess = new ConcurrentHashMap<>();
@@ -106,7 +110,7 @@ public final class C17HighlightRemoval {
     private volatile long revision;
     private final C17AcrylicMaterial acrylic = new C17AcrylicMaterial();
     private volatile boolean backgroundEnabled;
-    private volatile boolean notificationEnabled = true, controlEnabled = true, uniformNotificationEnabled;
+    private volatile boolean notificationEnabled = true, controlEnabled = true, headsUpEnabled = true, uniformNotificationEnabled;
     private volatile CardColors cardColors = new CardColors(DEFAULT_LIGHT_BACKGROUND, DEFAULT_DARK_BACKGROUND);
     private volatile int lightBackground = DEFAULT_LIGHT_BACKGROUND, darkBackground = DEFAULT_DARK_BACKGROUND;
 
@@ -288,6 +292,13 @@ public final class C17HighlightRemoval {
             // must restore the previous owner's uniforms before accepting the new one.
             restoreEngine(engine); binding.host = new WeakReference<>(host); binding.primed = Long.MIN_VALUE;
         }
+        int nextScope = scope(host);
+        if (binding.scope != nextScope) {
+            // The same native row/engine moves between the separate heads-up window
+            // and the shade. A class-only cache must not carry either surface's policy.
+            if (binding.scope != UNKNOWN) { restoreEngine(engine); dirty(engine,binding); }
+            binding.scope = nextScope; binding.primed = Long.MIN_VALUE;
+        }
         RuntimeShader shader = observe(engine, binding);
         if (opticsEnabled(host) && shader != null && binding.primed != revision) prime(engine, binding);
     }
@@ -407,10 +418,42 @@ public final class C17HighlightRemoval {
     /** Pure Spotlight draw calls only. Never disable a native session, touch handler or whole glass. */
     public boolean skipSpotlight(View host) {
         if (!enabled || released) return false;
-        View current = surface.get();
-        if (current != null && opticsEnabled(current)) return true;
+        // An explicit native owner wins over an unrelated enclosing draw scope.
+        // Notifications are reparented into a separate heads-up window on C17.
         View owner = host == null ? null : isSurface(host) ? host : nearestSurface(host);
-        return owner != null && surfaces.containsKey(owner) && opticsEnabled(owner);
+        if (owner != null) return surfaces.containsKey(owner) && opticsEnabled(owner);
+        if (host != null) return false;
+        View current = surface.get();
+        return current != null && opticsEnabled(current);
+    }
+
+    /** Audited HeadsUpShadowEdgeController.draw(Canvas,View,Rect) is only the
+     * separate optical edge. Its blur/content/click layers must still draw natively. */
+    public boolean skipHeadsUpEdge(View host) {
+        if (!enabled || released || !headsUpEnabled || host == null) return false;
+        View owner = isSurface(host) ? host : nearestSurface(host);
+        return owner != null && scope(owner) == HEADS_UP;
+    }
+
+    /** After the OEM background extension changes its heads-up/material state.
+     * Parent comparisons also catch native reparenting before this optional event. */
+    public void notificationStateChanged(Object extension) {
+        if (released || extension == null || !type(extension.getClass(),NOTIFICATION_EXTENSION)) return;
+        NotificationAccess access = notificationAccess.get(extension.getClass());
+        if (access == null) {
+            NotificationAccess created = new NotificationAccess(extension.getClass(),true);
+            NotificationAccess raced = notificationAccess.putIfAbsent(extension.getClass(),created);
+            access = raced == null ? created : raced;
+        }
+        Object value = get(access.host,extension);
+        if (!(value instanceof View)) return;
+        View host = (View)value; notificationOwners.remove(host);
+        for (Map.Entry<Drawable,Binding> entry : engineSnapshot()) {
+            Binding binding = entry.getValue();
+            if (binding.host.get() != host) continue;
+            binding.primed = Long.MIN_VALUE; dirty(entry.getKey(),binding);
+        }
+        host.invalidate();
     }
 
     /** Native media draws this separate optical layer after both background drawables.
@@ -556,19 +599,22 @@ public final class C17HighlightRemoval {
         boolean next = settings != null && Boolean.TRUE.equals(settings.get(ENABLED)) && !SafetyMode.enabled(settings);
         boolean nextNotification = settings == null || settings.getBoolean(NOTIFICATION_ENABLED, true);
         boolean nextControl = settings == null || settings.getBoolean(CONTROL_ENABLED, true);
-        boolean nextUniform = settings != null && settings.getBoolean(UNIFORM_NOTIFICATION_ENABLED, false) && !SafetyMode.enabled(settings);
+        boolean nextHeadsUp = settings == null || settings.getBoolean(HEADS_UP_ENABLED, true);
+        boolean nextUniform = settings != null && !SafetyMode.enabled(settings) && settings.getBoolean(UNIFORM_NOTIFICATION_ENABLED, false);
         boolean nextBackground = settings != null && Boolean.TRUE.equals(settings.get(BACKGROUND_ENABLED));
         int nextLight = color(settings, LIGHT_BACKGROUND, DEFAULT_LIGHT_BACKGROUND);
         int nextDark = color(settings, DARK_BACKGROUND, DEFAULT_DARK_BACKGROUND);
         if (enabled == next && backgroundEnabled == nextBackground && lightBackground == nextLight && darkBackground == nextDark
-                && notificationEnabled == nextNotification && controlEnabled == nextControl && uniformNotificationEnabled == nextUniform) {
+                && notificationEnabled == nextNotification && controlEnabled == nextControl
+                && headsUpEnabled == nextHeadsUp && uniformNotificationEnabled == nextUniform) {
             if (!next && restorationPending) restoreAll();
             return;
         }
         if (!next) restorationPending = true;
-        boolean changedScope = notificationEnabled != nextNotification || controlEnabled != nextControl;
+        boolean changedScope = notificationEnabled != nextNotification || controlEnabled != nextControl || headsUpEnabled != nextHeadsUp;
         revision++; enabled = next; backgroundEnabled = nextBackground;
         notificationEnabled = nextNotification; controlEnabled = nextControl; uniformNotificationEnabled = nextUniform;
+        headsUpEnabled = nextHeadsUp;
         if (lightBackground != nextLight || darkBackground != nextDark) cardColors = new CardColors(nextLight, nextDark);
         lightBackground = nextLight; darkBackground = nextDark;
         if (changedScope) restoreAll();
@@ -584,6 +630,7 @@ public final class C17HighlightRemoval {
         restoreAll(); invalidateSurfaces(); released = true;
         engines.clear(); shaders.clear(); surfaces.clear();
         engineAccess.clear(); materialAccess.clear(); effectAccess.clear(); surfaceTypes.clear(); scopeTypes.clear();
+        notificationOwners.clear();
         blurAccess.clear(); proxyAccess.clear(); wrapperAccess.clear(); notificationAccess.clear(); blurOwners.clear(); sliderStrokes.clear();
         acrylic.clear();
         invalidateMediaLights(); mediaLights.clear(); mediaSpotHosts.clear(); tintingNotification.remove();
@@ -594,6 +641,7 @@ public final class C17HighlightRemoval {
     public void detach(View host) {
         if (host == null) return;
         surfaces.remove(host);
+        notificationOwners.remove(host);
         sliderStrokes.remove(host);
         synchronized (blurOwners) {
             java.util.Iterator<Map.Entry<Object,BlurOwner>> owners = blurOwners.entrySet().iterator();
@@ -755,27 +803,67 @@ public final class C17HighlightRemoval {
     private boolean opticsEnabled(View host) {
         if (!enabled || released || host == null) return false;
         int value = scope(host);
-        return value == NOTIFICATION ? notificationEnabled : value == CONTROL && controlEnabled;
+        return value == NOTIFICATION ? notificationEnabled : value == HEADS_UP ? headsUpEnabled : value == CONTROL && controlEnabled;
     }
 
     private boolean uniformNotification(View host) {
-        return !released && uniformNotificationEnabled && notificationEnabled && host != null && scope(host) == NOTIFICATION;
+        return !released && uniformNotificationEnabled && host != null && scope(host) == NOTIFICATION;
     }
 
     private int scope(View host) {
         if (host == null) return UNKNOWN;
         Class<?> type = host.getClass(); Integer cached = scopeTypes.get(type);
-        if (cached != null) return cached;
-        if (scopeTypes.size() >= MAX_SURFACE_TYPES || !isSurface(host)) return UNKNOWN;
-        int value = UNKNOWN;
-        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
-            String name = current.getName();
-            if (name.equals(NOTIFICATION_BACKGROUND) || name.equals(NOTIFICATION_ROW)
-                    || name.equals("com.oplus.systemui.notification.clearall.OplusClearAllButton")) { value = NOTIFICATION; break; }
-            if (name.startsWith("com.oplus.systemui.qs.") || name.startsWith("com.oplus.systemui.plugins.qs.")
-                    || name.equals("com.oplus.deviceplugin.sdk.ui.view.separatecardview.d")) { value = CONTROL; break; }
+        if (cached == null) {
+            if (scopeTypes.size() >= MAX_SURFACE_TYPES || !isSurface(host)) return UNKNOWN;
+            int value = UNKNOWN;
+            for (Class<?> current = type; current != null; current = current.getSuperclass()) {
+                String name = current.getName();
+                if (name.equals(NOTIFICATION_BACKGROUND) || name.equals(NOTIFICATION_ROW)
+                        || name.equals("com.oplus.systemui.notification.clearall.OplusClearAllButton")) { value = NOTIFICATION; break; }
+                if (name.startsWith("com.oplus.systemui.qs.") || name.startsWith("com.oplus.systemui.plugins.qs.")
+                        || name.equals("com.oplus.deviceplugin.sdk.ui.view.separatecardview.d")) { value = CONTROL; break; }
+            }
+            scopeTypes.putIfAbsent(type, value); cached = value;
         }
-        scopeTypes.putIfAbsent(type, value); return value;
+        return cached == NOTIFICATION && (type(type,NOTIFICATION_BACKGROUND) || type(type,NOTIFICATION_ROW))
+                ? notificationScope(host) : cached;
+    }
+
+    private int notificationScope(View host) {
+        NotificationOwner owner = notificationOwners.get(host);
+        View anchor = owner == null ? null : owner.anchor.get();
+        if (anchor != null && owner.hostParent.get() == host.getParent() && owner.anchorParent.get() == anchor.getParent())
+            return owner.scope;
+        // HeadsUpLayout.isHeadsUpView in the real C17 DEX is an ancestor identity
+        // test, not mIsHeadsUp/isPinned (which can remain true in the shade). Cache
+        // the actual row and its parent; no tree walk on stable frames/uniform writes.
+        anchor = host;
+        View view = host;
+        for (int depth = 0; view != null && depth < 16; depth++) {
+            if (type(view.getClass(),NOTIFICATION_ROW) || type(view.getClass(),EXPANDABLE_ROW)) { anchor = view; break; }
+            ViewParent parent = view.getParent();
+            View next = parent instanceof View ? (View)parent : null;
+            if (next == view || next == host) break;
+            view = next;
+        }
+        int value = NOTIFICATION; ViewParent parent = anchor.getParent();
+        for (int depth = 0; parent instanceof View && depth < MAX_SCOPE_DEPTH; depth++) {
+            View ancestor = (View)parent;
+            if (type(ancestor.getClass(),HEADS_UP_LAYOUT)) { value = HEADS_UP; break; }
+            ViewParent next = ancestor.getParent(); if (next == parent) break; parent = next;
+        }
+        notificationOwners.put(host,new NotificationOwner(host,anchor,value));
+        return value;
+    }
+
+    private static final class NotificationOwner {
+        final WeakReference<View> anchor;
+        final WeakReference<ViewParent> hostParent,anchorParent;
+        final int scope;
+        NotificationOwner(View host,View anchor,int scope) {
+            this.anchor = new WeakReference<>(anchor); this.scope = scope;
+            hostParent = new WeakReference<>(host.getParent()); anchorParent = new WeakReference<>(anchor.getParent());
+        }
     }
 
     private static final class CardColors {
@@ -921,7 +1009,7 @@ public final class C17HighlightRemoval {
     private static final class Binding {
         volatile WeakReference<View> host;
         volatile WeakReference<RuntimeShader> observed;
-        final EngineAccess access; volatile long primed = Long.MIN_VALUE;
+        final EngineAccess access; volatile long primed = Long.MIN_VALUE; volatile int scope = UNKNOWN;
         Binding(View host, EngineAccess access) { this.host = new WeakReference<>(host); this.access = access; }
     }
 

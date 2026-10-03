@@ -1,8 +1,8 @@
-# C17 Status Bar · 1.7.2
+# C17 Status Bar · 1.8.1
 
 A SystemUI customization module for ColorOS 17, primarily developed against OnePlus 13. Uses LibXposed API 101; package: `dev.puitheme.iosstatusbar`.
 
-**1.7.2 / versionCode 64.** Get the APK from [GitHub Releases](https://github.com/SANWU5/c17-statusbar/releases). This update fixes cellular positioning and network labels in some single-SIM layouts, and prevents shade clocks from inheriting status-bar position offsets. See the [1.7.2 release notes](docs/RELEASE-1.7.2.zh-CN.md) for changes since 1.7.1 and the [validation record](VALIDATION.md) for actual verification scope.
+**1.8.1 / versionCode 69.** Get the APK from [GitHub Releases](https://github.com/SANWU5/c17-statusbar/releases). This release adds per-icon libraries, classic-panel text controls and independent native badge settings. It fixes dimension baselines and restores portrait native clock height transitions. See the [1.8.1 release notes](docs/RELEASE-1.8.1.zh-CN.md) for changes since 1.7.2 and the [validation record](VALIDATION.md) for verification scope.
 
 [中文](README.md) · [GitHub Releases](https://github.com/SANWU5/c17-statusbar/releases) · [Changelog](CHANGELOG.md)
 
@@ -13,9 +13,11 @@ A SystemUI customization module for ColorOS 17, primarily developed against OneP
 - **Speed and activity arrows:** Preserve the native speed number and unit. Refresh intervals use milliseconds, with a recommended range of 1–500 ms. Cellular activity arrows are hidden by default but can be enabled independently, with position, size and light/dark color controls.
 - **Notification shade:** Portrait and landscape large clocks have independent settings. Landscape places the clock above notifications, offers notification-width controls and preserves native notification text and icon sizes. Landscape Clear All has separate position and color controls. Whole-list stacking uses native scrolling and scaling, with 1–5 complete cards recommended. Landscape requires an additional opt-in, off by default. Same-group stacking is hidden and forcibly disabled at runtime.
 - **Control center and materials:** Unified corners, 1×1 tile and recognized device-card icon sizing, tile fill and media-cover backgrounds. C17 highlight removal has separate notification/control-center scopes, light/dark acrylic colors and optional uniform notification colors, while retaining custom tile fills and media backgrounds. New artwork supplies a sampled solid color before prepared blurred artwork fades in; unchanged results reuse caches.
-- **Lock screen:** Customize year/month/day and weekday formatting; hide only the small lock's visual icon while retaining unlock and fingerprint interaction. Date rendering still requires device verification in this final build.
+- **Lock screen:** Customize year/month/day and weekday formatting; hide only the small lock's visual icon while retaining unlock and fingerprint interaction. Date updates also support dynamically loaded OEM clock components.
 
 The [font catalog](docs/FONT-CATALOG.zh-CN.md) contains 10 variable-font designs with source and license details. Some use system Chinese fallback. Fonts are downloaded on demand; importing a custom font is also supported.
+
+Custom system icons support per-target assignments, ZIP/RAR/GitHub import, and importing artwork from a user-supplied PUI theme. Libraries can be reordered, renamed, disabled or deleted. The unfinished custom shade wallpaper feature is forcibly disabled; saved images and settings remain intact.
 
 ## Settings and maintenance
 

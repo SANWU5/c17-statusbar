@@ -12,6 +12,7 @@ public abstract class PackageManager {
     public abstract int getComponentEnabledSetting(ComponentName component);
     public abstract void setComponentEnabledSetting(ComponentName component,int state,int flags);
     public ApplicationInfo getApplicationInfo(String name,int flags)throws NameNotFoundException{throw new NameNotFoundException(name);}
+    public android.graphics.drawable.Drawable getApplicationIcon(String name)throws NameNotFoundException{throw new NameNotFoundException(name);}
     public PackageInfo getPackageInfo(String name,int flags)throws NameNotFoundException{throw new NameNotFoundException(name);}
     public PackageInfo getPackageArchiveInfo(String name,int flags){return null;}
     public String[] getPackagesForUid(int uid){return null;}

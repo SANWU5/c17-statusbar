@@ -132,7 +132,7 @@ public final class TextControls {
 
     private static Map<String, ClockStyle> clockStyles(Bundle settings, FeatureOptions features) {
         Map<String, ClockStyle> result = new LinkedHashMap<>();
-        for (String group : new String[]{"clock", "shade_clock"}) result.put(group, new ClockStyle(settings, group, features));
+        for (String group : new String[]{"clock", "shade_clock", PanelMode.CLOCK}) result.put(group, new ClockStyle(settings, group, features));
         return Collections.unmodifiableMap(result);
     }
 
@@ -144,7 +144,7 @@ public final class TextControls {
     private static Map<String, CarrierStyle> carrierStyles(Bundle settings) {
         Map<String, CarrierStyle> result = new LinkedHashMap<>();
         result.put("carrier", new CarrierStyle(settings, "carrier"));
-        for (String group : CarrierPanels.GROUPS) result.put(group, new CarrierStyle(settings, group));
+        for (String group : CarrierPanels.ALL_GROUPS) result.put(group, new CarrierStyle(settings, group));
         return Collections.unmodifiableMap(result);
     }
 
@@ -378,6 +378,11 @@ public final class TextControls {
         return view instanceof TextView ? selectedGroup(classification((TextView) view)) : "";
     }
     private String selectedGroup(Classification classification) {
+        if (PanelMode.classic()) {
+            if (classification.kind == CLOCK && classification.shadeClock) return PanelMode.CLOCK;
+            if (classification.kind == CARRIER && (CarrierPanels.NOTIFICATION.equals(classification.carrierGroup)
+                    || CarrierPanels.CONTROL.equals(classification.carrierGroup))) return CarrierPanels.CLASSIC;
+        }
         if (classification.kind == CLOCK) return features.enabled("shade_clock") && classification.shadeClock ? "shade_clock" : "clock";
         return classification.kind == CARRIER ? classification.carrierGroup : "";
     }
@@ -646,7 +651,7 @@ public final class TextControls {
         // bar's coordinates. Its native anchor is different (and moves with the panel).
         // Both the real header and its animation copies use only the independent shade
         // position switch, so toggling that master cannot introduce a status-only offset.
-        String positionGroup = entry.kind == CLOCK && classification(view).shadeClock ? "shade_clock" : entry.group;
+        String positionGroup = entry.kind == CLOCK && classification(view).shadeClock && !PanelMode.classic() ? "shade_clock" : entry.group;
         ClockStyle clock = clockStyle(positionGroup);
         if (features.position(positionGroup)) canvas.translate(NumericPolicy.pixels(entry.kind == CLOCK ? clock.x : style.x, density),
                 NumericPolicy.pixels(entry.kind == CLOCK ? clock.y : style.y, density));

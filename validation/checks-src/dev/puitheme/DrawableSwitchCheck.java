@@ -53,6 +53,22 @@ public final class DrawableSwitchCheck {
             require(nativeGlyph.list==null,"cleared tint list reapplied "+group);
             require(nativeGlyph.tint==0,"obsolete setTint color resurrected "+group);
         }
+        Field single=module.getDeclaredField("singleSignal");single.setAccessible(true);
+        Field source=Class.forName("dev.puitheme.StatusBarModule$ScaledDrawable").getDeclaredField("sourceName");source.setAccessible(true);
+        Glyph primaryNative=new Glyph(54),secondaryNative=new Glyph(54),secondaryStyled=new Glyph(72);
+        Drawable primary=(Drawable)constructor.newInstance(new Glyph(72),Resources.getSystem(),false,primaryNative);
+        Drawable secondary=(Drawable)constructor.newInstance(secondaryStyled,Resources.getSystem(),false,secondaryNative);
+        source.set(primary,"stat_signal_lte_signal_stacked_primary_3");source.set(secondary,"stat_signal_lte_signal_stacked_secondary_2");
+        Map<String,Object> selected=new HashMap<>();selected.put("data_enabled",true);selected.put("data_icon_enabled",false);
+        features.set(null,FeatureOptions.from(selected));single.set(null,true);
+        primary.draw(new Canvas());secondary.draw(new Canvas());
+        require(primaryNative.draws==1,"native main glyph absent with iOS style off");
+        require(secondaryNative.draws==0&&secondaryStyled.draws==0,"layout must suppress secondary with iOS style off");
+        single.set(null,false);secondary.draw(new Canvas());require(secondaryNative.draws==1,"system layout must restore native secondary");
+        selected.put("data_icon_enabled",true);features.set(null,FeatureOptions.from(selected));single.set(null,true);
+        secondary.draw(new Canvas());require(secondaryStyled.draws==0,"iOS secondary suppression");
+        selected.put("data_enabled",false);features.set(null,FeatureOptions.from(selected));single.set(null,false);
+        secondary.draw(new Canvas());require(secondaryNative.draws==2,"master OFF restores native secondary");
         features.set(null,FeatureOptions.from(new HashMap<>()));
         System.out.println("DrawableSwitchCheck passed: "+count);
     }

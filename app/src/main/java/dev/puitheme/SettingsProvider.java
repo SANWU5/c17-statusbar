@@ -29,6 +29,9 @@ public final class SettingsProvider extends ContentProvider {
 
     @Override // android.content.ContentProvider
     public Bundle call(String str, String str2, Bundle bundle) {
+        if (PanelMode.METHOD.equals(str)) {
+            enforceAllowedReader(); return PanelMode.query(getContext());
+        }
         if (ModuleRuntimeStatus.METHOD_BEGIN.equals(str)) return ModuleRuntimeStatus.beginProbe(getContext(), bundle);
         if (ModuleRuntimeStatus.METHOD_QUERY.equals(str)) return ModuleRuntimeStatus.queryStatus(getContext(), bundle);
         if (ModuleRuntimeStatus.METHOD_REPORT.equals(str)) return ModuleRuntimeStatus.recordSystemUiReport(getContext(), bundle);
@@ -82,6 +85,14 @@ public final class SettingsProvider extends ContentProvider {
         File file;
         if ("/font/current".equals(uri.getPath())) file = new File(getContext().createDeviceProtectedStorageContext().getFilesDir(), "fonts/custom.font");
         else if ("/notification-icon/current".equals(uri.getPath())) file = NotificationIconRepository.file(getContext());
+        else if (uri.getPath() != null && uri.getPath().startsWith("/shade-wallpaper/")) {
+            try { file = ShadeWallpaperRepository.providerFile(getContext(), uri); }
+            catch (java.io.IOException invalid) { throw new FileNotFoundException(invalid.getMessage()); }
+        }
+        else if (uri.getPath() != null && uri.getPath().startsWith("/icon-pack/")) {
+            try { file = IconPackRepository.providerFile(getContext(), uri); }
+            catch (java.io.IOException invalid) { throw new java.io.FileNotFoundException(invalid.getMessage()); }
+        }
         else throw new FileNotFoundException("Unknown private asset");
         if (!file.isFile()) throw new FileNotFoundException("No imported asset");
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);

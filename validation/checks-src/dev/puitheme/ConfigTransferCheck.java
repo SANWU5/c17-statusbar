@@ -35,8 +35,36 @@ public final class ConfigTransferCheck {
     }
     private static void invalidSetting(String setting) throws Exception { invalid(document(setting)); }
     private static String panel(String group, String suffix) { return CarrierPanels.key(group, suffix); }
+    private static void nestedArrays() throws Exception {
+        String id=String.format(java.util.Locale.ROOT,"%064x",1);
+        String[] keys={NotificationIconOverrides.RULES,IconPackAssignments.ASSIGNMENTS,IconPackRepository.LAYERS};
+        String[] valid={NotificationIconOverrides.putAppIcon("[]","com.target","com.source",true),
+                IconPackAssignments.put("[]","hint.bluetooth",id,"hint.location"),
+                IconPackRepository.layersJson(Collections.singletonList(new IconPackRepository.Layer(id,true,false)))};
+        for(int i=0;i<keys.length;i++){
+            String key=keys[i],array=valid[i];
+            equal(array,values("\""+key+"\":"+org.json.JSONObject.quote(array)).get(key));
+            equal("[]",values("\""+key+"\":\"[]\"").get(key));
+            String object=array.substring(1,array.length()-1);
+            int comma=object.indexOf(',');String first=object.substring(1,comma);
+            String duplicate="[{"+first+","+object.substring(1)+"]";
+            String deeplyNested=array;for(int depth=0;depth<17;depth++)deeplyNested="["+deeplyNested+"]";
+            for(String invalid:new String[]{array.replace('"','\''),array.replaceFirst("\"", "").replaceFirst("\"", ""),
+                    array+" trailing",array+"[]",array.substring(0,array.length()-1)+",]",
+                    array.substring(0,array.length()-1)+";]","/*comment*/"+array,"//comment\n"+array,
+                    array.replaceFirst("\\[", "[/*comment*/"),duplicate,"{}","null",deeplyNested})
+                invalidSetting("\""+key+"\":"+org.json.JSONObject.quote(invalid));
+        }
+        String legacy="[{\"id\":\""+id+"\",\"enabled\":true}]";
+        equal(legacy,values("\""+IconPackRepository.LAYERS+"\":"+org.json.JSONObject.quote(legacy)).get(IconPackRepository.LAYERS));
+        for(String invalidType:new String[]{"1","\"false\"","null"}) {
+            String invalid="[{\"id\":\""+id+"\",\"enabled\":true,\"autoMatch\":"+invalidType+"}]";
+            invalidSetting("\""+IconPackRepository.LAYERS+"\":"+org.json.JSONObject.quote(invalid));
+        }
+    }
 
     public static void main(String[] args) throws Exception {
+        nestedArrays();
         Map<String, Object> stored = new LinkedHashMap<>();
         stored.put(StatusBarSettings.DIAGNOSTICS_ENABLED, true);
         stored.put(StatusBarSettings.FONT_REVISION, "local-font-revision-marker");
@@ -304,7 +332,30 @@ public final class ConfigTransferCheck {
         invalidSetting("\"notification_icons_max_count\":-0.00000001");
         invalidSetting("\"qs_tile_corner_radius\":30.000000000000000001");
         independentShadeClockConfig();
+        classicWallpaperAndAssignments();
+        independentNativeBadges();
+        managedIconLibraries();
         System.out.println(checks + " checks passed (portable snapshots, strict bounded import, legacy migration, numeric rules, font fallback, one bulk commit)");
+    }
+
+    private static void managedIconLibraries() throws Exception {
+        Map<String,Object> settings=new LinkedHashMap<>();
+        java.util.List<NotificationIconOverrides.Rule> rules=new java.util.ArrayList<>();
+        for(int i=0;i<20;i++)rules.add(new NotificationIconOverrides.Rule("com.example.app"+i,"❤️",i%2==0));
+        String encoded=NotificationIconOverrides.encode(rules);
+        equal(true,encoded.length()>120);
+        String id=String.join("",Collections.nCopies(64,"a"));
+        String layers=IconPackRepository.layersJson(java.util.Arrays.asList(new IconPackRepository.Layer(id,true)));
+        settings.put(NotificationIconOverrides.RULES,encoded);settings.put(IconPackRepository.LAYERS,layers);
+        settings.put(NotificationIconOverrides.MASTER,true);settings.put(IconPackRepository.MASTER,true);
+        settings.put(SpeedPosition.POSITION,SpeedPosition.CLOCK_RIGHT);settings.put(C17HighlightRemoval.HEADS_UP_ENABLED,false);
+        ConfigTransfer.PreparedImport imported=ConfigTransfer.prepare(ConfigTransfer.exportJson(settings),true);
+        for(Map.Entry<String,Object> entry:settings.entrySet())equal(entry.getValue(),imported.values().get(entry.getKey()));
+        equal(true,imported.warning.contains("图标库文件不会随配置传输"));
+        equal(true,SettingsCatalog.validationError(SettingsCatalog.item(NotificationIconOverrides.RULES),encoded)==null);
+        equal(true,SettingsCatalog.validationError(SettingsCatalog.item(IconPackRepository.LAYERS),layers)==null);
+        equal(true,SettingsCatalog.validationError(SettingsCatalog.item(NotificationIconOverrides.RULES),"bad")!=null);
+        equal(true,SettingsCatalog.validationError(SettingsCatalog.item(IconPackRepository.LAYERS),"bad")!=null);
     }
 
     private static void independentShadeClockConfig() throws Exception {
@@ -328,6 +379,65 @@ public final class ConfigTransferCheck {
         equal(901f,values("\"shade_clock_weight\":901").get("shade_clock_weight"));
         for(String invalid:new String[]{"\"shade_clock_pattern\":\"{未知}\"","\"shade_clock_pattern\":\"HH:mm\\nss\"",
                 "\"shade_clock_controls_enabled\":\"true\""})invalidSetting(invalid);
+    }
+
+    private static void classicWallpaperAndAssignments() throws Exception {
+        Map<String,Object> source=new LinkedHashMap<>();
+        source.put(ClassicTextSettings.CLOCK_MASTER,true);
+        source.put(ClassicTextSettings.CLOCK+"_pattern","yyyy-MM-dd HH:mm");
+        source.put(ClassicTextSettings.CARRIER+"_mode","text");
+        source.put(ClassicTextSettings.CARRIER+"_text","经典独立");
+        String packId=String.join("",Collections.nCopies(64,"a"));
+        String assignments=IconPackAssignments.put("[]","hint.bluetooth",packId,"hint.location");
+        source.put(IconPackAssignments.ASSIGNMENTS,assignments);
+        source.put(NotificationIconOverrides.RULES,NotificationIconOverrides.putAppIcon("[]","com.target.app","com.source.app",true));
+        source.put(ShadeWallpaperSettings.MASTER,true);
+        for(String scene:ShadeWallpaperSettings.SCENES) {
+            source.put(ShadeWallpaperSettings.enabledKey(scene),true);
+            source.put(ShadeWallpaperSettings.brightnessKey(scene),135f);
+            source.put(ShadeWallpaperSettings.revisionKey(scene),packId);
+        }
+        ConfigTransfer.PreparedImport restored=ConfigTransfer.prepare(ConfigTransfer.exportJson(source),true);
+        for(Map.Entry<String,Object> item:source.entrySet())equal(item.getValue(),restored.values().get(item.getKey()));
+        truth(restored.warning.contains("图标库文件不会随配置传输"));
+        truth(restored.warning.contains("当前强制停用"));
+        equal(false,restored.values().get("carrier_enabled"));
+        for(String scene:ShadeWallpaperSettings.SCENES)
+            for(String revision:new String[]{"../image","https://example.com/a.png","../../private","A"+packId.substring(1)})
+                invalidSetting("\""+ShadeWallpaperSettings.revisionKey(scene)+"\":\""+revision+"\"");
+        invalidSetting("\""+IconPackAssignments.ASSIGNMENTS+"\":\"{}\"");
+        invalidSetting("\""+ClassicTextSettings.CARRIER+"_mode\":\"invalid\"");
+        invalidSetting("\""+ClassicTextSettings.CLOCK+"_pattern\":\"{未知}\"");
+    }
+
+    private static void independentNativeBadges() throws Exception {
+        Map<String,Object> legacy=new LinkedHashMap<>();
+        legacy.put(NotificationIconArea.SPACING_ENABLED,true);legacy.put(NotificationIconArea.SPACING,-3.5f);
+        legacy.put(NativeNetworkBadgeControls.MASTER,true);legacy.put(NativeNetworkBadgeControls.X,7.25f);
+        legacy.put(NativeNetworkBadgeControls.Y,-3.5f);legacy.put(NativeNetworkBadgeControls.SCALE,123f);
+        legacy.put(NativeNetworkBadgeControls.WEIGHT,650f);legacy.put(NativeNetworkBadgeControls.FONT,"custom");
+        Map<String,Object> exported=ConfigTransfer.prepare(ConfigTransfer.exportJson(legacy),true).values();
+        equal(true,exported.get(NotificationIconArea.SPACING_ENABLED));equal(-3.5f,exported.get(NotificationIconArea.SPACING));
+        for(int part=1;part<=2;part++) {
+            equal(true,exported.get(NativeNetworkBadgeSettings.key(part,"enabled")));
+            for(String suffix:new String[]{"offset_x","offset_y","scale","weight","font"})
+                equal(legacy.get(NativeNetworkBadgeSettings.legacyKey(NativeNetworkBadgeSettings.key(part,suffix))),
+                        exported.get(NativeNetworkBadgeSettings.key(part,suffix)));
+        }
+        legacy.put(NativeNetworkBadgeSettings.key(1,"scale"),95f);
+        legacy.put(NativeNetworkBadgeSettings.key(1,"font"),"system");
+        legacy.put(NativeNetworkBadgeSettings.key(2,"enabled"),false);
+        legacy.put(NativeNetworkBadgeSettings.key(2,"offset_x"),-8.5f);
+        exported=ConfigTransfer.prepare(ConfigTransfer.exportJson(legacy),true).values();
+        equal(95f,exported.get(NativeNetworkBadgeSettings.key(1,"scale")));
+        equal(123f,exported.get(NativeNetworkBadgeSettings.key(2,"scale")));
+        equal(-8.5f,exported.get(NativeNetworkBadgeSettings.key(2,"offset_x")));
+        equal(false,exported.get(NativeNetworkBadgeSettings.key(2,"enabled")));
+        ConfigTransfer.PreparedImport fallback=ConfigTransfer.prepare(ConfigTransfer.exportJson(legacy),false);
+        equal(true,fallback.fontFallback);
+        equal("system",fallback.values().get(NativeNetworkBadgeSettings.key(1,"font")));
+        equal("system",fallback.values().get(NativeNetworkBadgeSettings.key(2,"font")));
+        for(int part=1;part<=2;part++)invalidSetting("\""+NativeNetworkBadgeSettings.key(part,"font")+"\":\"unknown\"");
     }
 
     private static Map<String, Object> nullMap() { return null; }

@@ -42,7 +42,18 @@ public final class ConfigTransfer {
             this.values = Collections.unmodifiableMap(new LinkedHashMap<>(values));
             this.count = values.size();
             this.fontFallback = fontFallback;
-            this.warning = fontFallback ? "当前设备没有导入的自选字体，将使用系统字体。字体文件不会随配置传输。" : "";
+            String warning = fontFallback ? "当前设备没有导入的自选字体，将使用系统字体。字体文件不会随配置传输。" : "";
+            if ((values.containsKey(IconPackRepository.LAYERS) && !"[]".equals(values.get(IconPackRepository.LAYERS)))
+                    || (values.containsKey(IconPackAssignments.ASSIGNMENTS) && !"[]".equals(values.get(IconPackAssignments.ASSIGNMENTS))))
+                warning += (warning.isEmpty() ? "" : "\n") + "图标库文件不会随配置传输；未导入对应图标库时使用现有图标。";
+            for (String scene : ShadeWallpaperSettings.SCENES) {
+                Object revision = values.get(ShadeWallpaperSettings.revisionKey(scene));
+                if (revision instanceof String && !((String) revision).isEmpty()) {
+                    warning += (warning.isEmpty() ? "" : "\n") + "下拉面板壁纸为未完成的开发，当前强制停用。场景配置会保留，图片文件不会随配置传输。";
+                    break;
+                }
+            }
+            this.warning = warning;
         }
         public int count() { return count; }
         public Map<String, Object> values() { return values; }
@@ -69,6 +80,10 @@ public final class ConfigTransfer {
     public static Map<String, Type> types() { return TYPES; }
 
     private static boolean portableString(String key) {
+        if (SpeedPosition.POSITION.equals(key) || NotificationIconOverrides.RULES.equals(key)
+                || IconPackRepository.LAYERS.equals(key) || IconPackAssignments.ASSIGNMENTS.equals(key)
+                || ClassicTextSettings.STRINGS.containsKey(key) || ShadeWallpaperSettings.STRINGS.containsKey(key)
+                || NativeNetworkBadgeSettings.STRINGS.containsKey(key)) return true;
         if (LockscreenControls.DATE_FORMAT.equals(key)) return true;
         if (NotificationIconArea.MODE.equals(key) || NotificationIconArea.TEXT.equals(key)) return true;
         if (key.equals(StatusBarSettings.FONT_MODE) || key.equals(NativeNetworkBadgeControls.FONT) || key.equals(StatusBarSettings.SIGNAL_LAYOUT)
@@ -244,6 +259,9 @@ public final class ConfigTransfer {
                 || "custom".equals(validated.get(StatusBarSettings.FONT_MODE))
                 || "custom".equals(validated.get(NotificationBigClockSettings.FONT))
                 || "custom".equals(validated.get(NotificationBigClockSettings.landscapeKey(NotificationBigClockSettings.FONT))));
+        for(int part=1;part<=2;part++) if(!customFontAvailable&&"custom".equals(validated.get(NativeNetworkBadgeSettings.key(part,"font")))) {
+            fallback=true;validated.put(NativeNetworkBadgeSettings.key(part,"font"),"system");
+        }
         if (!customFontAvailable) {
             if ("custom".equals(validated.get(NativeNetworkBadgeControls.FONT))) validated.put(NativeNetworkBadgeControls.FONT, "system");
             if ("custom".equals(validated.get(StatusBarSettings.FONT_MODE))) validated.put(StatusBarSettings.FONT_MODE, "system");
@@ -300,7 +318,22 @@ public final class ConfigTransfer {
     private static String validateString(String key, String value) throws IOException {
         String clockKey = NotificationBigClockSettings.portraitKey(key);
         if (value == null || !validUnicode(value)) throw invalid("文本包含无效字符");
-        if (NotificationIconArea.MODE.equals(key)) {
+        if (NotificationIconOverrides.RULES.equals(key)) {
+            new JsonReader(value).arrayDocument();
+            String error=NotificationIconOverrides.validationError(value);
+            if(error!=null)throw invalid(error);
+        } else if (IconPackAssignments.ASSIGNMENTS.equals(key)) {
+            new JsonReader(value).arrayDocument();
+            String error=IconPackAssignments.validationError(value);
+            if(error!=null)throw invalid(error);
+        } else if (ShadeWallpaperSettings.STRINGS.containsKey(key)) {
+            if (!value.isEmpty() && !ShadeWallpaperSettings.validRevision(value)) throw invalid("壁纸引用无效，请重新选择图片");
+        } else if (IconPackRepository.LAYERS.equals(key)) {
+            new JsonReader(value).arrayDocument();
+            IconPackRepository.layers(value);
+        } else if (SpeedPosition.POSITION.equals(key)) {
+            requireChoice(value,SpeedPosition.NATIVE,SpeedPosition.CELLULAR_LEFT,SpeedPosition.RIGHT_START,SpeedPosition.CLOCK_LEFT,SpeedPosition.CLOCK_RIGHT);
+        } else if (NotificationIconArea.MODE.equals(key)) {
             requireChoice(value, "native", "heart", "text", "image");
         } else if (NotificationIconArea.TEXT.equals(key)) {
             if (value.codePointCount(0,value.length()) > 12) throw invalid("通知图标文字最多 12 个字符");
@@ -321,7 +354,7 @@ public final class ConfigTransfer {
         } else if (NotificationBigClockSettings.ALIGNMENT.equals(clockKey)||NotificationBigClockSettings.DATE_ALIGNMENT.equals(clockKey)
                 ||NotificationBigClockSettings.FOOTER_ALIGNMENT.equals(clockKey)) {
             requireChoice(value, "left", "center", "right");
-        } else if (key.equals(NativeNetworkBadgeControls.FONT)) {
+        } else if (NativeNetworkBadgeSettings.STRINGS.containsKey(key)) {
             requireChoice(value, "native", "global", "system", "pingfang", "custom");
         } else if (key.equals(StatusBarSettings.FONT_MODE)) {
             requireChoice(value, "system", "pingfang", "custom");
@@ -381,6 +414,11 @@ public final class ConfigTransfer {
             if (at != text.length() || !(value instanceof Map)) throw invalid("配置文件需要一个完整 JSON 对象");
             @SuppressWarnings("unchecked") Map<String, Object> result = (Map<String, Object>) value;
             return result;
+        }
+        /** Encoded settings lists have the same strict syntax as the outer document. */
+        void arrayDocument() throws IOException {
+            Object value = value(0); whitespace();
+            if (at != text.length() || !(value instanceof List)) throw invalid("图标配置需要一个完整 JSON 数组");
         }
         private Object value(int depth) throws IOException {
             whitespace(); if (at >= text.length()) throw invalid("配置 JSON 不完整");

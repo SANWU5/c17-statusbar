@@ -29,7 +29,7 @@ public final class LockscreenControlsCheck {
     private static CharSequence write(LockscreenControls helper,TextView view,CharSequence nativeText,long now){CharSequence result=helper.formatDateAt(view,nativeText,now);view.setText(result);return result;}
     public static void main(String[] args)throws Exception {
         defaultAndRestore();dualTimeZones();redWeek();exactScope();drawOnlyLock();cacheAndSeconds();safeAndRemoval();
-        pluginDate();pluginScopeAndLifecycle();nativeResourceLock();diagnosticNativeOverwrite();
+        pluginDate();pluginScopeAndLifecycle();nativeResourceLock();diagnosticNativeOverwrite();pluginWriterTransactions();baseProxyDate();
         System.out.println("Lockscreen controls checks passed: "+checks);
     }
     private static void defaultAndRestore(){
@@ -197,6 +197,68 @@ public final class LockscreenControlsCheck {
         // Diagnostic reads do not claim a bypassed setter as the latest native input.
         helper.configure(new Bundle());equal("native date",f.owner.dateTextView.getText());
         equal("native week",f.owner.weekTextView.getText());equal("native lunar",f.owner.extraMsgView.messageContent.getText());
+    }
+    private static void pluginWriterTransactions(){
+        LockscreenControls helper=new LockscreenControls();PluginFixture f=new PluginFixture();helper.attach(f.owner);
+        helper.configure(settings("yyyy年M月d日 {星期}"));Object typeface=f.owner.dateTextView.getTypeface();float size=f.owner.dateTextView.getTextSize();
+        String expected=TimeFormat.format("yyyy年M月d日 {星期}",System.currentTimeMillis(),TimeZone.getDefault());
+        for(int i=0;i<100;i++)try(LockscreenControls.NativeDateWrite write=helper.beginPluginDateWrite(f.owner.dateTextView,"plugin native "+i)) {
+            check(write!=null);equal(expected,write.text());
+            // Real tryUpdateText → HDR override → framework final setter. Only the
+            // outer native argument is remembered, never the custom nested argument.
+            helper.refresh(); // A native text/layout listener may re-enter an owner refresh.
+            equal(null,helper.beginPluginDateWrite(f.owner.dateTextView,write.text()));
+            equal(write.text(),helper.formatDate(f.owner.dateTextView,write.text()));
+            ((MyCustomizedTextView)f.owner.dateTextView).tryUpdateText(write.text());
+        }
+        equal(expected,f.owner.dateTextView.getText());equal(typeface,f.owner.dateTextView.getTypeface());equal(size,f.owner.dateTextView.getTextSize());
+        equal(0,f.owner.dateTextView.typefaceWrites);helper.configure(new Bundle());equal("plugin native 99",f.owner.dateTextView.getText());
+        try(LockscreenControls.NativeDateWrite write=helper.beginPluginDateWrite(f.owner.dateTextView,"disabled native")){
+            check(write!=null);equal("disabled native",write.text());f.owner.dateTextView.setText(write.text());
+        }
+        helper.configure(settings("yyyy"));helper.releaseRuntime();equal("disabled native",f.owner.dateTextView.getText());
+        LockscreenControls unrelated=new LockscreenControls();unrelated.configure(settings("yyyy"));
+        TextView hour=resourceDate(f.context,"com.oplus.keyguard.personality.clocks","hour_ones");f.owner.addView(hour);
+        equal(null,unrelated.beginPluginDateWrite(hour,"12"));equal("",hour.getText());
+        TextView impostor=resourceDate(f.context,"com.oplus.keyguard.personality.clocks","date_text");f.owner.addView(impostor);
+        equal(null,unrelated.beginPluginDateWrite(impostor,"not actual date field"));
+    }
+    private static void baseProxyDate(){
+        LockscreenControls helper=new LockscreenControls();Context context=new Context();
+        FrameLayout keyguard=host(context,"com.android.systemui","keyguard_style_clock"),nativeRoot=new FrameLayout(context);keyguard.addView(nativeRoot);
+        com.oplus.keyguard.clock.base.ui.view.DateMessageView proxy=new com.oplus.keyguard.clock.base.ui.view.DateMessageView();proxy.viewParent=nativeRoot;
+        proxy.dateTextView=resourceDate(context,"com.oplus.keyguard.personality.clocks","date_text");
+        proxy.dateTextViewExt=resourceDate(context,"com.oplus.keyguard.personality.clocks","date_text_ext");
+        proxy.weekTextView=resourceDate(context,"com.oplus.keyguard.personality.clocks","week_text");
+        proxy.extraMsgView=baseExtra(context,"extra_text");proxy.extraMsgViewExt=baseExtra(context,"extra_text_ext");
+        TextView[] texts={proxy.dateTextView,proxy.dateTextViewExt,proxy.weekTextView,proxy.extraMsgView.messageContent,proxy.extraMsgViewExt.messageContent};
+        nativeRoot.addView(proxy.dateTextView);nativeRoot.addView(proxy.dateTextViewExt);nativeRoot.addView(proxy.weekTextView);
+        nativeRoot.addView(proxy.extraMsgView);nativeRoot.addView(proxy.extraMsgViewExt);
+        for(int i=0;i<texts.length;i++)texts[i].setText("base native "+i);
+        helper.onPluginClockUpdated(proxy);helper.configure(settings("yyyy-MM-dd {星期}"));
+        long now=1704069000000L;TimeZone previous=TimeZone.getDefault();TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+        try {
+            equal("2024-01-01 星期一",write(helper,texts[0],"date latest",now));
+            equal("2024-01-01 星期一",write(helper,texts[1],"date ext latest",now));
+            for(int i=2;i<texts.length;i++)equal("",write(helper,texts[i],"extra latest "+i,now));
+            check(helper.diagnosticSummary().contains("pluginBase=5"));
+            for(TextView text:texts){equal(0,text.typefaceWrites);equal(13f,text.getTextSize());}
+            helper.configure(new Bundle());equal("date latest",texts[0].getText());equal("date ext latest",texts[1].getText());
+            for(int i=2;i<texts.length;i++)equal("extra latest "+i,texts[i].getText());
+            // Theme preview has the same fields/resources but no real keyguard host.
+            keyguard.removeView(nativeRoot);FrameLayout preview=new FrameLayout(context);preview.addView(nativeRoot);
+            helper.configure(settings("yyyy"));helper.onPluginClockUpdated(proxy);
+            equal("preview original",write(helper,texts[0],"preview original",now));
+            preview.removeView(nativeRoot);keyguard.addView(nativeRoot);helper.onPluginClockUpdated(proxy);
+            equal("2024",write(helper,texts[0],"reattached native",now));
+            helper.detach(nativeRoot);equal("reattached native",texts[0].getText());helper.releaseRuntime();
+        }finally{TimeZone.setDefault(previous);}
+    }
+    private static com.oplus.keyguard.clock.base.ui.view.ExtraMessageView baseExtra(Context context,String name){
+        com.oplus.keyguard.clock.base.ui.view.ExtraMessageView extra=new com.oplus.keyguard.clock.base.ui.view.ExtraMessageView(context){
+            final Resources resources=new NamedResources("com.oplus.keyguard.personality.clocks",name);
+            @Override public Resources getResources(){return resources;}@Override public int getId(){return 0xfc090136;}};
+        extra.messageContent=resourceDate(context,"com.oplus.keyguard.personality.clocks","extra_message_content");extra.addView(extra.messageContent);return extra;
     }
     private static void exactScope(){
         LockscreenControls helper=new LockscreenControls();helper.configure(settings("yyyy"));Context context=new Context();

@@ -159,6 +159,23 @@ public final class NotificationClockFont {
     }
 
     private static Metadata metadata(View template) {
+        // ClockTimeView keeps the expanded family/axes separately from the
+        // applied values interpolated by setFontStyleProgress. Read the complete
+        // configuration tuple first, before a digit's constructor default (50)
+        // or its parent's compact appliedFontHeight can become our base.
+        View configured = template;
+        for (int depth = 0; configured != null && depth < 16; depth++) {
+            Access access = access(configured.getClass());
+            if (access.configOwner) {
+                String family = string(access.configFamily, configured);
+                int height = number(access.configHeight, null, configured);
+                int weight = number(access.configWeight, null, configured);
+                if (!family.isEmpty() && height > 0 && weight > 0)
+                    return new Metadata(family, height, weight);
+            }
+            ViewParent parent = configured.getParent();
+            configured = parent instanceof View ? (View) parent : null;
+        }
         String family = "";
         int height = 0, weight = 0;
         View cursor = template;
@@ -181,13 +198,25 @@ public final class NotificationClockFont {
 
     private static final class Access {
         final Field family, height, weight;
+        final Field configFamily, configHeight, configWeight;
+        final boolean configOwner;
         final Method heightMethod, weightMethod;
         Access(Class<?> type) {
+            configOwner = configuredClockContainer(type);
+            configFamily = configOwner ? field(type, "configFamilyName") : null;
+            configHeight = configOwner ? field(type, "configFontHeight") : null;
+            configWeight = configOwner ? field(type, "configFontWeight") : null;
             family = field(type, "fontFamilyName", "configFamilyName");
             height = field(type, "fontHeight", "appliedFontHeight", "configFontHeight");
             weight = field(type, "fontWeight", "appliedFontWeight", "configFontWeight");
             heightMethod = method(type, "getFontHeight"); weightMethod = method(type, "getFontWeight");
         }
+    }
+
+    private static boolean configuredClockContainer(Class<?> type) {
+        for (; type != null; type = type.getSuperclass())
+            if (type.getName().equals("com.oplus.keyguard.clock.digital.ui.view.ClockTimeView")) return true;
+        return false;
     }
 
     private static synchronized Access access(Class<?> type) {

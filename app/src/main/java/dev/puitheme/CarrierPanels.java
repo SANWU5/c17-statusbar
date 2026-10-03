@@ -8,10 +8,12 @@ public final class CarrierPanels {
     public static final String NOTIFICATION = "carrier_notification";
     public static final String CONTROL = "carrier_control";
     public static final String LOCKSCREEN = "carrier_lockscreen";
+    public static final String CLASSIC = "carrier_classic";
     public static final String[] GROUPS = {NOTIFICATION, CONTROL, LOCKSCREEN};
+    public static final String[] ALL_GROUPS = {NOTIFICATION, CONTROL, LOCKSCREEN, CLASSIC};
 
     public static boolean isPanel(String group) {
-        return NOTIFICATION.equals(group) || CONTROL.equals(group) || LOCKSCREEN.equals(group);
+        return NOTIFICATION.equals(group) || CONTROL.equals(group) || LOCKSCREEN.equals(group) || CLASSIC.equals(group);
     }
 
     public static String key(String group, String suffix) {

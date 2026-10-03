@@ -103,6 +103,21 @@ public final class NotificationBigClockModelCheck {
         expect(NotificationBigClockModel.scrollFade(0) == 0f && NotificationBigClockModel.scrollFade(1) == 1f);
         expect(NotificationBigClockModel.scrollFade(.5f) == .5f);
         expect(NotificationBigClockModel.scrollFade(Float.NaN) == 0f);
+        expect(NotificationBigClockModel.nativeHeightProgress(0f,1f)==0f);
+        expect(NotificationBigClockModel.nativeHeightProgress(0f,0f)==1f);
+        expect(NotificationBigClockModel.nativeHeightProgress(1f,1f)==1f);
+        expect(NotificationBigClockModel.nativeHeightProgress(.5f,.5f)==.75f);
+        expect(NotificationBigClockModel.nativeHeightProgress(0f,1.2f)==0f);
+        expect(NotificationBigClockModel.nativeHeightProgress(Float.NaN,Float.NaN)==1f);
+        NotificationBigClockModel.Frame nativeBasis=measured(0,0f,1f);
+        float lastNativeHeight=115f;
+        for(int step=0;step<=100;step++) {
+            NotificationBigClockModel.Frame nativePull=NotificationBigClockModel.withNativePanelHeight(nativeBasis,320f,115f,step/100f);
+            expect(nativePull.clockHeight>=lastNativeHeight&&nativePull.clockHeight<=320f);
+            expect(nativePull.clockTop==nativeBasis.clockTop&&nativePull.dateTop==nativeBasis.dateTop);
+            expect(nativePull.reservedBottom==nativeBasis.reservedBottom&&nativePull.weight==nativeBasis.weight);
+            lastNativeHeight=nativePull.clockHeight;
+        }
         expect(NotificationLandscapeLayout.width(3168, 1440) == 1440);
         expect(NotificationLandscapeLayout.width(1240, 1440) == 1240);
         expect(NotificationLandscapeLayout.center(3168, 0, 0, 1440) == 864);

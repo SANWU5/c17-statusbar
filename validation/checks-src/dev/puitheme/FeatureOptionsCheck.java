@@ -22,6 +22,9 @@ public final class FeatureOptionsCheck {
         expectedBooleans.put(C17HighlightRemoval.BACKGROUND_ENABLED, false);
         expectedBooleans.put(C17HighlightRemoval.NOTIFICATION_ENABLED, true);
         expectedBooleans.put(C17HighlightRemoval.CONTROL_ENABLED, true);
+        expectedBooleans.put(C17HighlightRemoval.HEADS_UP_ENABLED, true);
+        expectedBooleans.put(NotificationIconOverrides.MASTER, false);
+        expectedBooleans.put(IconPackRepository.MASTER, false);
         expectedBooleans.put(C17HighlightRemoval.UNIFORM_NOTIFICATION_ENABLED, false);
         expectedBooleans.put(LockscreenControls.DATE_ENABLED, false);
         expectedBooleans.put(LockscreenControls.HIDE_LOCK, false);
@@ -39,6 +42,7 @@ public final class FeatureOptionsCheck {
         expectedBooleans.putAll(BatteryTextStyle.BOOLEANS);
         expectedBooleans.putAll(QsTileIconSize.BOOLEANS);
         expectedBooleans.putAll(StatusBarShadeIconSettings.BOOLEANS);
+        expectedBooleans.putAll(ShadeWallpaperSettings.BOOLEANS);
         equal(expectedBooleans, StatusBarSettings.BOOLEAN_DEFAULTS);
         equal(false,StatusBarSettings.bool(new HashMap<String,Object>(),NativeNetworkBadgeControls.MASTER));
         equal(false,FeatureOptions.DEFAULTS.containsKey(NativeNetworkBadgeControls.MASTER));
@@ -54,8 +58,8 @@ public final class FeatureOptionsCheck {
         equal(false, defaults.effective("wifi", "wifi_activity_hidden"));
         equal(false, defaults.enabled("unknown"));
         equal(false, defaults.isEnabled("unknown"));
-        equal(10, FeatureOptions.GROUPS.length);
-        equal(84, FeatureOptions.DEFAULTS.size());
+        equal(11, FeatureOptions.GROUPS.length);
+        equal(96, FeatureOptions.DEFAULTS.size());
         equal(false,defaults.isEnabled(FeatureOptions.STACK_LANDSCAPE_ENABLED));
         Map<String,Object> landscapeStack=new HashMap<>();landscapeStack.put(FeatureOptions.STACK_LANDSCAPE_ENABLED,true);
         equal(true,FeatureOptions.from(landscapeStack).isEnabled(FeatureOptions.STACK_LANDSCAPE_ENABLED));
@@ -80,6 +84,10 @@ public final class FeatureOptionsCheck {
         signalSelection.put("data_single_enabled",false);
         FeatureOptions selection = FeatureOptions.from(signalSelection);
         equal(true,selection.singleSignal("single")); equal(false,selection.singleSignal("system"));
+        signalSelection.put("data_icon_enabled",false);
+        equal(true,FeatureOptions.from(signalSelection).singleSignal("single"));
+        equal(false,FeatureOptions.from(signalSelection).singleSignal("system"));
+        signalSelection.put("data_icon_enabled",true);
         equal(true,selection.hideNativeNetworkBadge());
         signalSelection.put("data_badge_hidden",false);
         equal(false,FeatureOptions.from(signalSelection).hideNativeNetworkBadge());

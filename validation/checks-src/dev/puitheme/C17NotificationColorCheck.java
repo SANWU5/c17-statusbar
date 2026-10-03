@@ -46,6 +46,13 @@ public final class C17NotificationColorCheck {
         equal(false,StatusBarSettings.BOOLEAN_DEFAULTS.get(C17HighlightRemoval.UNIFORM_NOTIFICATION_ENABLED));
         equal(SettingsCatalog.OTHER,SettingsCatalog.group("c17_highlight_removal").category);
         equal(C17HighlightRemoval.UNIFORM_NOTIFICATION_ENABLED,SettingsCatalog.item(C17HighlightRemoval.UNIFORM_NOTIFICATION_ENABLED).key);
+        java.util.Map<String,Object> dependencies=new java.util.HashMap<>();
+        dependencies.put(C17HighlightRemoval.UNIFORM_NOTIFICATION_ENABLED,true);
+        equal("",SettingsCatalog.unavailableReason(C17HighlightRemoval.UNIFORM_NOTIFICATION_ENABLED,dependencies));
+        dependencies.put(C17HighlightRemoval.ENABLED,true);dependencies.put(C17HighlightRemoval.NOTIFICATION_ENABLED,false);
+        equal("",SettingsCatalog.unavailableReason(C17HighlightRemoval.UNIFORM_NOTIFICATION_ENABLED,dependencies));
+        dependencies.put(C17HighlightRemoval.NOTIFICATION_ENABLED,true);
+        equal("",SettingsCatalog.unavailableReason(C17HighlightRemoval.UNIFORM_NOTIFICATION_ENABLED,dependencies));
         independentScopes();backgroundBranches();mediaOptics();return checks;
     }
 
@@ -83,8 +90,19 @@ public final class C17NotificationColorCheck {
         Canvas canvas=new Canvas();int[] nativeDraws={0};
         helper.drawNotificationBackgroundExtension(extension,canvas,c->{nativeDraws[0]++;equal(false,helper.deferNotificationIcon(extension,c));return "native";});
         equal(0,canvas.layers);equal(1,nativeDraws[0]);
-        // Unified color is a separately selectable operation, independent of optical removal.
+        // The independent tint works without removing highlights or enabling notification scope.
+        Canvas independent = new Canvas();
         helper.configure(settings(false,true,true,true));
+        helper.drawNotificationBackgroundExtension(extension,independent,c->{equal(true,helper.deferNotificationIcon(extension,c));return null;});
+        equal(1,independent.layers);equal(false,helper.enabled());equal(false,helper.skipSpotlight(host));
+        helper.configure(settings(true,false,true,true));
+        helper.drawNotificationBackgroundExtension(extension,independent,c->{equal(true,helper.deferNotificationIcon(extension,c));return null;});
+        equal(2,independent.layers);equal(false,helper.skipSpotlight(host));
+        Bundle independentSafe = settings(false,false,false,true); independentSafe.putBoolean(StatusBarSettings.SAFE_MODE,true); helper.configure(independentSafe);
+        helper.drawNotificationBackgroundExtension(extension,independent,c->{equal(false,helper.deferNotificationIcon(extension,c));return null;});
+        equal(2,independent.layers);
+        icon.draws=0;
+        helper.configure(settings(true,true,true,true));
         Object result=helper.drawNotificationBackgroundExtension(extension,canvas,c->{
             nativeDraws[0]++;equal(2,c.getSaveCount());equal(true,helper.deferNotificationIcon(extension,c));equal(0,icon.draws);
             // OEM fallback calls NotificationBackgroundView.draw; it must not tint twice.
@@ -117,7 +135,15 @@ public final class C17NotificationColorCheck {
         helper.drawNotificationBackgroundExtension(new Object(),canvas,c->{nativeDraws[0]++;return null;});equal(1,canvas.getSaveCount());
         layers=canvas.layers;helper.drawNotificationBackground(new OplusQSResizeableTileView(),canvas,c->null);equal(layers,canvas.layers);
         host.actualWidth=0;helper.drawNotificationBackgroundExtension(extension,canvas,c->null);equal(layers,canvas.layers);host.actualWidth=200;
-        helper.configure(settings(true,false,true,true));helper.drawNotificationBackgroundExtension(extension,canvas,c->null);equal(layers,canvas.layers);
+        int invalidations=host.invalidations;
+        helper.configure(settings(false,true,true,false));
+        helper.drawNotificationBackgroundExtension(extension,canvas,c->{equal(false,helper.deferNotificationIcon(extension,c));equal(1,c.getSaveCount());return null;});
+        equal(layers,canvas.layers);equal(true,host.invalidations>invalidations);equal(false,helper.enabled());
+        helper.configure(settings(true,true,true,true));helper.drawNotificationBackgroundExtension(extension,canvas,c->null);equal(layers+1,canvas.layers);
+        layers=canvas.layers;invalidations=host.invalidations;
+        helper.configure(settings(true,false,true,false));
+        helper.drawNotificationBackgroundExtension(extension,canvas,c->{equal(false,helper.deferNotificationIcon(extension,c));equal(1,c.getSaveCount());return null;});
+        equal(layers,canvas.layers);equal(true,host.invalidations>invalidations);equal(true,helper.enabled());
         Bundle safe=settings(true,true,true,true);safe.putBoolean(StatusBarSettings.SAFE_MODE,true);helper.configure(safe);
         helper.drawNotificationBackgroundExtension(extension,canvas,c->null);equal(layers,canvas.layers);
         helper.configure(settings(true,true,true,true));helper.drawNotificationBackgroundExtension(extension,canvas,c->null);equal(layers+1,canvas.layers);

@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit;
 final class SettingsFrameworkMirror {
     static final String GROUP="c17_saved_settings_v1";
     static final String SCHEMA="_c17_saved_snapshot_schema", REVISION="_c17_saved_revision";
-    private static final int VERSION=1;
+    static final int VERSION=4;
     private static final String MAINTENANCE_PREFS="c17_maintenance", RESET_PENDING="framework_defaults_pending";
     private static final Object LOCK=new Object();
     private static final Map<XposedService,Target> TARGETS=new IdentityHashMap<>();
@@ -217,55 +217,84 @@ final class SettingsFrameworkMirror {
 
     /** No defaults are synthesized for an absent, unknown-schema or partial framework copy. */
     static Bundle decode(Map<String,?> values) {
-        if(values==null||!Integer.valueOf(VERSION).equals(values.get(SCHEMA))
+        if(values==null||!(Integer.valueOf(VERSION).equals(values.get(SCHEMA))
+                ||Integer.valueOf(3).equals(values.get(SCHEMA))||Integer.valueOf(2).equals(values.get(SCHEMA))
+                ||Integer.valueOf(1).equals(values.get(SCHEMA)))
                 ||!(values.get(REVISION) instanceof Long)||(Long)values.get(REVISION)<=0L)return null;
-        boolean before63=true;
-        for(String key:Upgrade63.DEFAULTS.keySet())if(values.containsKey(key)){before63=false;break;}
-        if(before63){
+        if(!Integer.valueOf(VERSION).equals(values.get(SCHEMA))) {
+            // Schemas 1/2/3 predate this entire batch. A mixed old/new
+            // batch is a partial write, even when the present value is a default.
+            for(String key:Upgrade67.DEFAULTS.keySet())if(values.containsKey(key))return null;
             Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
-            upgraded.putAll(Upgrade63.DEFAULTS);
+            upgraded.putAll(Upgrade67.DEFAULTS);
             values=upgraded;
         }
-        boolean before62=true;
-        for(String key:NotificationClearAppearance.LANDSCAPE_LEGACY.keySet())if(values.containsKey(key)){before62=false;break;}
-        if(before62&&!before63)return null;
-        if(before62){
+        if(Integer.valueOf(1).equals(values.get(SCHEMA))||Integer.valueOf(2).equals(values.get(SCHEMA))) {
+            // Schema 3 already contains the complete code-66 batch and must retain it.
+            for(String key:Upgrade66.DEFAULTS.keySet())if(values.containsKey(key))return null;
             Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
-            upgraded.putAll(NotificationClearAppearance.inheritedLandscape(values));
+            upgraded.putAll(Upgrade66.inheritedDefaults(values));
             values=upgraded;
         }
-        boolean before61=true;
-        for(String key:Upgrade61.DEFAULTS.keySet())if(values.containsKey(key)){before61=false;break;}
-        if(before61) {
-            Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
-            upgraded.putAll(Upgrade61.DEFAULTS);
-            values=upgraded;
-        }
-        boolean before60=true;
-        for(String key:Upgrade60.DEFAULTS.keySet())if(values.containsKey(key)){before60=false;break;}
-        if(before60) {
-            Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
-            upgraded.putAll(Upgrade60.DEFAULTS);
-            if(values.get(NetworkSpeedControls.INTERVAL_SECONDS) instanceof Float)
-                upgraded.put(NetworkSpeedControls.INTERVAL_MILLIS,migratedSpeedMillis(values.get(NetworkSpeedControls.INTERVAL_SECONDS)));
-            values=upgraded;
-        }
-        // Only complete historical batches are upgraded. A partial current copy or any
-        // absent old field is still rejected, even when its new defaults can be supplied.
-        Map<String,Object> defaults=Upgrade58.DEFAULTS;
-        Map<String,Object> badgeDefaults=Upgrade59.DEFAULTS;
-        boolean previous=true,beforeBadge=true;
-        for(String key:defaults.keySet())if(values.containsKey(key)){previous=false;break;}
-        for(String key:badgeDefaults.keySet())if(values.containsKey(key)){beforeBadge=false;break;}
-        if(beforeBadge) {
-            Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
-            if(previous) {
-                upgraded.putAll(defaults);
-                upgraded.put(NotificationBigClockSettings.LANDSCAPE_MASTER,false);
-                upgraded.put(NotificationGroupStack.MASTER,false);
+        if(Integer.valueOf(1).equals(values.get(SCHEMA))) {
+            // Schema 1 predates the code-65 additions. Upgrade only a complete historical
+            // batch; schemas 2/3/4 must include all fields belonging to their release.
+            for(String key:Upgrade65.DEFAULTS.keySet())if(values.containsKey(key))return null;
+            Map<String,Object> positionUpgrade=new java.util.LinkedHashMap<>(values);
+            positionUpgrade.putAll(Upgrade65.DEFAULTS);
+            values=positionUpgrade;
+            boolean before63=true;
+            for(String key:Upgrade63.DEFAULTS.keySet())if(values.containsKey(key)){before63=false;break;}
+            if(before63){
+                Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
+                upgraded.putAll(Upgrade63.DEFAULTS);
+                values=upgraded;
             }
-            upgraded.putAll(badgeDefaults);
-            values=upgraded;
+            boolean before62=true;
+            for(String key:NotificationClearAppearance.LANDSCAPE_LEGACY.keySet())if(values.containsKey(key)){before62=false;break;}
+            if(before62&&!before63)return null;
+            if(before62){
+                Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
+                upgraded.putAll(NotificationClearAppearance.inheritedLandscape(values));
+                values=upgraded;
+            }
+            boolean before61=true;
+            for(String key:Upgrade61.DEFAULTS.keySet())if(values.containsKey(key)){before61=false;break;}
+            if(before61&&(!before62||!before63))return null;
+            if(before61) {
+                Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
+                upgraded.putAll(Upgrade61.DEFAULTS);
+                values=upgraded;
+            }
+            boolean before60=true;
+            for(String key:Upgrade60.DEFAULTS.keySet())if(values.containsKey(key)){before60=false;break;}
+            if(before60&&(!before61||!before62||!before63))return null;
+            if(before60) {
+                Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
+                upgraded.putAll(Upgrade60.DEFAULTS);
+                if(values.get(NetworkSpeedControls.INTERVAL_SECONDS) instanceof Float)
+                    upgraded.put(NetworkSpeedControls.INTERVAL_MILLIS,migratedSpeedMillis(values.get(NetworkSpeedControls.INTERVAL_SECONDS)));
+                values=upgraded;
+            }
+            // Only complete historical batches are upgraded. A partial current copy or any
+            // absent old field is still rejected, even when its new defaults can be supplied.
+            Map<String,Object> defaults=Upgrade58.DEFAULTS;
+            Map<String,Object> badgeDefaults=Upgrade59.DEFAULTS;
+            boolean previous=true,beforeBadge=true;
+            for(String key:defaults.keySet())if(values.containsKey(key)){previous=false;break;}
+            for(String key:badgeDefaults.keySet())if(values.containsKey(key)){beforeBadge=false;break;}
+            if(beforeBadge&&(!before60||!before61||!before62||!before63))return null;
+            if(previous&&!beforeBadge)return null;
+            if(beforeBadge) {
+                Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
+                if(previous) {
+                    upgraded.putAll(defaults);
+                    upgraded.put(NotificationBigClockSettings.LANDSCAPE_MASTER,false);
+                    upgraded.put(NotificationGroupStack.MASTER,false);
+                }
+                upgraded.putAll(badgeDefaults);
+                values=upgraded;
+            }
         }
         Bundle result=new Bundle();
         for(String key:StatusBarSettings.NUMERIC_DEFAULTS.keySet()) {
@@ -319,8 +348,10 @@ final class SettingsFrameworkMirror {
         static final Map<String,Object> DEFAULTS=defaults();
         private static Map<String,Object> defaults() {
             Map<String,Object> values=new java.util.LinkedHashMap<>();
-            values.putAll(NativeNetworkBadgeControls.booleanDefaults());
-            values.putAll(NativeNetworkBadgeControls.floatDefaults());
+            // Keep the original historical batch fixed; later per-part additions belong to Upgrade66.
+            values.put(NativeNetworkBadgeControls.MASTER,false);
+            values.put(NativeNetworkBadgeControls.X,0f);values.put(NativeNetworkBadgeControls.Y,0f);
+            values.put(NativeNetworkBadgeControls.SCALE,100f);values.put(NativeNetworkBadgeControls.WEIGHT,400f);
             return java.util.Collections.unmodifiableMap(values);
         }
     }

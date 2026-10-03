@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <!-- The launcher supplies the mask, without a second rounded square. -->
+    <gradient android:angle="315" android:type="linear"
+        android:startColor="@color/c17_launcher_background_start"
+        android:centerColor="@color/c17_launcher_background"
+        android:endColor="@color/c17_launcher_background_end" />
+</shape>

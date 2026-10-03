@@ -55,7 +55,15 @@ public final class SettingsFrameworkMirrorCheck {
     }
     private static Map<String,Object> wire(Bundle snapshot,long revision){
         Map<String,Object> values=new LinkedHashMap<>();for(String key:snapshot.keySet())values.put(key,snapshot.get(key));
-        values.put(SettingsFrameworkMirror.SCHEMA,1);values.put(SettingsFrameworkMirror.REVISION,revision);return values;
+        values.put(SettingsFrameworkMirror.SCHEMA,SettingsFrameworkMirror.VERSION);values.put(SettingsFrameworkMirror.REVISION,revision);return values;
+    }
+    private static Map<String,Object> legacyWire(Bundle snapshot,long revision){
+        Map<String,Object> values=wire(snapshot,revision);
+        values.put(SettingsFrameworkMirror.SCHEMA,1);
+        for(String key:Upgrade65.DEFAULTS.keySet())values.remove(key);
+        for(String key:Upgrade66.DEFAULTS.keySet())values.remove(key);
+        for(String key:Upgrade67.DEFAULTS.keySet())values.remove(key);
+        return values;
     }
     private static void settle() throws Exception {
         Field field=SettingsFrameworkMirror.class.getDeclaredField("WORK");field.setAccessible(true);
@@ -78,7 +86,7 @@ public final class SettingsFrameworkMirrorCheck {
     private static void upgrade57() {
         Bundle current=saved(138.25f,false);current.putBoolean(NotificationBigClockSettings.STACK_ENABLED,true);
         current.putString(NotificationBigClockSettings.DATE_PATTERN,"yyyy年M月d日{周}");
-        Map<String,Object> legacy=wire(current,5700L);
+        Map<String,Object> legacy=legacyWire(current,5700L);
         legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added58);
         legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added59);
         legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added60);
@@ -100,7 +108,7 @@ public final class SettingsFrameworkMirrorCheck {
             Map<String,Object> missing=new LinkedHashMap<>(legacy);missing.remove(key);equal(null,SettingsFrameworkMirror.decode(missing));
         }
         Map<String,Object> wrong=new LinkedHashMap<>(legacy);wrong.put(StatusBarSettings.DATA_OFFSET_X,138);equal(null,SettingsFrameworkMirror.decode(wrong));
-        wrong=new LinkedHashMap<>(legacy);wrong.put(SettingsFrameworkMirror.SCHEMA,2);equal(null,SettingsFrameworkMirror.decode(wrong));
+        wrong=new LinkedHashMap<>(legacy);wrong.put(SettingsFrameworkMirror.SCHEMA,3);equal(null,SettingsFrameworkMirror.decode(wrong));
         for(String key:defaults.keySet())if(added58(key)) {
             Map<String,Object> partial=new LinkedHashMap<>(legacy);partial.put(key,defaults.get(key));equal(null,SettingsFrameworkMirror.decode(partial));
             Map<String,Object> missing=new LinkedHashMap<>(wire(current,5800L));missing.remove(key);equal(null,SettingsFrameworkMirror.decode(missing));
@@ -114,13 +122,14 @@ public final class SettingsFrameworkMirrorCheck {
         }
     }
     private static boolean added59(String key) {
-        return NativeNetworkBadgeControls.booleanDefaults().containsKey(key)
-                ||NativeNetworkBadgeControls.floatDefaults().containsKey(key);
+        return NativeNetworkBadgeControls.MASTER.equals(key)||NativeNetworkBadgeControls.X.equals(key)
+                ||NativeNetworkBadgeControls.Y.equals(key)||NativeNetworkBadgeControls.SCALE.equals(key)
+                ||NativeNetworkBadgeControls.WEIGHT.equals(key);
     }
     private static void upgrade58() {
         Bundle current=saved(-12.25f,false);
         Bundle defaults=SettingsSnapshot.fromPreferences(java.util.Collections.emptyMap());
-        Map<String,Object> legacy=wire(current,5800L);
+        Map<String,Object> legacy=legacyWire(current,5800L);
         legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added59);
         legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added60);
         legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added61);
@@ -169,7 +178,7 @@ public final class SettingsFrameworkMirrorCheck {
         current.putFloat(NotificationClearAppearance.LANDSCAPE_OPACITY,72.625f);
         current.putInt(NotificationClearAppearance.LANDSCAPE_COLOR_LIGHT,0x70112233);
         current.putBoolean(StatusBarSettings.alphaKey(NotificationClearAppearance.LANDSCAPE_COLOR_LIGHT),true);
-        Map<String,Object> old=wire(current,6203L);old.keySet().removeIf(SettingsFrameworkMirrorCheck::added63);
+        Map<String,Object> old=legacyWire(current,6203L);old.keySet().removeIf(SettingsFrameworkMirrorCheck::added63);
         Map<String,Object> untouched=new LinkedHashMap<>(old);
         Bundle loaded=SettingsFrameworkMirror.decode(old);equal(true,SettingsSnapshot.complete(loaded));equal(untouched,old);
         equal(false,loaded.get(FeatureOptions.STACK_LANDSCAPE_ENABLED));equal(false,loaded.get(NativeDataActivity.MASTER));
@@ -218,7 +227,7 @@ public final class SettingsFrameworkMirrorCheck {
                 NotificationClearAppearance.GRADIENT_COLOR_LIGHT,NotificationClearAppearance.GRADIENT_COLOR_DARK}){
             current.putInt(key,0x40112233+index*0x10202020);current.putBoolean(StatusBarSettings.alphaKey(key),(index++&1)==0);
         }
-        Map<String,Object> legacy=wire(current,6103L);legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added62);
+        Map<String,Object> legacy=legacyWire(current,6103L);legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added62);
         legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added63);
         Map<String,Object> untouched=new LinkedHashMap<>(legacy);
         Bundle upgraded=SettingsFrameworkMirror.decode(legacy);
@@ -265,7 +274,7 @@ public final class SettingsFrameworkMirrorCheck {
         current.putFloat(NotificationClearMotion.OFFSET_Y,38.25f);
         current.putBoolean(NetworkSpeedControls.STYLE_ENABLED,true);
         current.putString(NetworkSpeedControls.DISPLAY_STYLE,"inline");
-        Map<String,Object> legacy=wire(current,6100L);legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added61);
+        Map<String,Object> legacy=legacyWire(current,6100L);legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added61);
         legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added62);
         legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added63);
         Map<String,Object> untouched=new LinkedHashMap<>(legacy);
@@ -305,7 +314,7 @@ public final class SettingsFrameworkMirrorCheck {
         Bundle current=saved(27.125f,true);
         current.putFloat(NetworkSpeedControls.INTERVAL_SECONDS,.00125f);
         current.putBoolean(NetworkSpeedControls.INTERVAL_ENABLED,true);
-        Map<String,Object> legacy=wire(current,5900L);legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added60);
+        Map<String,Object> legacy=legacyWire(current,5900L);legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added60);
         legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added61);
         legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added62);
         legacy.keySet().removeIf(SettingsFrameworkMirrorCheck::added63);
@@ -356,6 +365,53 @@ public final class SettingsFrameworkMirrorCheck {
         equal(1.25f,boot.get(NetworkSpeedControls.INTERVAL_MILLIS));equal(0,providerReads[0]);
         equal(true,boot.get(StatusBarSettings.SAFE_MODE));equal(27.125f,boot.get(StatusBarSettings.DATA_OFFSET_X));reader.stop();
     }
+    private static void upgrade64() {
+        Bundle current=saved(28.125f,true);
+        current.putString("speed_position","clock_right");
+        Map<String,Object> old=legacyWire(current,6400L),untouched=new LinkedHashMap<>(old);
+        Bundle loaded=SettingsFrameworkMirror.decode(old);
+        equal(true,SettingsSnapshot.complete(loaded));equal(untouched,old);
+        equal("native",loaded.get("speed_position"));
+        for(String key:current.keySet())if(!Upgrade65.DEFAULTS.containsKey(key))equal(current.get(key),loaded.get(key));
+        for(Map.Entry<String,Object> addition:Upgrade65.DEFAULTS.entrySet())equal(addition.getValue(),loaded.get(addition.getKey()));
+        for(String key:old.keySet())if(!SettingsFrameworkMirror.SCHEMA.equals(key)&&!SettingsFrameworkMirror.REVISION.equals(key)){
+            Map<String,Object> missing=new LinkedHashMap<>(old);missing.remove(key);
+            equal(null,SettingsFrameworkMirror.decode(missing));
+        }
+        // Missing an entire older batch while newer fields remain is corruption,
+        // not a historical version eligible for default migration.
+        for(java.util.function.Predicate<String> batch:java.util.Arrays.<java.util.function.Predicate<String>>asList(
+                SettingsFrameworkMirrorCheck::added58,SettingsFrameworkMirrorCheck::added59,
+                SettingsFrameworkMirrorCheck::added60,SettingsFrameworkMirrorCheck::added61,
+                SettingsFrameworkMirrorCheck::added62)){
+            Map<String,Object> missing=new LinkedHashMap<>(old);missing.keySet().removeIf(batch);
+            equal(null,SettingsFrameworkMirror.decode(missing));
+        }
+        Map<String,Object> mixed=new LinkedHashMap<>(old);mixed.put("speed_position","clock_right");
+        equal(null,SettingsFrameworkMirror.decode(mixed));
+        for(String key:Upgrade65.DEFAULTS.keySet()){
+            mixed=new LinkedHashMap<>(old);mixed.put(key,current.get(key));
+            equal(null,SettingsFrameworkMirror.decode(mixed));
+            Map<String,Object> partial=wire(current,6500L);partial.remove(key);
+            equal(null,SettingsFrameworkMirror.decode(partial));
+        }
+        Map<String,Object> modern=wire(current,6500L);
+        equal("clock_right",SettingsFrameworkMirror.decode(modern).get("speed_position"));
+        for(Object invalid:new Object[]{null,17,true}){
+            Map<String,Object> wrong=new LinkedHashMap<>(modern);wrong.put("speed_position",invalid);
+            equal(null,SettingsFrameworkMirror.decode(wrong));
+        }
+        modern.remove("speed_position");equal(null,SettingsFrameworkMirror.decode(modern));
+        modern=wire(current,6500L);modern.keySet().removeIf(SettingsFrameworkMirrorCheck::added63);
+        equal(null,SettingsFrameworkMirror.decode(modern));
+        Store persisted=new Store();equal(true,SettingsFrameworkMirror.write(persisted.preferences,current,6500L));
+        equal(4,persisted.disk.get(SettingsFrameworkMirror.SCHEMA));
+        equal("clock_right",persisted.disk.get("speed_position"));
+        Store daemon=new Store();daemon.replace(old);int[] providerReads={0};
+        SettingsFrameworkReader reader=new SettingsFrameworkReader(()->daemon.preferences,()->{},()->false);
+        equal("native",reader.read(false,()->{providerReads[0]++;return null;}).get("speed_position"));
+        equal(0,providerReads[0]);reader.stop();
+    }
     public static void main(String[] args) throws Exception {
         upgrade57();
         upgrade58();
@@ -363,6 +419,7 @@ public final class SettingsFrameworkMirrorCheck {
         upgrade60();
         upgrade61();
         upgrade62();
+        upgrade64();
         Bundle first=saved(-8.24f,true),second=saved(3.25f,false);
         equal(true,SettingsSnapshot.complete(first));equal(null,SettingsFrameworkMirror.decode(new HashMap<>()));
         Map<String,Object> map=wire(first,1L);Bundle loaded=SettingsFrameworkMirror.decode(map);
@@ -373,7 +430,7 @@ public final class SettingsFrameworkMirrorCheck {
         map.remove(StatusBarSettings.DATA_OFFSET_X);equal(null,SettingsFrameworkMirror.decode(map));
         map=wire(first,1L);map.put(StatusBarSettings.DATA_OFFSET_X,9);equal(null,SettingsFrameworkMirror.decode(map));
         map=wire(first,1L);map.put(StatusBarSettings.DATA_OFFSET_X,Float.NaN);equal(null,SettingsFrameworkMirror.decode(map));
-        map=wire(first,1L);map.put(SettingsFrameworkMirror.SCHEMA,2);equal(null,SettingsFrameworkMirror.decode(map));
+        map=wire(first,1L);map.put(SettingsFrameworkMirror.SCHEMA,5);equal(null,SettingsFrameworkMirror.decode(map));
         map=wire(first,0L);equal(null,SettingsFrameworkMirror.decode(map));
         map=wire(first,1L);map.put(SettingsFrameworkMirror.REVISION,1);equal(null,SettingsFrameworkMirror.decode(map));
 

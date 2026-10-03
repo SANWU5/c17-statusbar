@@ -34,19 +34,26 @@ public final class LockscreenControls {
     // This is a View from the dynamically loaded clock APK. The similarly named
     // base.ui.view.DateMessageView is a ChildViewProxy, NOT an Android View.
     public static final String PLUGIN_DATE="com.oplus.keyguard.clock.digital.ui.view.DateMessageView";
+    public static final String PLUGIN_BASE_DATE="com.oplus.keyguard.clock.base.ui.view.DateMessageView";
+    public static final String PLUGIN_DIGITAL_TEXT="com.oplus.keyguard.clock.digital.widget.MyCustomizedTextView";
+    public static final String PLUGIN_BASE_TEXT="com.oplus.keyguard.clock.base.widget.CustomizedTextView";
+    public static final String PLUGIN_HDR_TEXT="com.oplus.keyguard.clock.common.view.hdr.OplusHDRTextView";
     private static final String PLUGIN_EXTRA="com.oplus.keyguard.clock.digital.ui.view.ExtraMessageView";
+    private static final String PLUGIN_BASE_EXTRA="com.oplus.keyguard.clock.base.ui.view.ExtraMessageView";
     private static final String PLUGIN_PACKAGE="com.oplus.keyguard.personality.clocks";
     private static final String SYSTEM_UI="com.android.systemui";
     private static final int MAX_ANCESTORS=18;
     private boolean dateEnabled,hideLock,writing,seconds;
-    private long finalWrites,refreshWrites;
+    private long finalWrites,refreshWrites,pluginWrites;
     private String pattern=DEFAULT_FORMAT;
     private final Map<TextView,DateState> dates=new WeakHashMap<>();
+    private final Map<View,Boolean> dateOwners=new WeakHashMap<>();
     private final Map<Class<?>,ClockAccess> clocks=new WeakHashMap<>();
     private final Map<Class<?>,LockAccess> locks=new WeakHashMap<>();
     private final Map<View,Boolean> lockOwners=new WeakHashMap<>();
     private final Map<ViewGroup,NativeLock> nativeLocks=new WeakHashMap<>();
     private final Map<View,Boolean> lockResources=new WeakHashMap<>();
+    private final Map<TextView,Boolean> pluginDateResources=new WeakHashMap<>();
 
     private static final class DateState {
         final WeakReference<View> owner;
@@ -70,15 +77,18 @@ public final class LockscreenControls {
         final String kind;
         final Field[] fields;
         final Field calendar,zone,residentWeather,extraContent;
-        final Method residentZone;
+        final Method residentZone,viewParent;
         ClockAccess(Class<?> type) {
             kind=nativeKind(type);
             if(SINGLE.equals(kind))fields=new Field[]{field(type,"mDate")};
             else if(DUAL.equals(kind))fields=new Field[]{field(type,"locatedDate"),field(type,"residentDate")};
             else if(RED.equals(kind))fields=new Field[]{field(type,"tvDate"),field(type,"tvWeek")};
             else if(PLUGIN_DATE.equals(kind))fields=new Field[]{field(type,"dateTextView"),field(type,"weekTextView"),field(type,"extraMsgView")};
+            else if(PLUGIN_BASE_DATE.equals(kind))fields=new Field[]{field(type,"dateTextView"),field(type,"weekTextView"),field(type,"extraMsgView"),
+                    field(type,"dateTextViewExt"),field(type,"extraMsgViewExt")};
             else fields=new Field[0];
-            extraContent=PLUGIN_DATE.equals(kind)&&fields[2]!=null?field(fields[2].getType(),"messageContent"):null;
+            extraContent=plugin(kind)&&fields[2]!=null?field(fields[2].getType(),"messageContent"):null;
+            viewParent=PLUGIN_BASE_DATE.equals(kind)?method(type,"getViewParent"):null;
             calendar=SINGLE.equals(kind)?field(type,"mCalendar"):null;
             zone=SINGLE.equals(kind)?field(type,"mTimeZone"):null;
             residentWeather=DUAL.equals(kind)?field(type,"residentWeatherInfo"):null;
@@ -90,11 +100,11 @@ public final class LockscreenControls {
             }catch(ReflectiveOperationException|RuntimeException unsupported){/* Original text. */}
             return -1;
         }
-        TextView text(View owner,int slot)throws ReflectiveOperationException {
+        TextView text(Object owner,int slot)throws ReflectiveOperationException {
             Object value=fields[slot]==null?null:fields[slot].get(owner);
-            if(PLUGIN_DATE.equals(kind)&&slot==2) {
-                if(!(value instanceof View)||!hasType(value.getClass(),PLUGIN_EXTRA)
-                        ||!resource((View)value,PLUGIN_PACKAGE,"extra_text"))return null;
+            if(plugin(kind)&&(slot==2||slot==4)) {
+                if(!(value instanceof View)||!hasType(value.getClass(),PLUGIN_DATE.equals(kind)?PLUGIN_EXTRA:PLUGIN_BASE_EXTRA)
+                        ||!resource((View)value,PLUGIN_PACKAGE,slot==4?"extra_text_ext":"extra_text"))return null;
                 value=value==null||extraContent==null?null:extraContent.get(value);
             }
             return value instanceof TextView?(TextView)value:null;
@@ -141,6 +151,25 @@ public final class LockscreenControls {
     public CharSequence formatDate(TextView view,CharSequence nativeText) {
         return formatDateAt(view,nativeText,System.currentTimeMillis());
     }
+    /** Enter at the plugin's real text writer, before HDR spans and the framework setter.
+     * Nested framework hooks must not mistake our formatted argument for a new OEM date. */
+    public NativeDateWrite beginPluginDateWrite(TextView view,CharSequence nativeText) {
+        if(view==null||writing)return null;
+        if(!dates.containsKey(view)) {
+            Boolean known=pluginDateResources.get(view);
+            if(known==null){known=pluginDateResource(view);pluginDateResources.put(view,known);}
+            if(!known)return null;
+        }
+        CharSequence adjusted=formatDate(view,nativeText);
+        if(!dates.containsKey(view))return null;
+        pluginWrites++;return new NativeDateWrite(adjusted);
+    }
+    public final class NativeDateWrite implements AutoCloseable {
+        private final CharSequence text;private final boolean previous;private boolean closed;
+        NativeDateWrite(CharSequence text){this.text=text;previous=writing;writing=true;}
+        public CharSequence text(){return text;}
+        @Override public void close(){if(!closed){closed=true;writing=previous;}}
+    }
     CharSequence formatDateAt(TextView view,CharSequence nativeText,long now) {
         if(view==null||writing)return nativeText;
         DateState state=dates.get(view);
@@ -159,7 +188,7 @@ public final class LockscreenControls {
         // Red clocks own a separate native week slot. The complete user format replaces the
         // primary date; leave the secondary text empty rather than duplicate weekday text.
         if((RED.equals(state.access.kind)&&state.slot==1)
-                ||PLUGIN_DATE.equals(state.access.kind)&&state.slot>0)return "";
+                ||plugin(state.access.kind)&&state.slot>0)return "";
         TimeZone zone=state.access.timeZone(owner,state.slot);
         if(zone==null)return fallback; // Never replace a resident date with the local timezone.
         long bucket=now/(seconds?1000L:60000L);
@@ -192,6 +221,23 @@ public final class LockscreenControls {
         }catch(ReflectiveOperationException|RuntimeException unsupported){/* Original text. */}
         if(CUSTOM.equals(access.kind)&&owner instanceof ViewGroup)bindCustom((ViewGroup)owner);
         refreshOwner(owner);
+    }
+    /** The base clock owner is a ChildViewProxy, so it never appears in View ancestry. */
+    public void onPluginClockUpdated(Object proxy) {
+        if(proxy instanceof View){onClockUpdated((View)proxy);return;}
+        if(proxy==null)return;ClockAccess access=access(proxy.getClass());
+        if(!PLUGIN_BASE_DATE.equals(access.kind)||access.viewParent==null)return;
+        try {
+            Object parent=access.viewParent.invoke(proxy);if(!(parent instanceof View))return;View host=(View)parent;
+            for(int i=0;i<access.fields.length;i++) {
+                TextView text=access.text(proxy,i);int slot=i==3?0:i==4?2:i;
+                if(text==null||!pluginFieldResource(text,i))continue;
+                DateState state=dates.get(text);
+                if(state!=null&&!validPath(text,state)){restore(text,state);dates.remove(text);state=null;}
+                if(state==null)bind(text,host,access,slot,text.getText());
+            }
+            refreshOwner(host);
+        }catch(ReflectiveOperationException|RuntimeException unsupported){/* Preserve native clock. */}
     }
     /** Bind once on actual native clock/lock attachment; do not add a polling timer. */
     public void attach(View view) {
@@ -246,7 +292,7 @@ public final class LockscreenControls {
         for(ViewGroup parent:new ArrayList<>(nativeLocks.keySet()))parent.invalidate();
     }
     private void refreshOwner(View onlyOwner) {
-        long now=System.currentTimeMillis();writing=true;
+        long now=System.currentTimeMillis();boolean previous=writing;writing=true;
         try {
             for(TextView view:new ArrayList<>(dates.keySet())) {
                 DateState state=dates.get(view);if(state==null)continue;
@@ -256,16 +302,17 @@ public final class LockscreenControls {
                 CharSequence next=output(state,state.nativeText,now);
                 if(!same(view.getText(),next)){view.setText(next);if(refreshWrites<Long.MAX_VALUE)refreshWrites++;}
             }
-        }finally{writing=false;}
+        }finally{writing=previous;}
     }
     public void releaseRuntime() {
-        dateEnabled=false;hideLock=false;refresh();dates.clear();lockOwners.clear();nativeLocks.clear();lockResources.clear();clocks.clear();locks.clear();
+        dateEnabled=false;hideLock=false;refresh();dates.clear();dateOwners.clear();lockOwners.clear();nativeLocks.clear();lockResources.clear();pluginDateResources.clear();clocks.clear();locks.clear();
     }
     /** Called after native parent/ID changes. Do not retain custom text on a recycled child. */
     public void classificationChanged(View view) {
         if(view==null)return;
         lockResources.remove(view);
         if(view instanceof TextView) {
+            pluginDateResources.remove(view);
             TextView text=(TextView)view;DateState state=dates.get(text);
             if(state!=null){restore(text,state);dates.remove(text);}
         }
@@ -280,25 +327,27 @@ public final class LockscreenControls {
     public void detach(View view) {
         if(view==null)return;
         if(view instanceof TextView) {
+            pluginDateResources.remove(view);
             DateState state=dates.remove(view);if(state!=null)restore((TextView)view,state);
-        }else if(nativeKind(view.getClass())!=null) {
+        }else if(dateOwners.containsKey(view)) {
             for(TextView text:new ArrayList<>(dates.keySet())) {
                 DateState state=dates.get(text);
                 if(state!=null&&state.owner.get()==view){restore(text,state);dates.remove(text);}
             }
         }
+        dateOwners.remove(view);
         lockOwners.remove(view);nativeLocks.remove(view);lockResources.remove(view);
         if(view instanceof ImageView)classificationChanged(view);
     }
     public String diagnosticSummary() {
-        int plugin=0,legacy=0,valid=0,shown=0,currentMatch=0;
+        int plugin=0,base=0,legacy=0,valid=0,shown=0,currentMatch=0;
         int[] slots=new int[3],matches=new int[3];
         Map<View,Boolean> hosts=new WeakHashMap<>();
         long now=System.currentTimeMillis();
         for(TextView text:new ArrayList<>(dates.keySet())) {
             DateState state=dates.get(text);if(state==null)continue;
-            if(PLUGIN_DATE.equals(state.access.kind)) {
-                plugin++;
+            if(plugin(state.access.kind)) {
+                if(PLUGIN_DATE.equals(state.access.kind))plugin++;else base++;
                 if(state.path.length>0){View host=state.path[state.path.length-1].get();if(host!=null)hosts.put(host,Boolean.TRUE);}
             }else legacy++;
             if(validPath(text,state))valid++;
@@ -313,12 +362,12 @@ public final class LockscreenControls {
         int[] visibleResources=new int[5];
         for(View host:hosts.keySet())diagnosticResources(host,visibleResources,0);
         return "date="+dateEnabled+",lock="+hideLock+",dateBindings="+dates.size()
-                +",pluginDigital="+plugin+",legacy="+legacy+",lockParents="+nativeLocks.size()
+                +",pluginDigital="+plugin+",pluginBase="+base+",legacy="+legacy+",lockParents="+nativeLocks.size()
                 +",legacyLockParents="+lockOwners.size()+",validPaths="+valid+",shown="+shown+",currentMatches="+currentMatch
                 +",shownSlots="+slots[0]+"/"+slots[1]+"/"+slots[2]+",matchSlots="+matches[0]+"/"+matches[1]+"/"+matches[2]
                 +",visibleResources="+visibleResources[0]+",unboundVisible="+visibleResources[1]
                 +",digitalText="+visibleResources[2]+",baseSwitchText="+visibleResources[3]+",otherText="+visibleResources[4]
-                +",finalWrites="+finalWrites+",refreshWrites="+refreshWrites+",source=digitalFields+nativeLockResource";
+                +",finalWrites="+finalWrites+",pluginWrites="+pluginWrites+",refreshWrites="+refreshWrites+",source=pluginFields+nativeLockResource";
     }
     private static boolean diagnosticShown(View view) {
         return view.isAttachedToWindow()&&view.isShown()&&view.getVisibility()==View.VISIBLE&&view.getAlpha()>0f;
@@ -341,7 +390,7 @@ public final class LockscreenControls {
     @SuppressWarnings("unchecked")
     private DateState bind(TextView text,View owner,ClockAccess access,int slot,CharSequence nativeText) {
         View end=owner;
-        if(PLUGIN_DATE.equals(access.kind)) {
+        if(plugin(access.kind)) {
             end=null;int depth=0;
             for(View ancestor=parent(owner);ancestor!=null&&depth++<MAX_ANCESTORS;ancestor=parent(ancestor))
                 if(resource(ancestor,SYSTEM_UI,"keyguard_style_clock")){end=ancestor;break;}
@@ -352,7 +401,7 @@ public final class LockscreenControls {
             path.add(new WeakReference<>(current));if(current==owner)containsOwner=true;
             if(current==end&&containsOwner) {
                 DateState state=new DateState(owner,access,slot,nativeText,path.toArray(new WeakReference[0]));
-                dates.put(text,state);return state;
+                dates.put(text,state);dateOwners.put(owner,Boolean.TRUE);return state;
             }
         }
         return null;
@@ -385,7 +434,7 @@ public final class LockscreenControls {
     }
     private static String nativeKind(Class<?> type) {
         for(Class<?> c=type;c!=null;c=c.getSuperclass()) {
-            String name=c.getName();if(name.equals(SINGLE)||name.equals(DUAL)||name.equals(RED)||name.equals(CUSTOM)||name.equals(PLUGIN_DATE))return name;
+            String name=c.getName();if(name.equals(SINGLE)||name.equals(DUAL)||name.equals(RED)||name.equals(CUSTOM)||name.equals(PLUGIN_DATE)||name.equals(PLUGIN_BASE_DATE))return name;
         }return null;
     }
     private static boolean hasType(Class<?> type,String name){for(Class<?> c=type;c!=null;c=c.getSuperclass())if(c.getName().equals(name))return true;return false;}
@@ -405,7 +454,11 @@ public final class LockscreenControls {
         catch(RuntimeException unsupported){return false;}
     }
     private static boolean pluginDateResource(TextView text) {
-        return pluginSlotResource(text,0)||pluginSlotResource(text,1)||pluginSlotResource(text,2);
+        return pluginSlotResource(text,0)||pluginSlotResource(text,1)||pluginSlotResource(text,2)||resource(text,PLUGIN_PACKAGE,"date_text_ext");
+    }
+    private static boolean plugin(String kind){return PLUGIN_DATE.equals(kind)||PLUGIN_BASE_DATE.equals(kind);}
+    private static boolean pluginFieldResource(TextView text,int field){
+        return field==3?resource(text,PLUGIN_PACKAGE,"date_text_ext"):pluginSlotResource(text,field==4?2:field);
     }
     private static boolean pluginSlotResource(TextView text,int slot) {
         return resource(text,PLUGIN_PACKAGE,slot==0?"date_text":slot==1?"week_text":"extra_message_content");

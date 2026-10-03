@@ -94,21 +94,40 @@ public final class NotificationBigClockSettingsCheck {
             equal(count,source.get(NotificationBigClockSettings.VISIBLE_COUNT));
         }
     }
-    /** Whole-list stacking is independent of clock masters and respects the safe-mode copy. */
+    /** Saved requests stay intact, but only an enabled direction's clock can permit runtime stacking. */
     private static void stackingRuntimeGate(Bundle saved) throws Exception {
         NotificationNativeStack stack=new NotificationNativeStack();
         java.lang.reflect.Field enabled=NotificationNativeStack.class.getDeclaredField("enabled");
         enabled.setAccessible(true);
         equal(false,enabled.get(stack));
-        for(boolean master:new boolean[]{false,true})for(boolean requested:new boolean[]{false,true})for(boolean safe:new boolean[]{false,true}){
+        for(boolean portrait:new boolean[]{false,true})for(boolean landscape:new boolean[]{false,true})
+                for(boolean landscapeStack:new boolean[]{false,true})for(boolean requested:new boolean[]{false,true})
+                for(boolean safe:new boolean[]{false,true}){
             Bundle source=new Bundle(saved);
-            source.putBoolean(NotificationBigClockSettings.MASTER,master);
+            source.putBoolean(NotificationBigClockSettings.MASTER,portrait);
+            source.putBoolean(NotificationBigClockSettings.LANDSCAPE_MASTER,landscape);
+            source.putBoolean(FeatureOptions.STACK_LANDSCAPE_ENABLED,landscapeStack);
             source.putBoolean(NotificationBigClockSettings.STACK_ENABLED,requested);
             source.putBoolean(StatusBarSettings.SAFE_MODE,safe);
             stack.configure(source);
-            equal(requested&&!safe,enabled.get(stack));
+            equal(requested&&!safe&&(portrait||landscape&&landscapeStack),enabled.get(stack));
             equal(requested,source.get(NotificationBigClockSettings.STACK_ENABLED));
+            equal(portrait,source.get(NotificationBigClockSettings.MASTER));
+            equal(landscape,source.get(NotificationBigClockSettings.LANDSCAPE_MASTER));
+            equal(landscapeStack,source.get(FeatureOptions.STACK_LANDSCAPE_ENABLED));
         }
+        Bundle legacy=new Bundle();legacy.putBoolean(NotificationBigClockSettings.STACK_ENABLED,true);
+        legacy.putBoolean(FeatureOptions.STACK_LANDSCAPE_ENABLED,true);
+        stack.configure(legacy);equal(false,enabled.get(stack));
+        equal(true,legacy.get(NotificationBigClockSettings.STACK_ENABLED));
+        legacy.putBoolean(NotificationBigClockSettings.MASTER,true);
+        stack.configure(legacy);equal(true,enabled.get(stack));
+        legacy.putBoolean(NotificationBigClockSettings.MASTER,false);
+        stack.configure(legacy);equal(false,enabled.get(stack));
+        legacy.putBoolean(NotificationBigClockSettings.LANDSCAPE_MASTER,true);
+        stack.configure(legacy);equal(true,enabled.get(stack));
+        legacy.putBoolean(FeatureOptions.STACK_LANDSCAPE_ENABLED,false);
+        stack.configure(legacy);equal(false,enabled.get(stack));
         saved.putBoolean(StatusBarSettings.SAFE_MODE,true);
         Bundle runtime=SafetyMode.runtimeSettings(saved);
         equal(true,saved.get(NotificationBigClockSettings.STACK_ENABLED));

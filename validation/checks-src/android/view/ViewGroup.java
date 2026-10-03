@@ -21,6 +21,7 @@ public class ViewGroup extends View {
     public void setClipChildren(boolean value) {clipChildren=value;}
     public void setClipToPadding(boolean value) {clipPadding=value;}
     public void addView(View view) {children.add(view);view.parent=this;}
+    public void addView(View view,LayoutParams params) {view.setLayoutParams(params);addView(view);}
     public void removeView(View view) {if(children.remove(view)&&view.parent==this)view.parent=null;}
     public int getChildCount() {return children.size();}
     public View getChildAt(int position) {return children.get(position);}

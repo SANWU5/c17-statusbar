@@ -99,6 +99,14 @@ public final class StatusBarModule extends XposedModule {
     private static volatile boolean receiverRegistered;
     private static boolean refreshPending;
     private static volatile boolean settingsObserverRegistered;
+    private static ContentObserver panelModeObserver;
+    private static final Runnable PANEL_MODE_CHANGED = () -> {
+        if (context == null || ModuleLifecycle.removed()) return;
+        Bundle saved = SettingsSnapshot.lastApplied(context);
+        if (saved != null) applyStyleSnapshot(saved, true);
+        StatusBarModule.WALLPAPER_PANEL.publish();
+        StatusBarModule.TEXT.refresh();
+    };
     private static SettingsStartupLoader settingsStartup;
     private static SettingsFrameworkReader frameworkSettings;
     private static volatile boolean preferSettingsProvider;
@@ -148,6 +156,8 @@ public final class StatusBarModule extends XposedModule {
     private static DataRadioCallback dataRadioCallback;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final TextControls TEXT = new TextControls(MAIN);
+    private static final ShadeWallpaper SHADE_WALLPAPER = new ShadeWallpaper();
+    private static final WallpaperPanelState WALLPAPER_PANEL = new WallpaperPanelState();
     private static final LockscreenControls LOCKSCREEN = new LockscreenControls();
     private static final TilePageEffects TILE_EFFECTS = new TilePageEffects();
     private static final QsTileAppearance QS_APPEARANCE = new QsTileAppearance();
@@ -156,7 +166,9 @@ public final class StatusBarModule extends XposedModule {
     private static final QsPanelCorners QS_PANEL_CORNERS = new QsPanelCorners();
     private static final QsMediaAppearance QS_MEDIA = new QsMediaAppearance();
     private static final C17HighlightRemoval C17_HIGHLIGHTS = new C17HighlightRemoval();
+    private static final IconPackDrawing ICON_PACK_DRAWING = new IconPackDrawing();
     private static final Set<ClassLoader> HIGHLIGHT_LOADERS = Collections.newSetFromMap(new WeakHashMap<ClassLoader, Boolean>());
+    private static final Set<ClassLoader> KEYGUARD_PLUGIN_LOADERS = Collections.newSetFromMap(new WeakHashMap<ClassLoader, Boolean>());
     private static final NotificationBigClock BIG_CLOCK = new NotificationBigClock();
     private static final NotificationClearAppearance CLEAR_APPEARANCE = new NotificationClearAppearance();
     private static final NotificationClearMotion CLEAR_MOTION = new NotificationClearMotion();
@@ -166,8 +178,10 @@ public final class StatusBarModule extends XposedModule {
     private static final NativeDataActivity DATA_ACTIVITY = new NativeDataActivity();
     private static final SingleNetworkLabelControls SINGLE_LABEL = new SingleNetworkLabelControls();
     private static final SingleMobileIconControls SINGLE_SIGNAL = new SingleMobileIconControls();
+    private static final NativeNetworkBadgeBindings NATIVE_BADGE_BINDINGS = new NativeNetworkBadgeBindings(NATIVE_BADGE, SINGLE_SIGNAL);
     private static final NotificationNativeStack NATIVE_STACK = new NotificationNativeStack();
     private static final NetworkSpeedControls NETWORK_SPEED = new NetworkSpeedControls();
+    private static final SpeedPosition SPEED_POSITION = new SpeedPosition();
     private static volatile boolean bigClockEnabled;
     private static volatile NativeBackdropMotion notificationBackdropMotion;
     private static boolean tileDispatchLogged, tileScrollLogged, tileStateLogged;
@@ -181,7 +195,7 @@ public final class StatusBarModule extends XposedModule {
     private static final Object REFRESH_LOCK = new Object();
     private static final Object SYSTEMUI_HOOK_LOCK = new Object();
     private enum HookGroup {
-        CONTEXT, MODEL, DRAWABLE, BADGE, WIFI, SPEED, COMPOSE, NETWORK_ORDER, STATUS_HINTS, TEXT, BATTERY, DATA_SPACING, TILES, QS_APPEARANCE, QS_CORNERS, QS_ICON_SIZE, QS_PANEL_CORNERS, QS_MEDIA, BIG_CLOCK, NOTIFICATION_CLEAR, NOTIFICATION_ICONS, C17_HIGHLIGHTS
+        CONTEXT, PANEL_MODE, SHADE_WALLPAPER, MODEL, DRAWABLE, BADGE, WIFI, SPEED, COMPOSE, NETWORK_ORDER, STATUS_HINTS, TEXT, BATTERY, DATA_SPACING, TILES, QS_APPEARANCE, QS_CORNERS, QS_ICON_SIZE, QS_PANEL_CORNERS, QS_MEDIA, BIG_CLOCK, NOTIFICATION_CLEAR, NOTIFICATION_ICONS, C17_HIGHLIGHTS
     }
     private static final Set<HookGroup> COMPLETED_HOOK_GROUPS = EnumSet.noneOf(HookGroup.class);
     private static final Map<HookGroup, Set<Executable>> INSTALLED_HOOKS = new EnumMap<>(HookGroup.class);
@@ -281,6 +295,9 @@ public final class StatusBarModule extends XposedModule {
         @Override // android.graphics.drawable.Drawable
         public void draw(Canvas canvas) {
             chooseDelegate();
+            // Layout selection is independent of the iOS glyph switch. A native
+            // delegate must not paint the secondary row after its style is off.
+            if(!wifiIcon&&singleSignal&&sourceName!=null&&sourceName.contains("_stacked_secondary_"))return;
             Rect bounds = getBounds();
             float centerX = bounds.exactCenterX();
             float centerY = bounds.exactCenterY();
@@ -301,7 +318,11 @@ public final class StatusBarModule extends XposedModule {
             canvas.scale(scale, scale);
             canvas.translate(-centerX, -centerY);
             setDelegateBounds(bounds);
-            this.delegate.draw(canvas);
+            int maskTint = tintApplied ? appliedTint : nativeTintList!=null
+                    ? nativeTintList.getColorForState(getState(),nativeTintList.getDefaultColor()) : nativeTintSet ? nativeTint : Color.WHITE;
+            if (!ICON_PACK_DRAWING.drawSignal(sourceName,delegate,canvas,maskTint,nativeAlpha,
+                    delegate.getColorFilter(),singleSignal&&sourceName!=null&&sourceName.contains("_stacked_secondary_")))
+                this.delegate.draw(canvas);
             canvas.restoreToCount(iSave);
         }
 
@@ -470,6 +491,12 @@ public final class StatusBarModule extends XposedModule {
                 if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.CONTEXT) && installSystemUiContextHook(classLoader)) {
                     COMPLETED_HOOK_GROUPS.add(HookGroup.CONTEXT);
                 }
+                if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.PANEL_MODE) && installPanelModeHooks(classLoader)) {
+                    COMPLETED_HOOK_GROUPS.add(HookGroup.PANEL_MODE);
+                }
+                if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.SHADE_WALLPAPER) && installShadeWallpaperHooks(classLoader)) {
+                    COMPLETED_HOOK_GROUPS.add(HookGroup.SHADE_WALLPAPER);
+                }
                 if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.MODEL) && installNetworkModelHooks(classLoader)) {
                     COMPLETED_HOOK_GROUPS.add(HookGroup.MODEL);
                 }
@@ -558,11 +585,12 @@ public final class StatusBarModule extends XposedModule {
 
     /** Keep native bindings/current values alive; drawing and resource replacement remain bypassed. */
     private static boolean observesInSafeMode(HookGroup group, Executable executable) {
-        if (group == HookGroup.CONTEXT || group == HookGroup.MODEL) return true;
+        if (group == HookGroup.CONTEXT || group == HookGroup.MODEL || group == HookGroup.PANEL_MODE) return true;
         String ownerName = executable.getDeclaringClass().getName();
         boolean lockscreenOwner = group == HookGroup.TEXT && (ownerName.equals(LockscreenControls.SINGLE)
                 || ownerName.equals(LockscreenControls.DUAL) || ownerName.equals(LockscreenControls.RED)
-                || ownerName.equals(LockscreenControls.CUSTOM) || ownerName.equals(LockscreenControls.LOCK));
+                || ownerName.equals(LockscreenControls.CUSTOM) || ownerName.equals(LockscreenControls.LOCK)
+                || ownerName.startsWith("com.oplus.keyguard.clock."));
         // Only the Wi-Fi constructor installs a native owner/state binding. Painter/resource
         // constructors can replace drawing and must continue straight into their native code.
         if (!(executable instanceof Method)) return group == HookGroup.WIFI || lockscreenOwner;
@@ -584,7 +612,8 @@ public final class StatusBarModule extends XposedModule {
                 // Each native setter records its original value; runtime masters are off,
                 // so the corresponding TEXT method returns that same native value.
                 return name.matches("setText|setContentDescription|setTextColor|setTextSize|setTypeface|setFontVariationSettings|setLetterSpacing|setTextWithAnima|updateTextSize\\$1|setId|assignParent")
-                        || lockscreenOwner && name.matches("updateDate|updateTime|refresh|refreshDate|updateIcon|updateColorAndBackgroundVisibility");
+                        || lockscreenOwner && name.matches("updateDate|updateTime|refresh|refreshDate|updateIcon|updateColorAndBackgroundVisibility"
+                                +"|tryUpdateText|render|refreshDateMessageContent|updateDateContent");
             case SPEED:
                 return name.equals("setIconTint");
             case WIFI:
@@ -688,16 +717,32 @@ public final class StatusBarModule extends XposedModule {
                 installHook(HookGroup.NOTIFICATION_ICONS,event,chain -> {
                     View owner=(View)chain.getThisObject();
                     if (name.equals("onMeasure") || name.equals("calculateIconXTranslations")) NOTIFICATION_ICONS.beforeLayout(owner);
-                    Object result=chain.proceed();
+                    Object result;
+                    if(name.equals("calculateIconXTranslations")) {
+                        try(NotificationIconArea.SpacingScope scope=NOTIFICATION_ICONS.enterSpacingCalculation(owner)){result=chain.proceed();}
+                    }else result=chain.proceed();
+                    if(name.equals("onMeasure"))NOTIFICATION_ICONS.measureSpacing(owner,(Integer)chain.getArg(0));
                     if (name.equals("onDetachedFromWindow")) NOTIFICATION_ICONS.detach(owner);
                     else if (name.equals("onAttachedToWindow")) NOTIFICATION_ICONS.changed(owner);
                     return result;
                 });
             }
+            installNotificationIconSpacing(loader,container);
             Class<?> icon=loader.loadClass("com.android.systemui.statusbar.StatusBarIconView");
-            for(Method method:icon.getDeclaredMethods())if(method.getName().matches("setVisibleState|setNotification|setStaticDrawableColor|onDarkChanged")) {
+            Method iconDraw=icon.getDeclaredMethod("onDraw",Canvas.class);deoptimize(iconDraw);
+            installHook(HookGroup.NOTIFICATION_ICONS,iconDraw,chain->NOTIFICATION_ICONS.drawNativeIcon(
+                    (View)chain.getThisObject(),(Canvas)chain.getArg(0),chain::proceed));
+            Method glyphDraw=ImageView.class.getDeclaredMethod("onDraw",Canvas.class);deoptimize(glyphDraw);
+            installHook(HookGroup.NOTIFICATION_ICONS,glyphDraw,chain->NOTIFICATION_ICONS.drawNativeGlyph(
+                    (View)chain.getThisObject(),(Canvas)chain.getArg(0),chain::proceed));
+            for(Method method:icon.getDeclaredMethods())if(method.getName().matches("setVisibleState|setNotification|setStaticDrawableColor|setDecorColor|onDarkChanged|set|updateDrawable|maybeUpdateIconScaleDimens|updateIconDimens|setIncreasedSize|onConfigurationChanged|onLayout")) {
                 deoptimize(method);
-                installHook(HookGroup.NOTIFICATION_ICONS,method,chain -> {Object result=chain.proceed();NOTIFICATION_ICONS.changed((View)chain.getThisObject());return result;});
+                String name=method.getName();
+                installHook(HookGroup.NOTIFICATION_ICONS,method,chain -> {
+                    Object result=chain.proceed();View view=(View)chain.getThisObject();
+                    if(name.matches("setNotification|set|updateDrawable"))NOTIFICATION_ICONS.notificationChanged(view);
+                    else NOTIFICATION_ICONS.changed(view);return result;
+                });
             }
             try {
                 Class<?> binder=loader.loadClass("com.oplus.systemui.statusbar.icon.ui.binder.OplusNotificationIconAreaBinder");
@@ -711,6 +756,33 @@ public final class StatusBarModule extends XposedModule {
             } catch(ClassNotFoundException|NoSuchMethodException olderStatusBar) { }
             return true;
         } catch(Throwable unsupported) {moduleLog(Log.WARN,TAG,"Native notification icon customization unavailable",unsupported);return false;}
+    }
+
+    private void installNotificationIconSpacing(ClassLoader loader,Class<?> container) {
+        NOTIFICATION_ICONS.setSpacingReady(false);
+        try {
+            container.getDeclaredMethod("onMeasure",Integer.TYPE,Integer.TYPE);
+            container.getDeclaredMethod("calculateIconXTranslations");
+            Method advance=loader.loadClass("androidx.compose.material3.internal.colorUtil.Cam$$ExternalSyntheticOutline0")
+                    .getDeclaredMethod("m",Float.TYPE,Float.TYPE,Float.TYPE,Float.TYPE);
+            deoptimize(advance);
+            installHook(HookGroup.NOTIFICATION_ICONS,advance,chain->{
+                if(!NOTIFICATION_ICONS.needsSpacingAdvance())return chain.proceed();
+                float nativeResult=(Float)chain.proceed();
+                return NOTIFICATION_ICONS.spacingAdvance(nativeResult,(Float)chain.getArg(0),(Float)chain.getArg(1),(Float)chain.getArg(2));
+            });
+            Method overflow=container.getDeclaredMethod("isOverflowing",Boolean.TYPE,Float.TYPE,Float.TYPE,Float.TYPE);
+            deoptimize(overflow);
+            installHook(HookGroup.NOTIFICATION_ICONS,overflow,chain->{
+                if(!NOTIFICATION_ICONS.needsSpacingAdvance())return chain.proceed();
+                Object[] nativeArgs=chain.getArgs().toArray(),adjusted=NOTIFICATION_ICONS.adjustSpacingOverflow(nativeArgs);
+                return adjusted==nativeArgs?chain.proceed():chain.proceed(adjusted);
+            });
+            NOTIFICATION_ICONS.setSpacingReady(true);
+        }catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable) {
+            NOTIFICATION_ICONS.setSpacingReady(false);
+            moduleLog(Log.INFO,TAG,"Optional native notification spacing unavailable; preserving native layout",unavailable);
+        }
     }
 
     private static String diagnosticMessage(String message) {
@@ -1086,7 +1158,9 @@ public final class StatusBarModule extends XposedModule {
                     try { original = reader.copiedSource(copy); }
                     catch (Throwable unavailable) { return chain.proceed(); }
                     BIG_CLOCK.onStatusIconCopyBound(copy, original, kind);
-                    return BIG_CLOCK.suppressStatusIconCopy(copy, original, kind) ? null : chain.proceed();
+                    boolean suppressed = BIG_CLOCK.suppressStatusIconCopy(copy, original, kind);
+                    BIG_CLOCK.onStatusIconCopyDrawDecision(copy, original, kind, suppressed);
+                    return suppressed ? null : chain.proceed();
                 });
                 copiesInstalled++;
             }
@@ -1461,6 +1535,12 @@ public final class StatusBarModule extends XposedModule {
         return null;
     }
 
+    private static Method requiredMethod(Class<?> type, String name, Class<?>... parameters) throws NoSuchMethodException {
+        Method result = optionalMethod(type, name, parameters);
+        if (result == null) throw new NoSuchMethodException(type.getName() + "." + name);
+        return result;
+    }
+
     private static Field accessibleField(Class<?> type, String name) throws NoSuchFieldException {
         Field field = type.getDeclaredField(name); field.setAccessible(true); return field;
     }
@@ -1565,6 +1645,8 @@ public final class StatusBarModule extends XposedModule {
             BIG_CLOCK.onPanelChanged((View) panelView.get(controller), displayedFraction, barState.getInt(controller), inQs);
             CLEAR_MOTION.onPanelChanged((View) panelView.get(controller), displayedFraction,
                     barState.getInt(controller), settledClosed);
+            WALLPAPER_PANEL.changed((View) panelView.get(controller), false, barState.getInt(controller),
+                    displayedFraction, settledClosed);
             readVertical(controller, animation);
             if (backdropMotion != null) backdropMotion.finishIfIdle();
         }
@@ -1981,6 +2063,7 @@ public final class StatusBarModule extends XposedModule {
             String root = "com.oplus.systemui.statusbar.pipeline.battery.ui.";
             Class<?> meter = loader.loadClass(root + "view.StatBatteryMeterView");
             Class<?> horizontal = loader.loadClass(root + "drawable.HorizontalBatteryContentDrawable");
+            ICON_PACK_DRAWING.bindBatteryClass(horizontal);
             Class<?> charge = loader.loadClass(root + "model.ChargeIcon");
             Class<?> binder = loader.loadClass(root + "binder.BatteryViewBinder");
             BatteryControls controls = BATTERY;
@@ -2002,14 +2085,15 @@ public final class StatusBarModule extends XposedModule {
                 return chain.proceed();
             });
             installHook(HookGroup.BATTERY,horizontal.getDeclaredMethod("draw",Canvas.class),chain->{
-                controller.prepareDraw((Drawable)chain.getThisObject());return chain.proceed();
+                Drawable drawable=(Drawable)chain.getThisObject();controller.prepareDraw(drawable);
+                try(IconPackDrawing.BatteryScope scope=ICON_PACK_DRAWING.beginBattery(drawable)){return chain.proceed();}
             });
             for (String event : new String[]{"onAttachedToWindow", "onDetachedFromWindow"}) {
                 final boolean attached = event.equals("onAttachedToWindow");
                 installHook(HookGroup.BATTERY, meter.getDeclaredMethod(event), chain -> {
                     Object result = chain.proceed();
                     View view = (View) chain.getThisObject();
-                    if (attached) { initializeContext(view.getContext()); controller.attach(view); }
+                    if (attached) { initializeContext(view.getContext()); controller.attach(view); ICON_PACK_DRAWING.syncBattery(view,null); }
                     else controller.detach(view);
                     return result;
                 });
@@ -2019,6 +2103,7 @@ public final class StatusBarModule extends XposedModule {
                     installHook(HookGroup.BATTERY, method, chain -> {
                         Object result = chain.proceed();
                         controller.sync((View) chain.getArg(1), chain.getArg(2), (View) chain.getArg(0));
+                        ICON_PACK_DRAWING.syncBattery((View)chain.getArg(1),chain.getArg(2));
                         return result;
                     });
                 } else if (method.getName().equals("bind$updateBatteryContentView")
@@ -2027,6 +2112,7 @@ public final class StatusBarModule extends XposedModule {
                     installHook(HookGroup.BATTERY, method, chain -> {
                         Object result = chain.proceed();
                         controller.sync((View) chain.getArg(ownerIndex));
+                        ICON_PACK_DRAWING.syncBattery((View)chain.getArg(ownerIndex),null);
                         return result;
                     });
                 }
@@ -2035,7 +2121,8 @@ public final class StatusBarModule extends XposedModule {
             for (Method method : meter.getDeclaredMethods()) {
                 if (method.getName().equals("setBatteryCharge") || method.getName().equals("setBatteryStyleDrawable")) {
                     installHook(HookGroup.BATTERY, method, chain -> {
-                        Object result = chain.proceed(); controller.sync((View) chain.getThisObject()); return result;
+                        Object result = chain.proceed(); controller.sync((View) chain.getThisObject());
+                        ICON_PACK_DRAWING.syncBattery((View)chain.getThisObject(),null); return result;
                     });
                 }
             }
@@ -2170,10 +2257,21 @@ public final class StatusBarModule extends XposedModule {
             Method drawIcon=extension.getDeclaredMethod("drawIcon",Canvas.class);deoptimize(drawIcon);
             installHook(HookGroup.C17_HIGHLIGHTS,drawIcon,chain ->
                     C17_HIGHLIGHTS.deferNotificationIcon(chain.getThisObject(),(Canvas)chain.getArg(0))?null:chain.proceed());
+            Method changed=extension.getDeclaredMethod("onHeadsUpStateChanged",boolean.class);deoptimize(changed);
+            installHook(HookGroup.C17_HIGHLIGHTS,changed,chain -> {
+                Object result=chain.proceed(); C17_HIGHLIGHTS.notificationStateChanged(chain.getThisObject()); return result;
+            });
             Class<?> background=loader.loadClass("com.android.systemui.statusbar.notification.row.NotificationBackgroundView");
             for(Method method:background.getDeclaredMethods())if(method.getName().equals("onDraw"))deoptimize(method);
         } catch (Throwable unavailable) {
             moduleLog(Log.INFO,TAG,"Optional native notification color branches unavailable",unavailable);
+        }
+        try {
+            Class<?> edge=loader.loadClass("com.oplus.systemui.notification.material.HeadsUpShadowEdgeController");
+            Method draw=edge.getDeclaredMethod("draw",Canvas.class,View.class,android.graphics.Rect.class);deoptimize(draw);
+            installHook(HookGroup.C17_HIGHLIGHTS,draw,chain -> C17_HIGHLIGHTS.skipHeadsUpEdge((View)chain.getArg(1))?null:chain.proceed());
+        } catch (Throwable unavailable) {
+            moduleLog(Log.INFO,TAG,"Optional heads-up highlight edge unavailable",unavailable);
         }
         for (String name : new String[]{"com.oplus.systemui.notification.material.NotificationSpotLightDelegate$Companion",
                 "com.oplus.systemui.qs.base.spotlight.SharedSpotLightEffect", "com.coui.appcompat.spotlight.COUISpotLightEffectDrawable",
@@ -2850,6 +2948,7 @@ public final class StatusBarModule extends XposedModule {
                     Object result = chain.proceed();
                     TEXT.classificationChanged((View) chain.getThisObject());
                     LOCKSCREEN.classificationChanged((View) chain.getThisObject());
+                    observeLockscreenPlugin((View) chain.getThisObject());
                     return result;
                 });
             }
@@ -2972,6 +3071,7 @@ public final class StatusBarModule extends XposedModule {
                 final boolean attach=name.equals("onAttachedToWindow");
                 installHook(HookGroup.TEXT,View.class.getDeclaredMethod(name),chain->{
                     Object result=chain.proceed();View view=(View)chain.getThisObject();
+                    if(attach)observeLockscreenPlugin(view);
                     if(attach)LOCKSCREEN.attach(view);else LOCKSCREEN.detach(view);
                     if(QsTileAppearance.isDeviceCard(view)) {
                         if(attach)QS_APPEARANCE.refreshDeviceCard(view);else QS_APPEARANCE.detach(view);
@@ -3154,6 +3254,50 @@ public final class StatusBarModule extends XposedModule {
         }
     }
 
+    private void observeLockscreenPlugin(View view) {
+        if(view==null||!view.getClass().getName().startsWith("com.oplus.keyguard.clock."))return;
+        ClassLoader loader=view.getClass().getClassLoader();if(loader==null)return;
+        synchronized(SYSTEMUI_HOOK_LOCK){if(!KEYGUARD_PLUGIN_LOADERS.add(loader))return;}
+        try {
+            int updates=0;
+            for(String name:new String[]{LockscreenControls.PLUGIN_DATE,LockscreenControls.PLUGIN_BASE_DATE})try {
+                Class<?> type=loader.loadClass(name);
+                for(Method method:type.getDeclaredMethods()) {
+                    if(Modifier.isStatic(method.getModifiers())||Modifier.isAbstract(method.getModifiers()))continue;
+                    if(!method.getName().matches("onFinishInflate|onAttachedToWindow|onConfigurationChanged|render|refreshDateMessageContent|updateDateContent"))continue;
+                    deoptimize(method);
+                    installHook(HookGroup.TEXT,method,chain->{
+                        Object owner=chain.getThisObject();LOCKSCREEN.onPluginClockUpdated(owner);
+                        Object result=chain.proceed();LOCKSCREEN.onPluginClockUpdated(owner);return result;
+                    });
+                    updates++;
+                }
+                // A suspended native render resumes in its generated continuation.
+                try{for(Method caller:loader.loadClass(name+"$render$1").getDeclaredMethods())
+                    if(caller.getName().equals("invokeSuspend"))deoptimize(caller);}
+                catch(ClassNotFoundException synchronous){ }
+            }catch(ClassNotFoundException optionalStyle){ }
+            for(String name:new String[]{LockscreenControls.PLUGIN_DIGITAL_TEXT,LockscreenControls.PLUGIN_BASE_TEXT,
+                    LockscreenControls.PLUGIN_HDR_TEXT})try {
+                Class<?> type=loader.loadClass(name);boolean hdr=name.equals(LockscreenControls.PLUGIN_HDR_TEXT);
+                Method writer=hdr?type.getDeclaredMethod("setText",CharSequence.class,TextView.BufferType.class)
+                        :type.getDeclaredMethod("tryUpdateText",CharSequence.class);
+                deoptimize(writer);
+                installHook(HookGroup.TEXT,writer,chain->{
+                    CharSequence input=(CharSequence)chain.getArg(0);
+                    try(LockscreenControls.NativeDateWrite scope=LOCKSCREEN.beginPluginDateWrite((TextView)chain.getThisObject(),input)) {
+                        if(scope==null||scope.text()==input)return chain.proceed();
+                        Object[] args=chain.getArgs().toArray();args[0]=scope.text();return chain.proceed(args);
+                    }
+                });
+            }catch(ClassNotFoundException optionalStyle){ }
+            moduleLog(Log.INFO,TAG,"Native keyguard plugin date writers connected; update entries "+updates);
+        }catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable) {
+            synchronized(SYSTEMUI_HOOK_LOCK){KEYGUARD_PLUGIN_LOADERS.remove(loader);}
+            moduleLog(Log.WARN,TAG,"Native keyguard plugin date hooks unavailable; preserving native dates",unavailable);
+        }
+    }
+
     private static void scanHeaderText(View view) {
         if(view instanceof TextView&&TEXT.kind(view)!=TextControls.NONE) {
             initializeContext(view.getContext());TEXT.attach((TextView)view);allowDrawableOverflow(view);
@@ -3184,6 +3328,7 @@ public final class StatusBarModule extends XposedModule {
             }
             speedNumberField = speed.getField("mSpeedNumber");
             speedUnitField = speed.getField("mSpeedUnit");
+            installSpeedPosition(loader,speed);
             for(Method caller:speed.getDeclaredMethods())
                 if(caller.getName().matches("onDarkChanged|onLayout|setStaticDrawableColor|setFontTypeface|onConfigurationChanged"))deoptimize(caller);
             try {
@@ -3212,13 +3357,14 @@ public final class StatusBarModule extends XposedModule {
                 Object result = chain.proceed();
                 View view = (View) chain.getThisObject();
                 MAIN.post(() -> {
+                    SPEED_POSITION.attached(view);
                     allowDrawableOverflow(view);
                     applySpeedStyle(view, speedStyleFor(view));
                 });
                 return result;
             });
             installHook(HookGroup.SPEED,speed.getDeclaredMethod("onDetachedFromWindow"),chain->{
-                Object result=chain.proceed();NETWORK_SPEED.onViewDetached((View)chain.getThisObject());releaseOverflow((View)chain.getThisObject());return result;
+                Object result=chain.proceed();SPEED_POSITION.detached((View)chain.getThisObject());NETWORK_SPEED.onViewDetached((View)chain.getThisObject());releaseOverflow((View)chain.getThisObject());return result;
             });
             for (Method method : speed.getDeclaredMethods()) {
                 if (!method.getName().matches("onLayout|applyNetworkState")) continue;
@@ -3226,6 +3372,7 @@ public final class StatusBarModule extends XposedModule {
                 installHook(HookGroup.SPEED, method, chain -> {
                     Object result=chain.proceed();View host=(View)chain.getThisObject();
                     NETWORK_SPEED.apply(host,(TextView)speedNumberField.get(host),(TextView)speedUnitField.get(host));
+                    SPEED_POSITION.nativeUpdated(host);
                     return result;
                 });
             }
@@ -3257,6 +3404,50 @@ public final class StatusBarModule extends XposedModule {
             moduleLog(Log.ERROR, TAG, "Could not bind live throughput controls", error);
             return false;
         }
+    }
+
+    private void installSpeedPosition(ClassLoader loader,Class<?> speed) {
+        try {
+            SPEED_POSITION.resolve(loader);
+            Method blocked=speed.getDeclaredMethod("isIconBlocked");deoptimize(blocked);
+            installHook(HookGroup.SPEED,blocked,chain->SPEED_POSITION.iconBlocked((View)chain.getThisObject(),(Boolean)chain.proceed()));
+            Class<?> container=loader.loadClass("com.android.systemui.statusbar.phone.StatusIconContainer");
+            Class<?> state=loader.loadClass("com.android.systemui.statusbar.phone.StatusIconContainer$StatusIconState");
+            // All three allocation phases are required; never activate a partial mirror installation.
+            container.getDeclaredMethod("onMeasure",Integer.TYPE,Integer.TYPE);
+            container.getDeclaredMethod("onLayout",Boolean.TYPE,Integer.TYPE,Integer.TYPE,Integer.TYPE,Integer.TYPE);
+            container.getDeclaredMethod("updateStates");
+            Method apply=state.getDeclaredMethod("applyToView",View.class);deoptimize(apply);
+            installHook(HookGroup.SPEED,apply,chain->{SPEED_POSITION.beforeApply(chain.getThisObject(),(View)chain.getArg(0));return chain.proceed();});
+            for(Method method:container.getDeclaredMethods()) {
+                String name=method.getName();
+                if(name.equals("onMeasure")||name.equals("updateStates")) {
+                    final boolean targets=name.equals("updateStates");deoptimize(method);
+                    installHook(HookGroup.SPEED,method,chain->{
+                        try(SpeedPosition.Scope scope=SPEED_POSITION.begin((ViewGroup)chain.getThisObject(),targets)){return chain.proceed();}
+                    });
+                }else if(name.equals("onLayout")) {
+                    deoptimize(method);installHook(HookGroup.SPEED,method,chain->{SPEED_POSITION.beforeLayout((ViewGroup)chain.getThisObject());return chain.proceed();});
+                }else if(name.matches("onViewAdded|onViewRemoved|onConfigurationChanged|onAttachedToWindow|onDetachedFromWindow|addIgnoredSlot|addIgnoredSlots|removeIgnoredSlot|removeIgnoredSlots")) {
+                    deoptimize(method);installHook(HookGroup.SPEED,method,chain->{
+                        Object result=chain.proceed();ViewGroup parent=(ViewGroup)chain.getThisObject();
+                        if(name.equals("onDetachedFromWindow"))SPEED_POSITION.detached(parent);else SPEED_POSITION.changed(parent);return result;
+                    });
+                }
+            }
+            try {
+                Class<?> runnable=loader.loadClass("com.android.systemui.statusbar.phone.StatusIconContainer$1");
+                for(Method method:runnable.getDeclaredMethods())if(method.getName().equals("run"))deoptimize(method);
+            }catch(ClassNotFoundException noDeferredLayout){}
+            Method color=TextView.class.getDeclaredMethod("setTextColor",Integer.TYPE);deoptimize(color);
+            installHook(HookGroup.SPEED,color,chain->{Object result=chain.proceed();SPEED_POSITION.clockTintChanged((View)chain.getThisObject());return result;});
+            for(Method method:speed.getDeclaredMethods())if(method.getName().equals("setBlocked")) {
+                deoptimize(method);installHook(HookGroup.SPEED,method,chain->{Object result=chain.proceed();SPEED_POSITION.nativeUpdated((View)chain.getThisObject());return result;});
+            }
+            Method changeSlot=speed.getDeclaredMethod("setSlot",String.class);deoptimize(changeSlot);
+            installHook(HookGroup.SPEED,changeSlot,chain->{Object result=chain.proceed();SPEED_POSITION.slotChanged((View)chain.getThisObject());return result;});
+            SPEED_POSITION.setHooksReady(true);
+        }catch(Throwable unsupported){SPEED_POSITION.setHooksReady(false);moduleLog(Log.WARN,TAG,"Throughput placement unavailable; keeping native ownership",unsupported);}
     }
 
     private static SpeedStyle speedStyleFor(View view) {
@@ -3423,6 +3614,17 @@ public final class StatusBarModule extends XposedModule {
             Class<?> container=loader.loadClass("com.android.systemui.statusbar.phone.StatusIconContainer");
             Class<?> icon=loader.loadClass("com.android.systemui.statusbar.StatusBarIconView");
             Class<?> state=loader.loadClass("com.android.systemui.statusbar.phone.StatusIconContainer$StatusIconState");
+            // Native getter creates a glyph before storing the incoming StatusBarIcon model.
+            // Retain its drawable dimensions and only replace the mask at draw time.
+            for(Method method:icon.getDeclaredMethods())if(method.getName().equals("getIcon")
+                    &&method.getParameterCount()==1&&Drawable.class.isAssignableFrom(method.getReturnType())
+                    &&method.getParameterTypes()[0].getName().equals("com.android.internal.statusbar.StatusBarIcon")) {
+                deoptimize(method);
+                installHook(HookGroup.STATUS_HINTS,method,chain->{
+                    Drawable nativeGraphic=(Drawable)chain.proceed();
+                    return ICON_PACK_DRAWING.wrapHint((View)chain.getThisObject(),chain.getArg(0),nativeGraphic);
+                });
+            }
             Method childAt=ViewGroup.class.getDeclaredMethod("getChildAt",Integer.TYPE);
             deoptimize(childAt);
             installHook(HookGroup.STATUS_HINTS,childAt,chain->{
@@ -3768,9 +3970,12 @@ public final class StatusBarModule extends XposedModule {
                     if(!NATIVE_BADGE.needsAdjustment(chain.getArg(2),chain.getArg(10)))return chain.proceed();
                     Object[] nativeArgs=chain.getArgs().toArray();
                     Object[] adjusted=NATIVE_BADGE.adjustText(nativeArgs,context==null?1f:context.getResources().getDisplayMetrics().density,context);
-                    return adjusted==nativeArgs?chain.proceed():chain.proceed(adjusted);
+                    try(NativeNetworkBadgeControls.TextScope scope=NATIVE_BADGE.enterText(adjusted,context)) {
+                        return adjusted==nativeArgs?chain.proceed():chain.proceed(adjusted);
+                    }
                 });
             }
+            installNativeBadgeParts(loader);
             Class<?> nativeRestart=loader.loadClass("com.android.systemui.statusbar.pipeline.shared.ui.composable.OplusStackedMobileIconLayoutStrategyKt$$ExternalSyntheticLambda5");
             for(Method method:nativeRestart.getDeclaredMethods())if(method.getName().equals("invoke"))deoptimize(method);
             if (!labelInstalled) throw new NoSuchMethodException("Compose network label");
@@ -3829,6 +4034,83 @@ public final class StatusBarModule extends XposedModule {
         }
     }
 
+    /** The OEM builds one AnnotatedString from two native spans. Keep its node/slot
+     * structure, and scope the platform glyph offsets to that text's drawWithContent. */
+    private void installNativeBadgeParts(ClassLoader loader) {
+        NATIVE_BADGE.setTypographyReady(false);
+        NATIVE_BADGE.setDrawRunsReady(false);
+        try {
+            Class<?> node=loader.loadClass("androidx.compose.foundation.text.modifiers.TextAnnotatedStringNode");
+            Field overflow=node.getField("overflow");
+            Object companion=loader.loadClass("androidx.compose.ui.text.style.TextOverflow").getField("Companion").get(null);
+            int visible=((Number)companion.getClass().getMethod("getVisible-gIe3tQ8").invoke(companion)).intValue();
+            Method draw=node.getMethod("draw",loader.loadClass("androidx.compose.ui.graphics.drawscope.ContentDrawScope"));
+            deoptimize(draw);
+            installHook(HookGroup.COMPOSE,draw,chain->{
+                if(!NATIVE_BADGE.needsRunAdjustment())return chain.proceed();
+                Object owner=chain.getThisObject();int nativeOverflow=overflow.getInt(owner);
+                overflow.setInt(owner,visible);
+                try { return chain.proceed(); }
+                finally { overflow.setInt(owner,nativeOverflow); }
+            });
+        }catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable) {
+            moduleLog(Log.INFO,TAG,"Optional native badge text overflow unavailable",unavailable);
+        }
+        try {
+            Class<?> span=loader.loadClass("androidx.compose.ui.text.SpanStyle");
+            Constructor<?> constructor=span.getDeclaredConstructor(Long.TYPE,Long.TYPE,
+                    loader.loadClass("androidx.compose.ui.text.font.FontWeight"),
+                    loader.loadClass("androidx.compose.ui.text.font.FontStyle"),
+                    loader.loadClass("androidx.compose.ui.text.font.FontSynthesis"),
+                    loader.loadClass("androidx.compose.ui.text.font.FontFamily"),String.class,Long.TYPE,
+                    loader.loadClass("androidx.compose.ui.text.style.BaselineShift"),
+                    loader.loadClass("androidx.compose.ui.text.style.TextGeometricTransform"),
+                    loader.loadClass("androidx.compose.ui.text.intl.LocaleList"),Long.TYPE,
+                    loader.loadClass("androidx.compose.ui.text.style.TextDecoration"),
+                    loader.loadClass("androidx.compose.ui.graphics.Shadow"),Integer.TYPE);
+            installHook(HookGroup.COMPOSE,constructor,chain->{
+                if(!NATIVE_BADGE.needsSpanAdjustment())return chain.proceed();
+                Object[] nativeArgs=chain.getArgs().toArray();
+                Object[] adjusted=NATIVE_BADGE.adjustSpanStyle(nativeArgs);
+                return adjusted==nativeArgs?chain.proceed():chain.proceed(adjusted);
+            });
+            moduleLog(Log.INFO,TAG,"Native badge typography "+(NATIVE_BADGE.setTypographyReady(true)?"connected":"unavailable"));
+        }catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable) {
+            NATIVE_BADGE.setTypographyReady(false);
+            moduleLog(Log.INFO,TAG,"Optional native badge typography unavailable",unavailable);
+        }
+        try {
+            Set<Method> draws=new HashSet<>();
+            boolean chars=false,sequence=false;
+            for(String name:new String[]{"android.graphics.Canvas","android.graphics.BaseRecordingCanvas","android.graphics.RecordingCanvas"}) {
+                Class<?> canvas;
+                try{canvas=loader.loadClass(name);}catch(ClassNotFoundException optional){continue;}
+                for(Class<?> input:new Class<?>[]{CharSequence.class,char[].class}) {
+                    Method draw;
+                    try{draw=canvas.getDeclaredMethod("drawTextRun",input,Integer.TYPE,Integer.TYPE,Integer.TYPE,Integer.TYPE,
+                            Float.TYPE,Float.TYPE,Boolean.TYPE,Paint.class);}
+                    catch(NoSuchMethodException inherited){continue;}
+                    if(Modifier.isAbstract(draw.getModifiers())||!draws.add(draw))continue;
+                    final boolean array=input==char[].class;
+                    deoptimize(draw);
+                    installHook(HookGroup.COMPOSE,draw,chain->{
+                        if(!NATIVE_BADGE.needsRunAdjustment())return chain.proceed();
+                        try(NativeNetworkBadgeControls.RunScope scope=NATIVE_BADGE.enterRun()) {
+                            Object[] nativeArgs=chain.getArgs().toArray();Object[] adjusted=scope.adjust(nativeArgs,array);
+                            return adjusted==nativeArgs?chain.proceed():chain.proceed(adjusted);
+                        }
+                    });
+                    if(array)chars=true;else sequence=true;
+                }
+            }
+            if(!chars||!sequence)throw new NoSuchMethodException("Native badge drawTextRun");
+            moduleLog(Log.INFO,TAG,"Native two-part network badge drawing "+(NATIVE_BADGE.setDrawRunsReady(true)?"connected":"unavailable"));
+        }catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable) {
+            NATIVE_BADGE.setDrawRunsReady(false);
+            moduleLog(Log.INFO,TAG,"Optional native badge offsets unavailable; retaining typography",unavailable);
+        }
+    }
+
     private static void invalidateComposeStyle() {
         if (composeStyleRevision == null || readComposeRevision == null || writeComposeRevision == null) {
             return;
@@ -3853,6 +4135,241 @@ public final class StatusBarModule extends XposedModule {
         } catch (Throwable th) {
             moduleLog(Log.ERROR, TAG, "Could not bind early SystemUI context initialization", th);
             return false;
+        }
+    }
+
+    /** Observe the concrete OS17 result; QuickSettingsController may return false for a missing Lazy. */
+    private boolean installPanelModeHooks(ClassLoader loader) {
+        boolean installed = false;
+        String[][] readers = {
+                {"com.oplus.systemui.separate.data.repository.OplusPanelModeRepository", "resolveSeparateMode"},
+                {"com.oplus.systemui.separate.OplusSeparateNotificationAndQSExImpl", "enableSeparateNotificationAndQS"}};
+        for (String[] reader : readers) try {
+            Method method = loader.loadClass(reader[0]).getDeclaredMethod(reader[1]);
+            if (method.getReturnType() != Boolean.TYPE) continue;
+            deoptimize(method);
+            installHook(HookGroup.PANEL_MODE, method, chain -> {
+                Object result = chain.proceed();
+                if (result instanceof Boolean && PanelMode.report((Boolean) result)) schedulePanelModeChanged();
+                return result;
+            });
+            installed = true;
+        } catch (Throwable unavailable) {
+            moduleLog(Log.INFO, TAG, "Optional native panel mode reader unavailable: " + reader[0]);
+        }
+        return installed;
+    }
+
+    /** One fixed shade window draws behind both horizontally moving native pages. */
+    private boolean installShadeWallpaperHooks(ClassLoader loader) {
+        if (!ShadeWallpaperSettings.available()) return true;
+        try {
+            Class<?> root = loader.loadClass("com.android.systemui.shade.NotificationShadeWindowView");
+            Class<?> pager = loader.loadClass("com.oplus.systemui.separate.OplusPanelViewPager");
+            Method dispatch = requiredMethod(root, "drawChild", Canvas.class, View.class, Long.TYPE);
+            deoptimize(dispatch);
+            installHook(HookGroup.SHADE_WALLPAPER, dispatch, chain -> {
+                // super_notification_shade places the native blur/scrims before this pager.
+                // Paint after those siblings, before the pager's own transform and controls.
+                if (root.isInstance(chain.getThisObject()) && pager.isInstance(chain.getArg(1)))
+                    SHADE_WALLPAPER.draw((View) chain.getThisObject(), (Canvas) chain.getArg(0));
+                return chain.proceed();
+            });
+            Method detached = requiredMethod(root, "onDetachedFromWindow");
+            installHook(HookGroup.SHADE_WALLPAPER, detached, chain -> {
+                SHADE_WALLPAPER.onDetached((View) chain.getThisObject());
+                WALLPAPER_PANEL.detached((View) chain.getThisObject()); return chain.proceed();
+            });
+            installShadeWallpaperHorizontalHooks(loader);
+            installShadeWallpaperQsHooks(loader);
+            return true;
+        } catch (Throwable unavailable) {
+            moduleLog(Log.WARN, TAG, "Fixed native shade wallpaper host unavailable; retaining native background", unavailable);
+            return false;
+        }
+    }
+
+    private static View fixedShadeRoot(View panel) {
+        if (panel == null) return null;
+        View root = panel.getRootView();
+        for (Class<?> type = root == null ? null : root.getClass(); type != null; type = type.getSuperclass())
+            if (type.getName().equals("com.android.systemui.shade.NotificationShadeWindowView")) return root;
+        return null;
+    }
+
+    /** Notification and separate-QS have independent vertical springs in the same fixed window. */
+    private static final class WallpaperPanelState {
+        WeakReference<View> root = new WeakReference<>(null);
+        float notificationFraction, qsFraction;
+        boolean notificationClosed = true, qsClosed = true;
+        int state = -1;
+        void changed(View panel, boolean qs, int barState, float fraction, boolean closed) {
+            if (!ShadeWallpaperSettings.available()) return;
+            View fixed = fixedShadeRoot(panel);
+            if (fixed == null || !Float.isFinite(fraction)) return;
+            if (root.get() != fixed) { reset(); root = new WeakReference<>(fixed); }
+            state = barState;
+            if (qs) { qsFraction = fraction; qsClosed = closed; }
+            else { notificationFraction = fraction; notificationClosed = closed; }
+            publish();
+        }
+        void qsDetached(View panel) {
+            if (!ShadeWallpaperSettings.available()) return;
+            if (fixedShadeRoot(panel) != root.get()) return;
+            qsFraction = 0f; qsClosed = true; publish();
+        }
+        void publish() {
+            if (!ShadeWallpaperSettings.available()) return;
+            boolean separate = PanelMode.SEPARATE.equals(PanelMode.current());
+            if (separate) {
+                if (notificationClosed && !qsClosed) SHADE_WALLPAPER.onHorizontalProgress(1f);
+                else if (qsClosed && !notificationClosed) SHADE_WALLPAPER.onHorizontalProgress(0f);
+            }
+            SHADE_WALLPAPER.onPanelChanged(root.get(), PanelMode.current(), state,
+                    separate ? Math.max(notificationFraction, qsFraction) : notificationFraction,
+                    notificationClosed && (!separate || qsClosed));
+        }
+        void detached(View view) { if (root.get() == view) reset(); }
+        void reset() { root.clear(); notificationFraction = qsFraction = 0f; notificationClosed = qsClosed = true; state = -1; }
+    }
+
+    private void installShadeWallpaperQsHooks(ClassLoader loader) {
+        try {
+            Class<?> component = loader.loadClass(StatusBarQsIconAccess.COMPONENT);
+            Class<?> listener = loader.loadClass(StatusBarQsIconAccess.LISTENER);
+            Field listenerOwner = accessibleField(listener, "this$0");
+            WallpaperQsAccess access = new WallpaperQsAccess(component);
+            for (Method event : listener.getDeclaredMethods()) {
+                if (!event.getName().matches("onFractionChanged|onFractionEnd")) continue;
+                deoptimize(event);
+                installHook(HookGroup.SHADE_WALLPAPER, event, chain -> {
+                    Object result = chain.proceed(); access.changed(listenerOwner.get(chain.getThisObject())); return result;
+                });
+            }
+            for (Method event : component.getDeclaredMethods()) {
+                String name = event.getName();
+                if (!name.matches("onViewAttached|onViewDetached|onDestroy|onTrackingStarted\\$1|onTrackingStopped\\$1"
+                        + "|expandQSPanelWithoutAnimate|collapseQSPanelWithoutAnimate|updateStatusBarTopMargin")) continue;
+                deoptimize(event);
+                installHook(HookGroup.SHADE_WALLPAPER, event, chain -> {
+                    Object result = chain.proceed();
+                    if (name.equals("onViewDetached") || name.equals("onDestroy")) access.detached(chain.getThisObject());
+                    else access.changed(chain.getThisObject());
+                    return result;
+                });
+            }
+        } catch (Throwable unavailable) {
+            moduleLog(Log.WARN, TAG, "Separate-QS wallpaper visibility unavailable; notification/combined panel retained", unavailable);
+        }
+    }
+
+    private static final class WallpaperQsAccess {
+        final Field view, fraction, stub;
+        final Method keyguard;
+        WeakReference<Object> current = new WeakReference<>(null);
+        WeakReference<View> panel = new WeakReference<>(null);
+        WallpaperQsAccess(Class<?> component) throws ReflectiveOperationException {
+            view = accessibleField(component, "mView"); fraction = accessibleField(component, "curRawFraction");
+            stub = accessibleField(component, "stub"); keyguard = requiredMethod(stub.getType(), "isKeyguardShowing");
+        }
+        void changed(Object component) {
+            try {
+                View nativePanel = (View) view.get(component);
+                Object host = stub.get(component);
+                if (nativePanel == null || !nativePanel.isAttachedToWindow() || host == null) { detached(component); return; }
+                float displayed = fraction.getFloat(component);
+                if (!Float.isFinite(displayed)) return;
+                current = new WeakReference<>(component); panel = new WeakReference<>(nativePanel);
+                WALLPAPER_PANEL.changed(nativePanel, true, Boolean.TRUE.equals(keyguard.invoke(host)) ? 1 : 0,
+                        displayed, displayed <= 0f);
+            } catch (ReflectiveOperationException | RuntimeException unavailable) { detached(component); }
+        }
+        void detached(Object component) {
+            if (current.get() != component) return;
+            WALLPAPER_PANEL.qsDetached(panel.get()); current.clear(); panel.clear();
+        }
+    }
+
+    private void installShadeWallpaperHorizontalHooks(ClassLoader loader) {
+        try {
+            Class<?> pager = loader.loadClass("com.oplus.systemui.separate.OplusPanelViewPagerController");
+            StatusBarIconPageMotion motion = new StatusBarIconPageMotion(loader, pager);
+            WallpaperHorizontalAccess access = new WallpaperHorizontalAccess(pager, motion);
+            deoptimize(motion.animatedValue);
+            installHook(HookGroup.SHADE_WALLPAPER, motion.animatedValue, chain -> {
+                Object result = chain.proceed();
+                if (motion.owns(chain.getThisObject())) access.animated();
+                return result;
+            });
+            for (Method event : pager.getDeclaredMethods()) {
+                if (!event.getName().matches("onInit|ensureProgressiveHelperReady|resetHorizontalTranslationView|syncHorizontalTranslationDown")) continue;
+                deoptimize(event);
+                installHook(HookGroup.SHADE_WALLPAPER, event, chain -> {
+                    Object result = chain.proceed(); access.bind(chain.getThisObject(),
+                            event.getName().equals("onInit") || event.getName().equals("resetHorizontalTranslationView")); return result;
+                });
+            }
+        } catch (Throwable unavailable) {
+            moduleLog(Log.WARN, TAG, "Native wallpaper horizontal spring unavailable; static page background retained", unavailable);
+        }
+    }
+
+    private static final class WallpaperHorizontalAccess {
+        final Field origin;
+        final Method readablePanel;
+        final StatusBarIconPageMotion motion;
+        WeakReference<Object> pager = new WeakReference<>(null);
+        WallpaperHorizontalAccess(Class<?> type, StatusBarIconPageMotion motion) throws ReflectiveOperationException {
+            this.motion = motion; origin = accessibleField(type, "downExpanded");
+            readablePanel = requiredMethod(type, "resolveReadablePanelForTranslationX");
+        }
+        void bind(Object controller, boolean settledEndpoint) {
+            pager = new WeakReference<>(controller); motion.bind(controller);
+            if (!settledEndpoint) { animated(); return; }
+            try {
+                // Native reset sets both X values to zero. Its readable-page resolver
+                // uses visible expansion and lastDownExpanded, including cancelled swipes.
+                Object selected = readablePanel.invoke(controller);
+                if (!(selected instanceof Enum)) return;
+                String name = ((Enum<?>) selected).name();
+                if ("QS".equals(name)) SHADE_WALLPAPER.onHorizontalProgress(1f);
+                else if ("NOTIFICATION".equals(name)) SHADE_WALLPAPER.onHorizontalProgress(0f);
+            } catch (ReflectiveOperationException | RuntimeException ignored) { }
+        }
+        void animated() {
+            Object controller = pager.get(); if (controller == null) return;
+            try {
+                Object selected = origin.get(controller);
+                if (!(selected instanceof Enum)) return;
+                String name = ((Enum<?>) selected).name();
+                if ("QS".equals(name)) SHADE_WALLPAPER.onHorizontalProgress(1f - motion.fraction());
+                else if ("NOTIFICATION".equals(name)) SHADE_WALLPAPER.onHorizontalProgress(motion.fraction());
+            } catch (ReflectiveOperationException | RuntimeException ignored) { }
+        }
+    }
+
+    private static void schedulePanelModeChanged() {
+        MAIN.removeCallbacks(PANEL_MODE_CHANGED); MAIN.post(PANEL_MODE_CHANGED);
+    }
+
+    private static void registerPanelModeObserver() {
+        if (context == null || panelModeObserver != null || ModuleLifecycle.removed()) return;
+        PanelMode.query(context);
+        ContentObserver observer = new ContentObserver(MAIN) {
+            @Override public void onChange(boolean selfChange, Uri uri) {
+                String before = PanelMode.current();
+                PanelMode.query(context);
+                if (!before.equals(PanelMode.current())) schedulePanelModeChanged();
+            }
+        };
+        try {
+            ContentResolver resolver = context.getContentResolver();
+            resolver.registerContentObserver(android.provider.Settings.System.getUriFor(PanelMode.SETTING), false, observer);
+            resolver.registerContentObserver(android.provider.Settings.System.getUriFor(PanelMode.DEFAULT_SETTING), false, observer);
+            panelModeObserver = observer;
+        } catch (RuntimeException unavailable) {
+            try { context.getContentResolver().unregisterContentObserver(observer); } catch (RuntimeException ignored) { }
+            logFrameworkStage(Log.WARN, "Panel mode observer unavailable; native repository reporting retained", unavailable);
         }
     }
 
@@ -4065,7 +4582,14 @@ public final class StatusBarModule extends XposedModule {
     private void installSingleNetworkLabelHooks(ClassLoader loader) {
         installSingleMobileIconHooks(loader);
         try {
-            SINGLE_LABEL.resolve(loader);
+            try { SINGLE_LABEL.resolve(loader); }
+            catch(ReflectiveOperationException|LinkageError unavailable) {
+                moduleLog(Log.INFO,TAG,"Optional independent custom network label binding unavailable",unavailable);
+            }
+            try { NATIVE_BADGE_BINDINGS.resolve(loader); }
+            catch(ReflectiveOperationException|LinkageError unavailable) {
+                moduleLog(Log.INFO,TAG,"Optional independent native badge binding unavailable",unavailable);
+            }
             Class<?> binding=loader.loadClass("com.oplus.systemui.statusbar.pipeline.mobile.ui.view.OplusStatusBarMobileViewBinder$Os17Binding");
             for(Method method:binding.getDeclaredMethods()) {
                 String name=method.getName();
@@ -4075,7 +4599,8 @@ public final class StatusBarModule extends XposedModule {
                 if(!modelEvent&&!styleEvent&&!fontEvent)continue;deoptimize(method);
                 installHook(HookGroup.MODEL,method,chain->{
                     Object owner=fontEvent?chain.getArg(0):chain.getThisObject();
-                    try(SingleNetworkLabelControls.NativeScope scope=SINGLE_LABEL.beforeNative(owner,modelEvent,modelEvent?chain.getArg(0):null)) {
+                    try(NativeNetworkBadgeBindings.NativeScope badge=NATIVE_BADGE_BINDINGS.beforeNative(owner,modelEvent,modelEvent?chain.getArg(0):null);
+                            SingleNetworkLabelControls.NativeScope scope=SINGLE_LABEL.beforeNative(owner,modelEvent,modelEvent?chain.getArg(0):null)) {
                         Object result=chain.proceed();
                         if(modelEvent)scheduleRefresh();
                         return result;
@@ -4098,7 +4623,8 @@ public final class StatusBarModule extends XposedModule {
             SINGLE_SIGNAL.resolve(loader,drawable->drawable instanceof ScaledDrawable);
             Class<?> base=loader.loadClass("com.oplus.systemui.statusbar.pipeline.mobile.ui.view.AbstractOplusStatusBarMobileViewBinder$Binding");
             final Class<?> textBinding=loader.loadClass("com.oplus.systemui.statusbar.pipeline.mobile.ui.view.OplusStatusBarMobileViewBinder$Os17Binding");
-            for(String name:new String[]{base.getName(),"com.oplus.systemui.statusbar.pipeline.mobile.ui.view.OplusStatusBarMobileViewBinder$Os17Binding"}) {
+            for(String name:new String[]{base.getName(),"com.oplus.systemui.statusbar.pipeline.mobile.ui.view.OplusStatusBarMobileViewBinder$Os17Binding",
+                    "com.oplus.systemui.statusbar.pipeline.mobile.ui.view.LegacyOplusStatusBarMobileViewBinder$Os16Binding"}) {
                 Class<?> binding;
                 try{binding=loader.loadClass(name);}catch(ClassNotFoundException absent){continue;}
                 for(Method method:binding.getDeclaredMethods()) {
@@ -4106,14 +4632,17 @@ public final class StatusBarModule extends XposedModule {
                     deoptimize(method);
                     installHook(HookGroup.MODEL,method,chain->{
                         Object owner=chain.getThisObject();
-                        try(SingleMobileIconControls.NativeScope signal=SINGLE_SIGNAL.beforeNative(owner);
+                        try(NativeNetworkBadgeBindings.NativeScope badge=textBinding.isInstance(owner)
+                                        ?NATIVE_BADGE_BINDINGS.beforeNative(owner,false,null):null;
+                                SingleMobileIconControls.NativeScope signal=SINGLE_SIGNAL.beforeNative(owner);
                                 SingleNetworkLabelControls.NativeScope label=textBinding.isInstance(owner)
                                         ?SINGLE_LABEL.beforeNative(owner,false,null):null){return chain.proceed();}
                     });
                 }
             }
             for(String factoryName:new String[]{"com.oplus.systemui.statusbar.pipeline.mobile.ui.view.OplusStatusBarMobileViewBinder",
-                    "com.oplus.systemui.statusbar.pipeline.mobile.ui.view.BigTypeStatusBarMobileViewBinder"}) {
+                    "com.oplus.systemui.statusbar.pipeline.mobile.ui.view.BigTypeStatusBarMobileViewBinder",
+                    "com.oplus.systemui.statusbar.pipeline.mobile.ui.view.LegacyOplusStatusBarMobileViewBinder"}) {
                 Class<?> factory;
                 try{factory=loader.loadClass(factoryName);}catch(ClassNotFoundException absent){continue;}
                 for(Method method:factory.getDeclaredMethods())if(method.getName().equals("createBinding")&&!Modifier.isAbstract(method.getModifiers())) {
@@ -4124,16 +4653,59 @@ public final class StatusBarModule extends XposedModule {
                         Object result=chain.proceed();
                         if(base.isInstance(result)) {
                             SINGLE_SIGNAL.bound(result);
+                            SINGLE_SIGNAL.activeSubscription(activeDataSubscription());
                             if(chain.getArg(0) instanceof View)allowDrawableOverflow((View)chain.getArg(0));
                         }
-                        if(textBinding.isInstance(result)){SINGLE_LABEL.bound(result);scheduleRefresh();}
+                        if(textBinding.isInstance(result)){SINGLE_LABEL.bound(result);NATIVE_BADGE_BINDINGS.bound(result);scheduleRefresh();}
                         return result;
                     });
                 }
             }
+            installLegacySingleMobileIconHooks(loader);
             moduleLog(Log.INFO,TAG,"Native single-SIM signal placement connected");
         }catch(ReflectiveOperationException|LinkageError unavailable){
             moduleLog(Log.INFO,TAG,"Optional single-SIM signal placement unavailable",unavailable);
+        }
+    }
+
+    private void installLegacySingleMobileIconHooks(ClassLoader loader) {
+        // BigTypeLegacy is a separate native pipeline: unlike Os17/Os16 it
+        // never creates Abstract...Binding. Its exact two-argument setter is
+        // shared by the initial binding and the signal StateFlow collector.
+        String factoryName="com.oplus.systemui.statusbar.pipeline.mobile.ui.view.BigTypeStatusBarMobileViewBinderLegacy";
+        try {
+            Class<?> factory=loader.loadClass(factoryName);
+            final Method subscription=loader.loadClass("com.android.systemui.statusbar.pipeline.mobile.ui.viewmodel.LocationBasedMobileViewModel").getMethod("getSubscriptionId");
+            Class<?> signalModel=loader.loadClass("com.android.systemui.statusbar.pipeline.mobile.domain.model.SignalIconModel");
+            Method setter=factory.getDeclaredMethod("bindCustEx$updateSignalIcon",ImageView.class,signalModel);
+            if(!Modifier.isStatic(setter.getModifiers())||setter.getReturnType()!=Void.TYPE)return;
+            deoptimize(setter);
+            installHook(HookGroup.MODEL,setter,chain->{
+                Object icon=chain.getArg(0);
+                if(icon instanceof ImageView)allowDrawableOverflow((ImageView)icon);
+                try(SingleMobileIconControls.NativeScope signal=SINGLE_SIGNAL.beforeNative(icon)){return chain.proceed();}
+            });
+            // Deoptimize the real call sites as well as the setter, so an
+            // already-compiled StateFlow collector cannot bypass the hook.
+            for(Method method:factory.getDeclaredMethods())if(method.getName().equals("bindCustEx")&&method.getParameterCount()==5){
+                deoptimize(method);
+                installHook(HookGroup.MODEL,method,chain->{
+                    Object result=chain.proceed();
+                    if(chain.getArg(1) instanceof View){
+                        View host=(View)chain.getArg(1);
+                        int id=host.getResources().getIdentifier("mobile_signal","id","com.android.systemui");
+                        View glyph=id==0?null:host.findViewById(id);
+                        if(glyph instanceof ImageView)SINGLE_SIGNAL.bound((ImageView)glyph,
+                                ((Number)subscription.invoke(chain.getArg(0))).intValue(),host);
+                        SINGLE_SIGNAL.activeSubscription(activeDataSubscription());
+                    }
+                    return result;
+                });
+            }
+            Class<?> collector=loader.loadClass(factoryName+"$bindCustEx$1$1$1$1$1");
+            for(Method method:collector.getDeclaredMethods())if(method.getName().equals("emit"))deoptimize(method);
+        }catch(ReflectiveOperationException|LinkageError unavailable){
+            moduleLog(Log.INFO,TAG,"Optional legacy single-SIM signal placement unavailable",unavailable);
         }
     }
 
@@ -4251,7 +4823,7 @@ public final class StatusBarModule extends XposedModule {
         OVERFLOW_OWNERS.put(view,group);updateOverflow(view,group);
     }
     private static boolean needsOverflow(String group) {
-        if(group.equals("cellular"))return needsOverflow("data")||needsOverflow("label");
+        if(group.equals("cellular"))return NATIVE_BADGE.enabled()||needsOverflow("data")||needsOverflow("label");
         return FEATURES.position(group)||FEATURES.size(group)
                 ||group.equals("speed")&&FEATURES.effective("speed","speed_lines_enabled")&&speedLineGapDp!=0;
     }
@@ -4427,15 +4999,25 @@ public final class StatusBarModule extends XposedModule {
             if(settingsStartup!=null)settingsStartup.stop();
             if(frameworkSettings!=null)frameworkSettings.stop();
             MAIN.removeCallbacks(FRAMEWORK_SETTINGS_CHANGED);
+            MAIN.removeCallbacks(PANEL_MODE_CHANGED);
+            if (panelModeObserver != null) try { context.getContentResolver().unregisterContentObserver(panelModeObserver); }
+            catch (RuntimeException ignored) { }
+            panelModeObserver = null;
             applyStyleSettings(ModuleLifecycle.nativeSettings());
+            NOTIFICATION_ICONS.releaseRuntime();
+            IconPackRuntime.releaseRuntime();ICON_PACK_DRAWING.releaseRuntime();
             FontRepository.releaseRuntime();
             QS_MEDIA.releaseRuntime();
+            SHADE_WALLPAPER.reset();
+            WALLPAPER_PANEL.reset();
             C17_HIGHLIGHTS.release();
             QS_ICON_SIZE.releaseRuntime();
             DATA_BATTERY_SPACING.releaseRuntime();
             NETWORK_ORDER.releaseRuntime();
+            SPEED_POSITION.releaseRuntime();
             STATUS_HINTS.releaseRuntime();
             NATIVE_STACK.configure(null); NATIVE_STACK.reset();
+            NATIVE_BADGE_BINDINGS.releaseRuntime();
             NATIVE_BADGE.releaseRuntime();
             DATA_ACTIVITY.releaseRuntime();
             SINGLE_LABEL.releaseRuntime();
@@ -4455,6 +5037,7 @@ public final class StatusBarModule extends XposedModule {
                 // Explicit verified own-app probe only: fixed structural counters, no user text.
                 Log.i("C17-Stack", NATIVE_STACK.diagnosticSummary() + "; "
                         + BIG_CLOCK.groupStackDiagnostics() + "; " + LOCKSCREEN.diagnosticSummary() + "; " + DATA_ACTIVITY.diagnosticSummary());
+                Log.i("C17-Badge",NATIVE_BADGE_BINDINGS.diagnosticSummary()+"; "+SINGLE_SIGNAL.diagnosticSummary());
             }));
             ModuleRuntimeStatus.registerSystemUiReceiver(context, frameworkLogger.getFrameworkName(),
                     frameworkLogger.getFrameworkVersion(), frameworkLogger.getApiVersion());
@@ -4468,6 +5051,7 @@ public final class StatusBarModule extends XposedModule {
                 logFrameworkStage(Log.WARN, "Could not access bundled iOS vectors", th);
             }
         }
+        registerPanelModeObserver();
         ensureSettingsStartup();
         registerMobileDataObserver();
         if (receiverRegistered) {
@@ -4636,11 +5220,14 @@ public final class StatusBarModule extends XposedModule {
     }
 
     private static void applyStyleSettings(Bundle bundleCall) {
-            bundleCall = SafetyMode.runtimeSettings(bundleCall);
+            bundleCall = PanelMode.runtimeSettings(SafetyMode.runtimeSettings(bundleCall));
             bundleCall = new Bundle(bundleCall);
             bundleCall.putBoolean(StatusBarShadeIconSettings.MASTER, false);
             ModuleDiagnostics.configure(context, bundleCall);
+            SHADE_WALLPAPER.configure(context, bundleCall);
             NOTIFICATION_ICONS.configure(context,bundleCall);
+            IconPackRuntime.setInvalidationListener(() -> { ICON_PACK_DRAWING.invalidateAll();invalidateLiveDrawables(); });
+            IconPackRuntime.configure(context,bundleCall);
             FEATURES=FeatureOptions.from(bundleCall);
             DATA_BATTERY_SPACING.configure(bundleCall);
             TILE_EFFECTS.configure(bundleCall);
@@ -4651,6 +5238,7 @@ public final class StatusBarModule extends XposedModule {
             QS_MEDIA.configure(bundleCall);
             C17_HIGHLIGHTS.configure(bundleCall);
             NETWORK_SPEED.configure(bundleCall);
+            SPEED_POSITION.configure(bundleCall);
             CLEAR_APPEARANCE.configure(bundleCall);
             CLEAR_MOTION.configure(bundleCall);
             BIG_CLOCK.configure(bundleCall);
@@ -4668,7 +5256,8 @@ public final class StatusBarModule extends XposedModule {
             dataOffsetXdp = FEATURES.position("data")?settingValue(bundleCall, StatusBarSettings.DATA_OFFSET_X, 0):0;
             dataOffsetYdp = FEATURES.position("data")?settingValue(bundleCall, StatusBarSettings.DATA_OFFSET_Y, 0):0;
             dataIconScalePercent = FEATURES.size("data")?settingValue(bundleCall, StatusBarSettings.DATA_ICON_SCALE, 100):100;
-            SINGLE_SIGNAL.update(FEATURES,dataOffsetXdp,dataOffsetYdp,dataIconScalePercent);
+            singleSignal = FEATURES.singleSignal(bundleCall.getString(StatusBarSettings.SIGNAL_LAYOUT, "system"));
+            SINGLE_SIGNAL.update(FEATURES,dataOffsetXdp,dataOffsetYdp,dataIconScalePercent,singleSignal,activeDataSubscription());
             labelOffsetXdp = FEATURES.position("label")?settingValue(bundleCall, StatusBarSettings.LABEL_OFFSET_X, 0):0;
             labelOffsetYdp = FEATURES.position("label")?settingValue(bundleCall, StatusBarSettings.LABEL_OFFSET_Y, 0):0;
             labelScalePercent = FEATURES.size("label")?settingValue(bundleCall, StatusBarSettings.LABEL_SCALE, 100):100;
@@ -4681,7 +5270,6 @@ public final class StatusBarModule extends XposedModule {
             speedUnitScalePercent = FEATURES.size("speed")?settingValue(bundleCall, StatusBarSettings.SPEED_UNIT_SCALE, 100):100;
             speedLineGapDp = FEATURES.effective("speed","speed_lines_enabled")?settingValue(bundleCall, StatusBarSettings.SPEED_LINE_GAP, 0):0;
             speedWeight = Math.round(settingValue(bundleCall, StatusBarSettings.SPEED_WEIGHT, 600));
-            singleSignal = FEATURES.singleSignal(bundleCall.getString(StatusBarSettings.SIGNAL_LAYOUT, "system"));
             FontRepository.configure(context, FEATURES.enabled("font")?bundleCall.getString(StatusBarSettings.FONT_MODE, "system"):"system",
                     bundleCall.getString(StatusBarSettings.FONT_REVISION, ""));
             Map<String, Integer> colors = new HashMap<>();
@@ -4698,11 +5286,13 @@ public final class StatusBarModule extends XposedModule {
             NETWORK_ORDER.configure(bundleCall);
             STATUS_HINTS.configure(bundleCall);
             NATIVE_BADGE.configure(bundleCall);
+            NATIVE_BADGE_BINDINGS.configure(FEATURES,activeDataSubscription());
             DATA_ACTIVITY.configure(bundleCall);
             ModuleDiagnostics.runtimeApplied(context,bundleCall);
             if(ModuleDiagnostics.enabled()) {
                 ModuleDiagnostics.info("single_signal",SINGLE_SIGNAL.diagnosticSummary());
                 ModuleDiagnostics.info("single_label",SINGLE_LABEL.diagnosticSummary());
+                ModuleDiagnostics.info("native_badge",NATIVE_BADGE_BINDINGS.diagnosticSummary());
             }
             ModuleDiagnostics.info("settings", "Visual settings applied; Android SDK " + android.os.Build.VERSION.SDK_INT
                     + "; active hooks " + COMPLETED_HOOK_GROUPS);
@@ -4894,6 +5484,8 @@ public final class StatusBarModule extends XposedModule {
                 FEATURES.effective("label","label_normalize_enabled"),wifiSwitchEnabled,mobileDataSwitchEnabled);
         SINGLE_LABEL.update(FEATURES,strNormalize,activeSub,labelOffsetXdp,labelOffsetYdp,labelScalePercent,
                 slotWidthDp,fontWeight,styleColors,customColorAlpha);
+        SINGLE_SIGNAL.activeSubscription(activeSub);
+        NATIVE_BADGE_BINDINGS.activeSubscription(activeSub);
         if (!networkLabel.equals(strNormalize)) {
             networkLabel = strNormalize;
             DATA_BATTERY_SPACING.fallbackChanged(strNormalize);

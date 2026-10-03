@@ -29,6 +29,8 @@ public final class MaintenanceReset {
             File files=context.createDeviceProtectedStorageContext().getFilesDir();
             removed+=clearImportedAssets(files,"fonts","custom.font","(?:import|previous)-[A-Za-z0-9_-]+\\.font");
             removed+=clearImportedAssets(files,"notification-icons","custom.png","(?:pending|previous)-[A-Za-z0-9_-]+\\.png");
+            removed+=IconPackRepository.clear(context);
+            ShadeWallpaperRepository.clear(context);
         } catch(IOException unavailable) {
             return new Result(false,settings.frameworkSynced,removed,"配置已恢复默认，但导入资源未全部删除，请重试");
         }

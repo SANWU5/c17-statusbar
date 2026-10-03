@@ -27,13 +27,18 @@ android {
     androidResources {
         noCompress += ['ttf', 'otf', 'ttc']
     }
+    // User-supplied PUI artwork belongs only to this local verification build.
+    // Public checkouts without the ignored generated folder build without it.
+    def c17PrivateIconAssets = rootProject.file('.local-private/pui-assets')
+    if (providers.gradleProperty('c17LocalPuiAssets').orElse('false').get() == 'true'
+            && c17PrivateIconAssets.isDirectory()) sourceSets.main.assets.srcDir(c17PrivateIconAssets)
 
     defaultConfig {
         applicationId 'dev.puitheme.iosstatusbar'
         minSdk 26
         targetSdk 35
-        versionCode 64
-        versionName '1.7.2'
+        versionCode 69
+        versionName '1.8.1'
     }
 
     compileOptions {
@@ -96,6 +101,8 @@ dependencies {
 
     // Official manager service reports actual framework activation to the settings UI.
     implementation 'io.github.libxposed:service:102.0.0'
+    // Bounded ZIP/RAR4/RAR5 icon-pack imports; native decoding runs only in the settings app.
+    implementation 'me.zhanghai.android.libarchive:library:1.1.6'
 
     implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.4.20'
     implementation 'androidx.activity:activity-compose:1.13.0'

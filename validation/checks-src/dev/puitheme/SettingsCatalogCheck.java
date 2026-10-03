@@ -1,6 +1,8 @@
 package dev.puitheme;
 
 import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.Objects;
 
@@ -65,6 +67,22 @@ public final class SettingsCatalogCheck {
         equal(whole.id,landscapeStack.groupId);equal(SettingsCatalog.BOOLEAN,landscapeStack.type);
         equal("横屏也生效",landscapeStack.title);equal(true,landscapeStack.description.contains("开启堆叠通知后"));
         equal(false,landscapeStack.defaultValue);equal(ConfigTransfer.Type.BOOLEAN,ConfigTransfer.types().get(landscapeStack.key));
+        java.util.Map<String,Object> stackDependencies=new java.util.HashMap<>();
+        equal(true,SettingsCatalog.unavailableReason(whole.masterKey,stackDependencies).contains("避免通知无法滚动"));
+        stackDependencies.put(whole.masterKey,true); // A saved request cannot remove the dependency warning.
+        equal(true,SettingsCatalog.unavailableReason(whole.masterKey,stackDependencies).contains("先开启"));
+        stackDependencies.put(NotificationBigClockSettings.MASTER,true);
+        equal("",SettingsCatalog.unavailableReason(whole.masterKey,stackDependencies));
+        equal(true,SettingsCatalog.unavailableReason(landscapeStack.key,stackDependencies).contains("先开启"));
+        stackDependencies.put(NotificationBigClockSettings.MASTER,false);
+        stackDependencies.put(NotificationBigClockSettings.LANDSCAPE_MASTER,true);
+        equal("",SettingsCatalog.unavailableReason(landscapeStack.key,stackDependencies));
+        equal(true,SettingsCatalog.unavailableReason(whole.masterKey,stackDependencies).contains("先开启"));
+        stackDependencies.put(landscapeStack.key,true);
+        equal("",SettingsCatalog.unavailableReason(whole.masterKey,stackDependencies));
+        stackDependencies.put(NotificationBigClockSettings.LANDSCAPE_MASTER,false);
+        equal(true,SettingsCatalog.unavailableReason(whole.masterKey,stackDependencies).contains("先开启"));
+        equal(true,SettingsCatalog.conflictDescription(whole.id,whole.category).contains("对应方向的大时钟"));
         equal(false,StatusBarSettings.bool(java.util.Collections.singletonMap(NotificationGroupStack.MASTER,true),NotificationGroupStack.MASTER));
         SettingsCatalog.Group hints=SettingsCatalog.group("status_hint_icons");
         equal(SettingsCatalog.STATUSBAR,hints.category);equal(NativeStatusIcons.MASTER,hints.masterKey);
@@ -84,18 +102,30 @@ public final class SettingsCatalogCheck {
         equal(0xffffffff,StatusBarSettings.COLOR_DEFAULTS.get(NativeDataActivity.COLOR_DARK));
         badgeValues.put("label_enabled",false);
         for(SettingsCatalog.Item item:badge.items)equal("",SettingsCatalog.unavailableReason(item.key,badgeValues));
-        equal(-3.5f,SettingsCatalog.customNumber(SettingsCatalog.item(NativeNetworkBadgeControls.X),"-3.5"));
-        equal(true,SettingEditor.forItem(SettingsCatalog.item(NativeNetworkBadgeControls.WEIGHT),badgeValues).description.contains("原生字体"));
-        SettingsCatalog.Item badgeFont=SettingsCatalog.item(NativeNetworkBadgeControls.FONT);
+        equal(-3.5f,SettingsCatalog.customNumber(SettingsCatalog.item(NativeNetworkBadgeSettings.key(1,"offset_x")),"-3.5"));
+        equal(true,SettingEditor.forItem(SettingsCatalog.item(NativeNetworkBadgeSettings.key(1,"weight")),badgeValues).description.contains("原生字体"));
+        SettingsCatalog.Item badgeFont=SettingsCatalog.item(NativeNetworkBadgeSettings.key(1,"font"));
         equal(badge.id,badgeFont.groupId);equal(SettingsCatalog.OPTIONS,badgeFont.type);equal("native",badgeFont.defaultValue);
         equal("native",StatusBarSettings.STRING_DEFAULTS.get(badgeFont.key));equal(ConfigTransfer.Type.STRING,ConfigTransfer.types().get(badgeFont.key));
         equal(5,badgeFont.values.length);
         for(String source:new String[]{"native","global","system","pingfang","custom"})equal(null,SettingsCatalog.validationError(badgeFont,source));
         equal(true,SettingsCatalog.validationError(badgeFont,"unknown")!=null);
         badgeValues.put(badgeFont.key,"system");
-        equal(true,SettingEditor.forItem(SettingsCatalog.item(NativeNetworkBadgeControls.WEIGHT),badgeValues).description.contains("系统字体"));
+        equal(true,SettingEditor.forItem(SettingsCatalog.item(NativeNetworkBadgeSettings.key(1,"weight")),badgeValues).description.contains("系统字体"));
         badgeValues.put(badgeFont.key,"custom");badgeValues.put(StatusBarSettings.FONT_REVISION,FontCatalog.find("manrope").sha256);
-        equal(true,SettingEditor.forItem(SettingsCatalog.item(NativeNetworkBadgeControls.WEIGHT),badgeValues).description.contains("Manrope"));
+        equal(true,SettingEditor.forItem(SettingsCatalog.item(NativeNetworkBadgeSettings.key(1,"weight")),badgeValues).description.contains("Manrope"));
+        equal(3,SettingsCatalog.detailPages(badge).size());
+        for(int part=1;part<=2;part++) {
+            equal("角标"+part,SettingsCatalog.detailPages(badge).get(part-1).title);
+            for(String suffix:new String[]{"enabled","offset_x","offset_y","scale","weight","font"}) {
+                SettingsCatalog.Item setting=SettingsCatalog.item(NativeNetworkBadgeSettings.key(part,suffix));
+                equal(badge.id,setting.groupId);
+                equal(true,SettingsCatalog.detailPages(badge).get(part-1).items.contains(setting));
+            }
+        }
+        equal("数据小箭头",SettingsCatalog.detailPages(badge).get(2).title);
+        for(String old:new String[]{NativeNetworkBadgeControls.X,NativeNetworkBadgeControls.Y,NativeNetworkBadgeControls.SCALE,
+                NativeNetworkBadgeControls.WEIGHT,NativeNetworkBadgeControls.FONT})equal(true,SettingsCatalog.hiddenKeys().contains(old));
         equal(true,NumericPolicy.signed(NativeStatusIcons.X));equal(true,NumericPolicy.signed(NativeStatusIcons.Y));
         equal(-4.5f,SettingsCatalog.customNumber(SettingsCatalog.item(NativeStatusIcons.X),"-4.5"));
         equal(14f,SettingsCatalog.item(NativeStatusIcons.MAX).defaultValue);
@@ -107,6 +137,28 @@ public final class SettingsCatalogCheck {
         equal("竖屏大时钟",portrait.title);equal("横屏大时钟",landscape.title);
         equal(NotificationBigClockSettings.LANDSCAPE_MASTER,landscape.masterKey);
         equal(false,StatusBarSettings.bool(java.util.Collections.emptyMap(),landscape.masterKey));
+        SettingsCatalog.Item expandedHeight=SettingsCatalog.item(NotificationBigClockSettings.MAX_SIZE);
+        SettingsCatalog.Item compactHeight=SettingsCatalog.item(NotificationBigClockSettings.COMPACT_MAX_SIZE);
+        SettingsCatalog.Item landscapeHeight=SettingsCatalog.item(NotificationBigClockSettings.landscapeKey(NotificationBigClockSettings.MAX_SIZE));
+        Map<String,Object> clockFonts=new HashMap<>();
+        for(String font:new String[]{"native","system","pingfang","custom"}) {
+            clockFonts.put(NotificationBigClockSettings.FONT,font);
+            clockFonts.put(NotificationBigClockSettings.landscapeKey(NotificationBigClockSettings.FONT),font);
+            equal(true,SettingsCatalog.applicable(expandedHeight,clockFonts));
+            equal("native".equals(font),SettingsCatalog.applicable(compactHeight,clockFonts));
+            equal("native".equals(font)?"展开字体高度":"字体高度调节",SettingsCatalog.displayTitle(expandedHeight,clockFonts));
+            equal("字体高度调节",SettingsCatalog.displayTitle(landscapeHeight,clockFonts));
+            equal("字体高度",landscapeHeight.section);
+        }
+        for(String key:new String[]{NotificationBigClockSettings.SCALE,NotificationBigClockSettings.COMPACT_SCALE}) {
+            equal(true,SettingsCatalog.hiddenKeys().contains(key));equal(null,SettingsCatalog.item(key));
+            equal(true,StatusBarSettings.NUMERIC_DEFAULTS.containsKey(key));
+        }
+        SettingsCatalog.Item gap=SettingsCatalog.item(NotificationIconArea.SPACING);
+        equal("图标间距",gap.section);equal(0f,gap.defaultValue);
+        equal(false,StatusBarSettings.bool(java.util.Collections.emptyMap(),NotificationIconArea.SPACING_ENABLED));
+        equal(-3.5f,SettingsCatalog.customNumber(gap,"-3.5"));
+        equal(true,SettingEditor.forItem(gap,java.util.Collections.emptyMap()).description.contains("不改变图标大小"));
         Set<String> unusedLandscapeCompact=new HashSet<>();
         for(String key:new String[]{NotificationBigClockSettings.COMPACT_SCALE,NotificationBigClockSettings.COMPACT_MAX_SIZE,
                 NotificationBigClockSettings.COMPACT_OFFSET_X,NotificationBigClockSettings.COMPACT_OFFSET_Y}){
@@ -116,9 +168,23 @@ public final class SettingsCatalogCheck {
         for(SettingsCatalog.Item item:portrait.items)if(!item.master) {
             String mapped=NotificationBigClockSettings.landscapeKey(item.key);
             SettingsCatalog.Item other=SettingsCatalog.item(mapped);
-            if(unusedLandscapeCompact.contains(mapped)){equal(null,other);continue;}
+            if(unusedLandscapeCompact.contains(mapped)||NotificationBigClockSettings.SCREEN_PADDING.equals(item.key)){equal(null,other);continue;}
             equal(true,other!=null);equal(landscape.id,other.groupId);equal(item.type,other.type);
             equal(item.defaultValue,other.defaultValue);equal(item.section,other.section);
+        }
+        SettingsCatalog.Item screenPadding=SettingsCatalog.item(NotificationBigClockSettings.SCREEN_PADDING);
+        equal(portrait.id,screenPadding.groupId);equal(24f,screenPadding.defaultValue);
+        equal(true,SettingsCatalog.applicable(screenPadding,java.util.Collections.emptyMap()));
+        java.util.Map<String,Object> customHeight=new java.util.HashMap<>();customHeight.put(NotificationBigClockSettings.FONT,"system");
+        equal(false,SettingsCatalog.applicable(screenPadding,customHeight));
+        equal(null,SettingsCatalog.item(NotificationBigClockSettings.landscapeKey(screenPadding.key)));
+        equal(true,SettingEditor.forItem(screenPadding,java.util.Collections.emptyMap()).description.contains("左右"));
+        equal("未完成的开发",SettingsCatalog.unavailableReason(ShadeWallpaperSettings.MASTER));
+        equal("未完成的开发",SettingsCatalog.unavailableReason("shade_wallpaper_manage"));
+        for(int part=1;part<=2;part++) {
+            SettingsCatalog.Item hidden=SettingsCatalog.item(NativeNetworkBadgeSettings.key(part,"hidden"));
+            equal("native_network_badge",hidden.groupId);equal(false,hidden.defaultValue);
+            equal(ConfigTransfer.Type.BOOLEAN,ConfigTransfer.types().get(hidden.key));
         }
         SettingsCatalog.Item widthEnabled=SettingsCatalog.item(NotificationBigClockSettings.LANDSCAPE_NOTIFICATION_WIDTH_ENABLED),
                 width=SettingsCatalog.item(NotificationBigClockSettings.LANDSCAPE_NOTIFICATION_WIDTH);

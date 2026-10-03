@@ -18,6 +18,7 @@ public final class NotificationBigClockSettings {
     public static final String PATTERN="notification_big_clock_pattern";
     public static final String DATE_DEFAULT="M月d日{周} {干支}{农历日期}";
     public static final String DATE_PATTERN="notification_big_clock_date_pattern";
+    // Retired multipliers remain storage/import compatible; heights use their own values directly.
     public static final String SCALE="notification_big_clock_scale";
     public static final String COMPACT_SCALE="notification_big_clock_compact_scale";
     public static final String WEIGHT="notification_big_clock_weight";
@@ -42,6 +43,8 @@ public final class NotificationBigClockSettings {
     public static final String OFFSET_X="notification_big_clock_offset_x";
     public static final String MAX_SIZE="notification_big_clock_max_size";
     public static final String COMPACT_MAX_SIZE="notification_big_clock_compact_max_size";
+    /** Native portrait clock fills the screen width between these two side margins. */
+    public static final String SCREEN_PADDING="notification_big_clock_screen_padding";
     public static final String COMPACT_OFFSET_X="notification_big_clock_compact_offset_x";
     public static final String COMPACT_OFFSET_Y="notification_big_clock_compact_offset_y";
     public static final String LETTER_SPACING="notification_big_clock_letter_spacing";
@@ -114,6 +117,7 @@ public final class NotificationBigClockSettings {
         numbers.put(NOTIFICATION_EDGE_SAFE_DISTANCE,18f);numbers.put(NOTIFICATION_EDGE_RANGE,24f);
         numbers.put(NOTIFICATION_EDGE_BLUR_RADIUS,8f);
         copyLandscape(numbers);
+        numbers.put(SCREEN_PADDING,24f);
         numbers.put(LANDSCAPE_NOTIFICATION_WIDTH,100f);
         NUMBERS=Collections.unmodifiableMap(numbers);
         Map<String,Integer> colors=new LinkedHashMap<>();
@@ -163,6 +167,10 @@ public final class NotificationBigClockSettings {
     public static boolean positiveSize(String key) {
         key=portraitKey(key);
         return MAX_SIZE.equals(key)||COMPACT_MAX_SIZE.equals(key)||DATE_SIZE.equals(key)||FOOTER_SIZE.equals(key);
+    }
+    /** Only the phone's native clock family has the verified HGHT axis. */
+    public static boolean nativeHeightFont(Object mode) {
+        return "native".equals(mode);
     }
     /** Pure user text is passed as content, never interpreted as a date pattern. */
     public static String formatFooter(String pattern,String text,long now) {

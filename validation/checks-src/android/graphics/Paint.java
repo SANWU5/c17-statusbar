@@ -1,11 +1,12 @@
 package android.graphics;
 public class Paint {
-    public static final int ANTI_ALIAS_FLAG=1;
+    public static final int ANTI_ALIAS_FLAG=1,FILTER_BITMAP_FLAG=2;
     public enum Align { LEFT, CENTER, RIGHT }
     public enum Style { FILL, STROKE, FILL_AND_STROKE }
     public enum Join { MITER, ROUND, BEVEL }
     public enum Cap { BUTT, ROUND, SQUARE }
     public static class FontMetrics { public float top,ascent,descent,bottom,leading; }
+    public static class FontMetricsInt { public int top,ascent,descent,bottom,leading; }
     private int alpha=255,color;
     private float textSize=14;
     private float letterSpacing;
@@ -38,7 +39,12 @@ public class Paint {
     public ColorFilter getColorFilter(){return colorFilter;}
     public float getTextSize() {return textSize;}
     public void setTextSize(float value) {textSize=value;}
-    public void getTextBounds(String value,int start,int end,Rect bounds) {bounds.left=0;bounds.right=(int)((end-start)*textSize*.6f);bounds.top=-(int)textSize;bounds.bottom=0;}
+    public void getTextBounds(String value,int start,int end,Rect bounds) {
+        // HGHT has a fixed base, unlike a direct percentage of the em size.
+        float ink=textSize*(typeface!=null&&!Float.isNaN(typeface.variationHeight)
+                ?.2f+.8f*typeface.variationHeight/70f:1f);
+        bounds.left=0;bounds.right=(int)((end-start)*textSize*.6f);bounds.top=-(int)ink;bounds.bottom=0;
+    }
     public float measureText(CharSequence text,int start,int end) {return (end-start)*textSize*.6f;}
     public Typeface getTypeface() {return typeface;}
     public Typeface setTypeface(Typeface face) {Typeface old=typeface;typeface=face;return old;}
@@ -64,4 +70,5 @@ public class Paint {
     public void setFakeBoldText(boolean bold) {fakeBold=bold;}
     public void setTextAlign(Align align) { }
     public float getFontMetrics(FontMetrics metrics) {metrics.ascent=-textSize*.8f;metrics.descent=textSize*.2f;return textSize;}
+    public int getFontMetricsInt(FontMetricsInt metrics){metrics.top=metrics.ascent=(int)Math.floor(-textSize*.8f);metrics.bottom=metrics.descent=(int)Math.ceil(textSize*.2f);metrics.leading=0;return metrics.descent-metrics.ascent;}
 }

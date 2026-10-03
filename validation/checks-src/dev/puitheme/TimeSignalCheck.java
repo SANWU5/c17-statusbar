@@ -99,10 +99,21 @@ public final class TimeSignalCheck {
         for(int level=0;level<=4;level++) {
             equal("c17_signal_single_"+level,SignalResources.moduleName("stat_sys_signal_"+level+"_fully",false));
             equal("stat_signal_wifi_signal_"+level,SignalResources.moduleName("stat_signal_wifi_signal_"+level,true));
+            // Original C17 MobileIconSets SIGNAL_STRENGTH(_OS17) arrays use
+            // these names in independent mode (signal_icon_display_mode=0).
+            for(String suffix:new String[]{"","_os17"})for(boolean layout:new boolean[]{false,true}) {
+                equal("c17_signal_single_"+level,SignalResources.moduleName("stat_signal_signal_lte_single_"+level+suffix,layout));
+                String noVoice=level==0?"stat_signal_single_novoice_0":"stat_signal_signal_novoice_"+level;
+                equal("c17_signal_single_"+level,SignalResources.moduleName(noVoice+suffix,layout));
+            }
         }
         equal("c17_signal_single_noservice",SignalResources.moduleName("stat_signal_soft_signal_noservice_os17",false));
         equal("c17_signal_single_noservice",SignalResources.moduleName("stat_sys_signal_null",true));
-        for(String unsafe:new String[]{"stat_sys_wifi_signal_4","stat_signal_lte_signal_5","stat_signal_lte_signal_4_badge","activity_in","stat_signal_wifi_signal_99"})equal(true,SignalResources.moduleName(unsafe,true)==null);
+        for(String noService:new String[]{"stat_signal_noservice_lte","stat_signal_noservice_lte_os17","stat_signal_soft_noservice","stat_signal_soft_noservice_os17","stat_signal_signal_null_lte"})
+            for(boolean layout:new boolean[]{false,true})equal("c17_signal_single_noservice",SignalResources.moduleName(noService,layout));
+        for(String unsafe:new String[]{"stat_sys_wifi_signal_4","stat_signal_lte_signal_5","stat_signal_lte_signal_4_badge","activity_in","stat_signal_wifi_signal_99",
+                "stat_signal_signal_lte_single_5_os17","stat_signal_signal_novoice_0_os17","stat_signal_single_novoice_4_os17","stat_signal_signal_lte_single_4_os17_activity",
+                "stat_signal_roma_lte","stat_signal_data_fully_inout_lte_os17"})equal(true,SignalResources.moduleName(unsafe,true)==null);
         actualClockDisplay();
         System.out.println(checks+" time and real signal mapping checks passed");
     }

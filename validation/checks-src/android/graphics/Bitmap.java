@@ -14,6 +14,7 @@ public final class Bitmap {
     public static Bitmap createScaledBitmap(Bitmap source,int width,int height,boolean filter){scales++;if(width==source.width&&height==source.height)return source;Bitmap result=createBitmap(width,height,source.config);for(int y=0;y<height;y++)for(int x=0;x<width;x++)result.pixels[y*width+x]=source.pixels[Math.min(source.height-1,y*source.height/height)*source.width+Math.min(source.width-1,x*source.width/width)];return result;}
     public Bitmap copy(Config config,boolean mutable){Bitmap result=createBitmap(width,height,config);System.arraycopy(pixels,0,result.pixels,0,pixels.length);return result;}
     public int getWidth(){return width;} public int getHeight(){return height;} public Config getConfig(){return config;}
+    public int getAllocationByteCount(){return pixels.length*4;}
     public int getGenerationId(){return generation;} public boolean isRecycled(){return recycled;}
     public void recycle(){recycled=true;}
     public void eraseColor(int color){java.util.Arrays.fill(pixels,color);generation=++nextGeneration;}

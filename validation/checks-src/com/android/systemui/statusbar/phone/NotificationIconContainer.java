@@ -7,6 +7,8 @@ public class NotificationIconContainer extends android.view.ViewGroup {
     public boolean failNextStateUpdate;
     public NotificationIconContainer(android.content.Context context) { super(context); }
     public final void setMaxIconsAmount(int count){mMaxIcons=count;}
+    public float getActualPaddingStart(){return getPaddingStart();}
+    public float getActualPaddingEnd(){return getPaddingEnd();}
     /** Exact native order: field is already written when the optional processor can throw. */
     public final void updateState(){
         stateUpdates++;

@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="c17_launcher_background">#15223D</color>
-    <color name="c17_launcher_foreground">#F8FBFF</color>
-    <color name="c17_launcher_accent">#72D0F2</color>
+    <color name="c17_launcher_background_start">#193C68</color>
+    <color name="c17_launcher_background">#0F2750</color>
+    <color name="c17_launcher_background_end">#07132D</color>
+    <color name="c17_launcher_foreground">#FAFBFF</color>
+    <color name="c17_launcher_accent">#12C9EC</color>
 </resources>

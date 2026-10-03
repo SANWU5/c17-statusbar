@@ -15,6 +15,7 @@ import java.util.*;
 public final class NotificationIconAreaCheck {
     private static int checks;
     private static void equal(Object expected,Object actual){checks++;if(!expected.equals(actual))throw new AssertionError(expected+" != "+actual);}
+    private static void near(float expected,float actual){checks++;if(Math.abs(expected-actual)>.0001f)throw new AssertionError(expected+" != "+actual);}
     private static Object field(Object owner,String name)throws Exception{
         Field field=owner.getClass().getDeclaredField(name);field.setAccessible(true);return field.get(owner);
     }
@@ -111,7 +112,8 @@ public final class NotificationIconAreaCheck {
         owner.getResources().getDisplayMetrics().density=2f;
         owner.addView(icon);
         Class<?> stateClass=Class.forName("dev.puitheme.NotificationIconArea$State");
-        Object state=metadata(stateClass);
+        java.lang.reflect.Constructor<?> constructor=stateClass.getDeclaredConstructor();constructor.setAccessible(true);
+        Object state=constructor.newInstance();
         Field iconsField=stateClass.getDeclaredField("icons");iconsField.setAccessible(true);
         ArrayList<WeakReference<View>> icons=new ArrayList<>();iconsField.set(state,icons);
         Method update=NotificationIconArea.class.getDeclaredMethod("update",ViewGroup.class,stateClass);update.setAccessible(true);
@@ -196,10 +198,91 @@ public final class NotificationIconAreaCheck {
         equal(0,NotificationIconArea.safeCount(-1,5));equal(5,NotificationIconArea.safeCount(Float.MAX_VALUE,5));
         equal(3,NotificationIconArea.safeCount(Float.NaN,5));equal(0,NotificationIconArea.safeCount(100,0));
     }
+    private static final class Glyph extends android.graphics.drawable.Drawable {
+        final int side;Glyph(int side){this.side=side;setBounds(0,0,side,side);}
+        @Override public int getIntrinsicWidth(){return side;}@Override public int getIntrinsicHeight(){return side;}
+        public void draw(Canvas canvas){}public void setAlpha(int value){}public void setColorFilter(android.graphics.ColorFilter value){}public int getOpacity(){return -3;}
+    }
+    private static void glyphDimensions()throws Throwable{
+        NotificationIconArea area=new NotificationIconArea();area.resolve(NotificationIconAreaCheck.class.getClassLoader());
+        PhoneContainer owner=phone(2);owner.getResources().getDisplayMetrics().density=4f;
+        StatusBarIconView first=(StatusBarIconView)owner.getChildAt(0),second=(StatusBarIconView)owner.getChildAt(1);
+        first.getResources().getDisplayMetrics().density=second.getResources().getDisplayMetrics().density=4f;
+        first.intrinsicHeight=512f;first.nativeScale=.5f;first.setImageDrawable(new Glyph(512));
+        android.graphics.Matrix fit=new android.graphics.Matrix();fit.setScale(.125f,.125f);first.setImageMatrix(fit);
+        second.intrinsicHeight=64f;second.nativeScale=.75f;second.setImageDrawable(new Glyph(64));
+        Bundle options=countOptions(true,3);options.putBoolean(NotificationIconArea.SIZE_ENABLED,true);options.putFloat(NotificationIconArea.SIZE,14.89f);
+        options.putBoolean(NotificationIconArea.POSITION,true);options.putFloat(NotificationIconArea.X,4.86f);options.putFloat(NotificationIconArea.Y,1f);
+        area.changed(owner);area.configure(null,options);
+        Canvas row=new Canvas();area.draw(owner,row,()->null);near(1f,row.scaleX);near(19.44f,row.translateX);near(4f,row.translateY);
+        int geometryReads=first.getterCalls,nativeInvalidations=first.invalidations;
+        for(int i=0;i<1000;i++){
+            Canvas image=new Canvas();area.drawNativeIcon(first,image,()->{image.scale(first.nativeScale,first.nativeScale);return area.drawNativeGlyph(first,image,()->null);});
+            near(59.56f,512f*.125f*image.scaleY);equal(image.saves,image.restores);
+            Canvas other=new Canvas();area.drawNativeIcon(second,other,()->{other.scale(second.nativeScale,second.nativeScale);return area.drawNativeGlyph(second,other,()->null);});
+            near(59.56f,64f*other.scaleY);equal(other.saves,other.restores);
+        }
+        equal(geometryReads,first.getterCalls);equal(nativeInvalidations,first.invalidations);
+        // Cached stable baselines never absorb our canvas scale or a native appear animation.
+        near(.5f,first.nativeScale);near(.75f,second.nativeScale);first.iconAppearAmount=.01f;
+        Canvas appearing=new Canvas();area.drawNativeIcon(first,appearing,()->{appearing.scale(first.nativeScale*first.iconAppearAmount,first.nativeScale*first.iconAppearAmount);return area.drawNativeGlyph(first,appearing,()->null);});
+        near(.5956f,512f*.125f*appearing.scaleY);
+        // Real updateDrawable/layout/native scale events recalculate the new ImageView matrix once.
+        first.iconAppearAmount=1f;fit.setScale(.25f,.25f);first.setImageMatrix(fit);area.changed(first);
+        area.draw(owner,new Canvas(),()->null);Canvas image=new Canvas();Canvas updated=image;
+        area.drawNativeIcon(first,image,()->{updated.scale(first.nativeScale,first.nativeScale);return area.drawNativeGlyph(first,updated,()->null);});near(59.56f,512f*.25f*image.scaleY);
+        first.visibleState=1;area.changed(first);area.draw(owner,new Canvas(),()->null);
+        image=new Canvas();area.drawNativeIcon(first,image,()->null);near(1f,image.scaleY); // Native overflow dot is untouched.
+        first.visibleState=0;area.changed(first);area.draw(owner,new Canvas(),()->null);
+        int invalidations=first.invalidations;
+        options.putBoolean(NotificationIconArea.SIZE_ENABLED,false);area.configure(null,options);equal(true,first.invalidations>invalidations);area.draw(owner,new Canvas(),()->null);
+        image=new Canvas();area.drawNativeIcon(first,image,()->null);near(1f,image.scaleY);
+        options.putBoolean(NotificationIconArea.SIZE_ENABLED,true);options.putFloat(NotificationIconArea.SIZE,200f);area.configure(null,options);area.draw(owner,new Canvas(),()->null);
+        Canvas larger=new Canvas();area.drawNativeIcon(first,larger,()->area.drawNativeGlyph(first,larger,()->null));near(800f,512f*.25f*.5f*larger.scaleY); // Above the suggested range is honored.
+        invalidations=first.invalidations;options.putBoolean(NotificationIconArea.MASTER,false);area.configure(null,options);equal(true,first.invalidations>invalidations);
+        image=new Canvas();area.drawNativeIcon(first,image,()->null);near(1f,image.scaleY);
+        options.putBoolean(NotificationIconArea.MASTER,true);options.putBoolean(StatusBarSettings.SAFE_MODE,true);area.configure(null,options);
+        image=new Canvas();area.drawNativeIcon(first,image,()->null);near(1f,image.scaleY);
+        options.putBoolean(StatusBarSettings.SAFE_MODE,false);area.configure(null,options);area.draw(owner,new Canvas(),()->null);
+        new NativeHost(404).addView(owner);
+        owner.setMaxIconsAmount(area.nativeMaxIcons(owner,7)); // This setter can drop owner state before changed()/detach arrives.
+        image=new Canvas();area.drawNativeIcon(first,image,()->null);near(1f,image.scaleY);equal(0,((Map<?,?>)field(area,"nativeSizes")).size());
+        equal(0,((Map<?,?>)field(area,"states")).size());
+        new NativeHost(202).addView(owner);area.changed(owner);area.draw(owner,new Canvas(),()->null);
+        invalidations=first.invalidations;area.releaseRuntime();equal(true,first.invalidations>invalidations);
+        image=new Canvas();area.drawNativeIcon(first,image,()->null);near(1f,image.scaleY);equal(0,((Map<?,?>)field(area,"nativeSizes")).size());
+        area.configure(null,options);image=new Canvas();area.drawNativeIcon(first,image,()->null);near(1f,image.scaleY);
+        equal(true,field(area,"nativeSizes") instanceof WeakHashMap);
+    }
+    private static final class MatrixCanvas extends Canvas {
+        final float[] sx=new float[64],sy=new float[64];
+        @Override public int save(){int n=super.save();sx[n]=scaleX;sy[n]=scaleY;return n;}
+        @Override public void restoreToCount(int n){super.restoreToCount(n);scaleX=sx[n];scaleY=sy[n];}
+    }
+    private static void glyphOnlyScope()throws Throwable{
+        NotificationIconArea area=new NotificationIconArea();area.resolve(NotificationIconAreaCheck.class.getClassLoader());PhoneContainer owner=phone(1);
+        StatusBarIconView icon=(StatusBarIconView)owner.getChildAt(0);icon.intrinsicHeight=96f;icon.nativeScale=.5f;icon.iconAppearAmount=.7f;
+        Bundle options=countOptions(true,1);options.putBoolean(NotificationIconArea.SIZE_ENABLED,true);options.putFloat(NotificationIconArea.SIZE,20f);
+        area.changed(owner);area.configure(null,options);area.draw(owner,new Canvas(),()->null);
+        MatrixCanvas canvas=new MatrixCanvas();float[] actual={0,0};
+        area.drawNativeIcon(icon,canvas,()->{
+            int nativeSave=canvas.save();canvas.scale(icon.nativeScale*icon.iconAppearAmount,icon.nativeScale*icon.iconAppearAmount);
+            area.drawNativeGlyph(icon,canvas,()->{actual[0]=96f*canvas.scaleY;return null;});canvas.restoreToCount(nativeSave);
+            actual[1]=6f*canvas.scaleY;return null; // StatusBarIconView draws transitional dot AFTER the ImageView branch restores.
+        });
+        near(14f,actual[0]);near(6f,actual[1]);equal(canvas.saves,canvas.restores);
+        Canvas outside=new Canvas();area.drawNativeGlyph(icon,outside,()->null);near(1f,outside.scaleY);
+        try{area.drawNativeIcon(icon,new Canvas(),()->{throw new IllegalStateException("native draw");});throw new AssertionError("failure lost");}
+        catch(IllegalStateException expected){checks++;}
+        area.drawNativeGlyph(icon,outside,()->null);near(1f,outside.scaleY);
+    }
     public static void main(String[] args)throws Throwable{
+        NotificationIconSpacingCheck.run();
         nativeContracts();
         firstEnableDrawing();
         nativeCounts();
+        glyphDimensions();
+        glyphOnlyScope();
         equal(false,NotificationIconArea.BOOLEANS.get(NotificationIconArea.MASTER));
         Bundle settings=SettingsSnapshot.fromPreferences(Collections.emptyMap());
         equal(true,SettingsSnapshot.complete(settings));equal(false,NotificationIconArea.active(settings));

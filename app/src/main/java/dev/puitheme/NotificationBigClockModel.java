@@ -66,6 +66,17 @@ final class NotificationBigClockModel {
     static float landscapeHeaderAlpha(float entryAlpha, float progress) {
         return bounded(entryAlpha, 0f, 0f, 1f) * (1f - scrollFade(progress));
     }
+    /** Native HGHT changes shape at a fixed em width on both panel and list gestures. */
+    static float nativeHeightProgress(float scrollProgress,float panelFraction) {
+        float scroll=bounded(scrollProgress,0f,0f,1f),panel=bounded(panelFraction,0f,0f,1f);
+        return 1f-(1f-scroll)*panel;
+    }
+    static Frame withNativePanelHeight(Frame scroll,float expanded,float compact,float panelFraction) {
+        float progress=nativeHeightProgress(scroll.progress,panelFraction);
+        return new Frame(scroll.progress,scroll.clockTop,lerp(expanded,compact,progress),scroll.dateTop,
+                scroll.reservedBottom,scroll.textSizeRatio,scroll.collapseDistance,scroll.entryTranslation,
+                scroll.entryAlpha,scroll.weight);
+    }
 
     /** Measured text is never stretched. All parts use the same absolute native scroll progress. */
     static Frame measured(float panelHeight, float density, float safeTop, float expandedHeight,

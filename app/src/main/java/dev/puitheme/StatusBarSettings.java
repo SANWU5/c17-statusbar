@@ -97,6 +97,7 @@ public final class StatusBarSettings {
         booleans.put(C17HighlightRemoval.ENABLED, false);
         booleans.put(C17HighlightRemoval.BACKGROUND_ENABLED, false);
         booleans.put(C17HighlightRemoval.NOTIFICATION_ENABLED, true);
+        booleans.put(C17HighlightRemoval.HEADS_UP_ENABLED, true);
         booleans.put(C17HighlightRemoval.CONTROL_ENABLED, true);
         booleans.put(C17HighlightRemoval.UNIFORM_NOTIFICATION_ENABLED, false);
         booleans.put(NotificationClearMotion.LANDSCAPE_MASTER, false);
@@ -112,6 +113,10 @@ public final class StatusBarSettings {
         booleans.putAll(NotificationBigClockSettings.BOOLEANS);
         booleans.putAll(NotificationClearAppearance.BOOLEANS);
         booleans.putAll(NotificationIconArea.BOOLEANS);
+        booleans.put(NotificationIconOverrides.MASTER, false);
+        booleans.put(IconPackRepository.MASTER, false);
+        booleans.putAll(ClassicTextSettings.BOOLEANS);
+        booleans.putAll(ShadeWallpaperSettings.BOOLEANS);
         booleans.putAll(BatteryTextStyle.BOOLEANS);
         booleans.putAll(QsTileIconSize.BOOLEANS);
         booleans.putAll(StatusBarShadeIconSettings.BOOLEANS);
@@ -168,6 +173,8 @@ public final class StatusBarSettings {
         numbers.putAll(NotificationIconArea.NUMBERS);
         numbers.putAll(BatteryTextStyle.NUMBERS);
         numbers.putAll(QsTileIconSize.NUMBERS);
+        numbers.putAll(ClassicTextSettings.NUMBERS);
+        numbers.putAll(ShadeWallpaperSettings.NUMBERS);
         NUMERIC_DEFAULTS = Collections.unmodifiableMap(numbers);
         Map<String, Integer> colors = new LinkedHashMap<>();
         for (String item : new String[]{"wifi", "data", "label", "speed", "clock", "shade_clock", "carrier",
@@ -186,6 +193,7 @@ public final class StatusBarSettings {
         colors.putAll(NotificationClearAppearance.COLORS);
         colors.put(NativeDataActivity.COLOR_LIGHT,0xff000000);colors.put(NativeDataActivity.COLOR_DARK,0xffffffff);
         colors.putAll(NotificationIconArea.COLORS);
+        colors.putAll(ClassicTextSettings.COLORS);
         COLOR_DEFAULTS = Collections.unmodifiableMap(colors);
         Map<String, String> strings = new LinkedHashMap<>();
         strings.put(CLOCK_PATTERN, TimeFormat.CLOCK_DEFAULT);
@@ -203,9 +211,16 @@ public final class StatusBarSettings {
         strings.put(FONT_NAME, "未导入字体");
         strings.put(SIGNAL_LAYOUT, "system");
         strings.putAll(NetworkSpeedControls.STRINGS);
+        strings.putAll(SpeedPosition.stringDefaults());
         strings.put(BATTERY_STYLE, "pui");
         strings.putAll(NotificationBigClockSettings.STRINGS);
         strings.putAll(NotificationIconArea.STRINGS);
+        strings.put(NotificationIconOverrides.RULES, "[]");
+        strings.put(IconPackRepository.LAYERS, "[]");
+        strings.put(IconPackAssignments.ASSIGNMENTS, "[]");
+        strings.putAll(ClassicTextSettings.STRINGS);
+        strings.putAll(ShadeWallpaperSettings.STRINGS);
+        strings.put("shade_wallpaper_manage", "");
         strings.putAll(NativeStatusIcons.stringDefaults());
         strings.putAll(NativeNetworkBadgeControls.stringDefaults());
         strings.put(LockscreenControls.DATE_FORMAT, "M月d日 {周}");
@@ -244,6 +259,7 @@ public final class StatusBarSettings {
         if (type.isInstance(value)) return value;
         String legacy = CarrierPanels.legacyKey(key);
         if(legacy==null)legacy=NotificationClearAppearance.legacyKey(key);
+        if(legacy==null)legacy=NativeNetworkBadgeSettings.legacyKey(key);
         Object inherited = values == null || legacy == null ? null : values.get(legacy);
         return type.isInstance(inherited) ? inherited : null;
     }
@@ -274,6 +290,7 @@ public final class StatusBarSettings {
         }
         String legacy = CarrierPanels.legacyKey(key);
         if(legacy==null)legacy=NotificationClearAppearance.legacyKey(key);
+        if(legacy==null)legacy=NativeNetworkBadgeSettings.legacyKey(key);
         if (legacy != null) return number(values, legacy, fallback);
         return fallback;
     }

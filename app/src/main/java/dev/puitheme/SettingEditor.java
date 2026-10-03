@@ -42,7 +42,7 @@ public final class SettingEditor {
         Object value=storedValue(item,values);
         boolean numeric=SettingsCatalog.NUMERIC.equals(item.type),integer=NativeStatusIcons.MAX.equals(item.key)||NotificationIconArea.MAX_COUNT.equals(item.key)
                 ||NotificationBigClockSettings.VISIBLE_COUNT.equals(NotificationBigClockSettings.portraitKey(item.key));
-        boolean pattern=item.key.endsWith("_pattern"),signed=NumericPolicy.signed(item.key);
+        boolean pattern=item.key.endsWith("_pattern")||LockscreenControls.DATE_FORMAT.equals(item.key),signed=NumericPolicy.signed(item.key);
         String initial=value==null?"":numeric?valueText(value):value.toString();
         String summary=numeric?"当前值："+formatted(item,value)+"\n默认值："+formatted(item,item.defaultValue)
                 +"\n"+(QsTileCorners.RADIUS.equals(item.key)?"允许范围：":"滑块建议：")
@@ -56,6 +56,10 @@ public final class SettingEditor {
     public static String context(SettingsCatalog.Item item){
         SettingsCatalog.Group group=SettingsCatalog.group(item.groupId);
         String title=group==null?item.groupId:group.title;
+        if("native_network_badge".equals(item.groupId)) {
+            if(item.key.startsWith(NativeNetworkBadgeSettings.PART_ONE+"_"))title+=" · 角标1";
+            else if(item.key.startsWith(NativeNetworkBadgeSettings.PART_TWO+"_"))title+=" · 角标2";
+        }
         if("carrier".equals(item.groupId))title=item.key.startsWith(CarrierPanels.LOCKSCREEN)?"锁屏运营商文字"
                 :item.key.startsWith(CarrierPanels.CONTROL)?"控制中心运营商文字":"通知栏运营商文字";
         int separator=item.section.lastIndexOf(" · ");
@@ -66,6 +70,9 @@ public final class SettingEditor {
         String key=NotificationBigClockSettings.portraitKey(item.key);
         if(QsTileCorners.RADIUS.equals(key))return "统一调整磁贴、音乐、亮度、音量与设备卡片的圆角。0 为直角，允许 0～30 dp；手动输入的小数不按滑块步长取整。\n建议范围内直接保存，不自动开启功能。";
         if(NotificationIconArea.MAX_COUNT.equals(key))return "仅用于原生通知图标，必须为非负整数。0 表示不显示图标，不删除通知；可超过滑块建议数量。\n建议范围内直接保存；范围外先试用20秒，确认后保存。";
+        if(NotificationBigClockSettings.SCREEN_PADDING.equals(key))return "仅作用于竖屏原生字体。设置时钟距离屏幕左右安全边缘的留白，左右使用相同数值；字形在剩余宽度内改变高度，宽度保持稳定，不改变通知卡片大小。0 保留屏幕安全边缘。\n建议范围内直接保存；范围外先试用20秒，未确认自动恢复。";
+        if(NotificationIconArea.SPACING.equals(key))return "在系统通知图标间距上增减距离，0 保留原生间距。只改变多个通知图标之间的空隙，不改变图标大小；单个符号、文字或图片不受影响。显示数量仍受状态栏可用空间限制。\n建议范围内直接保存；范围外先试用20秒，未确认自动恢复。";
+        if(NotificationBigClockSettings.MAX_SIZE.equals(key)||NotificationBigClockSettings.COMPACT_MAX_SIZE.equals(key))return "按 dp 设置时间文字的实际高度，数值越大字形越高。横屏固定为一个高度；竖屏只有原生字体区分展开与收起高度，其他字体保持一个高度。实际显示仍受页面可用宽度限制，避免超出屏幕。\n建议范围内直接保存；范围外先试用20秒，未确认自动恢复。";
         if(NativeStatusIcons.MAX.equals(key))return "只计算蓝牙、定位、闹钟等系统提示图标，不包含通知、网络和电池。填写非负整数；0 隐藏提示图标，优先级靠前的先保留。超出实际数量时仅显示现有提示。\n建议范围内直接保存；范围外先试用20秒，未确认自动恢复。";
         if(NativeStatusIcons.X.equals(key)||NativeStatusIcons.Y.equals(key))return "相对于系统默认位置，水平正值向右、负值向左；垂直正值向下、负值向上。只移动提示图标，保留原生动画；显示位置限制在实际可用空间内，避免覆盖网络区域或被父容器裁切。\n建议范围内直接保存；范围外先试用20秒，未确认自动恢复。";
         if(NativeStatusIcons.SPACING.equals(key))return "在原生提示图标间距上增加所填距离；0 保留系统间距。实际显示受容器空间限制，不改动蜂窝信号、电池和Wi-Fi的间距。\n建议范围内直接保存；范围外先试用20秒，未确认自动恢复。";
@@ -95,7 +102,9 @@ public final class SettingEditor {
     private static String weightDescription(SettingsCatalog.Item item,Map<String,?> values){
         String mode;
         if("battery".equals(item.groupId))mode="native";
-        else if("native_network_badge".equals(item.groupId))mode=StatusBarSettings.string(values,NativeNetworkBadgeControls.FONT);
+        else if("native_network_badge".equals(item.groupId))mode=StatusBarSettings.string(values,
+                item.key.startsWith(NativeNetworkBadgeSettings.PART_ONE+"_")?NativeNetworkBadgeSettings.key(1,"font"):
+                item.key.startsWith(NativeNetworkBadgeSettings.PART_TWO+"_")?NativeNetworkBadgeSettings.key(2,"font"):NativeNetworkBadgeControls.FONT);
         else if(item.groupId.startsWith("notification_big_clock"))mode=StatusBarSettings.string(values,
                 "notification_big_clock_landscape".equals(item.groupId)
                         ?NotificationBigClockSettings.landscapeKey(NotificationBigClockSettings.FONT):NotificationBigClockSettings.FONT);
