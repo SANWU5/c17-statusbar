@@ -642,8 +642,13 @@ public final class TextControls {
         applyStyle(view, entry);
         float density = view.getResources().getDisplayMetrics().density;
         CarrierStyle style = carrierStyle(entry.group);
-        ClockStyle clock = clockStyle(entry.group);
-        if (features.position(group(entry))) canvas.translate(NumericPolicy.pixels(entry.kind == CLOCK ? clock.x : style.x, density),
+        // Following the status clock's text/style does not give a shade header the status
+        // bar's coordinates. Its native anchor is different (and moves with the panel).
+        // Both the real header and its animation copies use only the independent shade
+        // position switch, so toggling that master cannot introduce a status-only offset.
+        String positionGroup = entry.kind == CLOCK && classification(view).shadeClock ? "shade_clock" : entry.group;
+        ClockStyle clock = clockStyle(positionGroup);
+        if (features.position(positionGroup)) canvas.translate(NumericPolicy.pixels(entry.kind == CLOCK ? clock.x : style.x, density),
                 NumericPolicy.pixels(entry.kind == CLOCK ? clock.y : style.y, density));
     }
 

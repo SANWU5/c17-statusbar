@@ -165,6 +165,7 @@ public final class StatusBarModule extends XposedModule {
     private static final NativeNetworkBadgeControls NATIVE_BADGE = new NativeNetworkBadgeControls();
     private static final NativeDataActivity DATA_ACTIVITY = new NativeDataActivity();
     private static final SingleNetworkLabelControls SINGLE_LABEL = new SingleNetworkLabelControls();
+    private static final SingleMobileIconControls SINGLE_SIGNAL = new SingleMobileIconControls();
     private static final NotificationNativeStack NATIVE_STACK = new NotificationNativeStack();
     private static final NetworkSpeedControls NETWORK_SPEED = new NetworkSpeedControls();
     private static volatile boolean bigClockEnabled;
@@ -2424,6 +2425,9 @@ public final class StatusBarModule extends XposedModule {
                 boolean detach = name.equals("onDetachedFromWindow") || name.equals("onRecycle");
                 if (!detach && !name.matches("onAttachedToWindow|onConfigurationChanged|onMeasure|handleCellLayoutConstraintChanged"
                         + "|onStateChanged|setStateImmediately|onThemeApplied|onQsColorStateChanged")) continue;
+                // Newer OEM bases declare callbacks without a body. ART cannot deoptimize
+                // abstract methods; the concrete tile override is handled separately.
+                if (Modifier.isAbstract(event.getModifiers())) continue;
                 deoptimize(event);
                 installHook(HookGroup.QS_ICON_SIZE, event, chain -> {
                     View tile = (View) chain.getThisObject();
@@ -3022,6 +3026,7 @@ public final class StatusBarModule extends XposedModule {
                 Class<?> target;
                 try { target = loader.loadClass(name); } catch (ClassNotFoundException absent) { continue; }
                 for (Method caller : target.getDeclaredMethods()) {
+                    if (Modifier.isAbstract(caller.getModifiers()) || Modifier.isStatic(caller.getModifiers())) continue;
                     if (caller.getName().matches("updateClock|onDarkChanged|onConfigurationChanged|setFontTypeface|updateTextColor|updateEverything|reloadDimens|onMeasure|calculateSecondTextMaxWidth|updateMinWidth.*"))
                         deoptimize(caller);
                     if (caller.getName().matches("onConfigurationChanged|updateConfigurationChanged|setFontTypeface")) {
@@ -3044,9 +3049,9 @@ public final class StatusBarModule extends XposedModule {
                         });
                     } catch (NoSuchMethodException inherited) { }
                 }
-                if (name.endsWith("StatClock")) {
+                if (name.endsWith("StatClock") && NativeClockMeasurement.widthField(target) != null) try {
                     final Method nativeMeasure = TextView.class.getDeclaredMethod("onMeasure", Integer.TYPE, Integer.TYPE);
-                    final Field actualWidth = target.getDeclaredField("actualWidth"); actualWidth.setAccessible(true);
+                    final Field actualWidth = NativeClockMeasurement.widthField(target);
                     installHook(HookGroup.TEXT, target.getDeclaredMethod("onMeasure", Integer.TYPE, Integer.TYPE), chain -> {
                         if(!FEATURES.enabled("clock")) {
                             Object result=chain.proceed();TEXT.nativeSize((TextView)chain.getThisObject(),((TextView)chain.getThisObject()).getTextSize());return result;
@@ -3061,6 +3066,8 @@ public final class StatusBarModule extends XposedModule {
                         actualWidth.setInt(view, view.getMeasuredWidth());
                         return result;
                     });
+                } catch (NoSuchMethodException inheritedMeasure) {
+                    moduleLog(Log.INFO,TAG,"Optional legacy clock measurement unavailable; native measurement retained");
                 }
                 if (name.equals("com.oplus.systemui.qs.widget.OplusQSClock")) try {
                     Method calculateWidth = target.getDeclaredMethod("calculateSecondTextMaxWidth");
@@ -3102,7 +3109,9 @@ public final class StatusBarModule extends XposedModule {
                     if (!TEXT.replaces(view)) return chain.proceed();
                     TEXT.nativeSize(view, maxSize.getFloat(view)); TEXT.beforeMeasure(view); return null;
                 });
-            } catch (ClassNotFoundException absent) { }
+            } catch (ClassNotFoundException | NoSuchFieldException | NoSuchMethodException absent) {
+                moduleLog(Log.INFO,TAG,"Optional animated carrier measurement unavailable; common text hooks retained");
+            }
             try {
                 Class<?> callback=loader.loadClass("com.oplus.systemui.qs.widget.OplusSecondCarrierText$1");
                 for(Method method:callback.getDeclaredMethods())if(method.getName().equals("updateCarrierInfo"))deoptimize(method);
@@ -4054,6 +4063,7 @@ public final class StatusBarModule extends XposedModule {
     }
 
     private void installSingleNetworkLabelHooks(ClassLoader loader) {
+        installSingleMobileIconHooks(loader);
         try {
             SINGLE_LABEL.resolve(loader);
             Class<?> binding=loader.loadClass("com.oplus.systemui.statusbar.pipeline.mobile.ui.view.OplusStatusBarMobileViewBinder$Os17Binding");
@@ -4066,7 +4076,9 @@ public final class StatusBarModule extends XposedModule {
                 installHook(HookGroup.MODEL,method,chain->{
                     Object owner=fontEvent?chain.getArg(0):chain.getThisObject();
                     try(SingleNetworkLabelControls.NativeScope scope=SINGLE_LABEL.beforeNative(owner,modelEvent,modelEvent?chain.getArg(0):null)) {
-                        return chain.proceed();
+                        Object result=chain.proceed();
+                        if(modelEvent)scheduleRefresh();
+                        return result;
                     }
                 });
             }
@@ -4078,6 +4090,50 @@ public final class StatusBarModule extends XposedModule {
             moduleLog(Log.INFO,TAG,"Single-SIM primary data network label binder installed");
         }catch(ReflectiveOperationException|LinkageError unavailable){
             moduleLog(Log.INFO,TAG,"Optional single-SIM network label binder unavailable",unavailable);
+        }
+    }
+
+    private void installSingleMobileIconHooks(ClassLoader loader) {
+        try {
+            SINGLE_SIGNAL.resolve(loader,drawable->drawable instanceof ScaledDrawable);
+            Class<?> base=loader.loadClass("com.oplus.systemui.statusbar.pipeline.mobile.ui.view.AbstractOplusStatusBarMobileViewBinder$Binding");
+            final Class<?> textBinding=loader.loadClass("com.oplus.systemui.statusbar.pipeline.mobile.ui.view.OplusStatusBarMobileViewBinder$Os17Binding");
+            for(String name:new String[]{base.getName(),"com.oplus.systemui.statusbar.pipeline.mobile.ui.view.OplusStatusBarMobileViewBinder$Os17Binding"}) {
+                Class<?> binding;
+                try{binding=loader.loadClass(name);}catch(ClassNotFoundException absent){continue;}
+                for(Method method:binding.getDeclaredMethods()) {
+                    if(!method.getName().matches("initViews|updateSignalIcon|updateTint")||Modifier.isAbstract(method.getModifiers()))continue;
+                    deoptimize(method);
+                    installHook(HookGroup.MODEL,method,chain->{
+                        Object owner=chain.getThisObject();
+                        try(SingleMobileIconControls.NativeScope signal=SINGLE_SIGNAL.beforeNative(owner);
+                                SingleNetworkLabelControls.NativeScope label=textBinding.isInstance(owner)
+                                        ?SINGLE_LABEL.beforeNative(owner,false,null):null){return chain.proceed();}
+                    });
+                }
+            }
+            for(String factoryName:new String[]{"com.oplus.systemui.statusbar.pipeline.mobile.ui.view.OplusStatusBarMobileViewBinder",
+                    "com.oplus.systemui.statusbar.pipeline.mobile.ui.view.BigTypeStatusBarMobileViewBinder"}) {
+                Class<?> factory;
+                try{factory=loader.loadClass(factoryName);}catch(ClassNotFoundException absent){continue;}
+                for(Method method:factory.getDeclaredMethods())if(method.getName().equals("createBinding")&&!Modifier.isAbstract(method.getModifiers())) {
+                    deoptimize(method);
+                    // Hook installation is idempotent per executable: register both owners
+                    // together, rather than losing one to a second hook on the same factory.
+                    installHook(HookGroup.MODEL,method,chain->{
+                        Object result=chain.proceed();
+                        if(base.isInstance(result)) {
+                            SINGLE_SIGNAL.bound(result);
+                            if(chain.getArg(0) instanceof View)allowDrawableOverflow((View)chain.getArg(0));
+                        }
+                        if(textBinding.isInstance(result)){SINGLE_LABEL.bound(result);scheduleRefresh();}
+                        return result;
+                    });
+                }
+            }
+            moduleLog(Log.INFO,TAG,"Native single-SIM signal placement connected");
+        }catch(ReflectiveOperationException|LinkageError unavailable){
+            moduleLog(Log.INFO,TAG,"Optional single-SIM signal placement unavailable",unavailable);
         }
     }
 
@@ -4383,6 +4439,7 @@ public final class StatusBarModule extends XposedModule {
             NATIVE_BADGE.releaseRuntime();
             DATA_ACTIVITY.releaseRuntime();
             SINGLE_LABEL.releaseRuntime();
+            SINGLE_SIGNAL.releaseRuntime();
             LOCKSCREEN.releaseRuntime();
             QsTileAppearance.releaseNativeMembers();
             moduleResources = null;
@@ -4611,6 +4668,7 @@ public final class StatusBarModule extends XposedModule {
             dataOffsetXdp = FEATURES.position("data")?settingValue(bundleCall, StatusBarSettings.DATA_OFFSET_X, 0):0;
             dataOffsetYdp = FEATURES.position("data")?settingValue(bundleCall, StatusBarSettings.DATA_OFFSET_Y, 0):0;
             dataIconScalePercent = FEATURES.size("data")?settingValue(bundleCall, StatusBarSettings.DATA_ICON_SCALE, 100):100;
+            SINGLE_SIGNAL.update(FEATURES,dataOffsetXdp,dataOffsetYdp,dataIconScalePercent);
             labelOffsetXdp = FEATURES.position("label")?settingValue(bundleCall, StatusBarSettings.LABEL_OFFSET_X, 0):0;
             labelOffsetYdp = FEATURES.position("label")?settingValue(bundleCall, StatusBarSettings.LABEL_OFFSET_Y, 0):0;
             labelScalePercent = FEATURES.size("label")?settingValue(bundleCall, StatusBarSettings.LABEL_SCALE, 100):100;
@@ -4642,6 +4700,10 @@ public final class StatusBarModule extends XposedModule {
             NATIVE_BADGE.configure(bundleCall);
             DATA_ACTIVITY.configure(bundleCall);
             ModuleDiagnostics.runtimeApplied(context,bundleCall);
+            if(ModuleDiagnostics.enabled()) {
+                ModuleDiagnostics.info("single_signal",SINGLE_SIGNAL.diagnosticSummary());
+                ModuleDiagnostics.info("single_label",SINGLE_LABEL.diagnosticSummary());
+            }
             ModuleDiagnostics.info("settings", "Visual settings applied; Android SDK " + android.os.Build.VERSION.SDK_INT
                     + "; active hooks " + COMPLETED_HOOK_GROUPS);
     }
@@ -4821,6 +4883,10 @@ public final class StatusBarModule extends XposedModule {
         }
         if(strNormalize.isEmpty()&&!airplaneMode&&cellularDataAvailable()) {
             String raw=NativeDataSource.label(activeSub);
+            strNormalize=FEATURES.effective("label","label_normalize_enabled")?NetworkLabel.normalize(raw):raw;
+        }
+        if(strNormalize.isEmpty()&&!airplaneMode) {
+            String raw=SINGLE_LABEL.nativeLabel(activeSub);
             strNormalize=FEATURES.effective("label","label_normalize_enabled")?NetworkLabel.normalize(raw):raw;
         }
         if (strNormalize.isEmpty() && !airplaneMode) strNormalize=readTelephonyNetworkLabel();

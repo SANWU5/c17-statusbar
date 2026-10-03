@@ -12,7 +12,7 @@ public class View implements ViewParent, Drawable.Callback {
     public static final int VISIBLE=0,INVISIBLE=4,GONE=8;
     public static final int LAYOUT_DIRECTION_LTR=0,LAYOUT_DIRECTION_RTL=1;
     private int minimumWidth, visibility;
-    private float alpha=1f,translationAlpha=1f,translationX,translationY,scaleY=1f;
+    private float alpha=1f,translationAlpha=1f,translationX,translationY,scaleX=1f,scaleY=1f;
     private int layoutLeft;
     private int layoutTop;
     public int layoutRequests, invalidations;
@@ -74,6 +74,8 @@ public class View implements ViewParent, Drawable.Callback {
     public void setTranslationY(float value) {translationY=value;}
     public float getScaleY() {return scaleY;}
     public void setScaleY(float value) {scaleY=value;}
+    public float getScaleX() {return scaleX;}
+    public void setScaleX(float value) {scaleX=value;}
     public float getPivotY() {return getHeight()*.5f;}
     public int getMeasuredWidth() {return measured?measuredWidth:getWidth();}
     public int getMeasuredHeight() {return measured?measuredHeight:getHeight();}

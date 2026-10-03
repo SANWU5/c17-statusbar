@@ -23,6 +23,8 @@ final class SingleNetworkLabelControls {
         View image(Object binding)throws ReflectiveOperationException;
         int subscription(Object binding)throws ReflectiveOperationException;
         void bind(Object binding,Object model)throws ReflectiveOperationException;
+        default Object model(Object binding)throws ReflectiveOperationException{return null;}
+        default String nativeLabel(Object binding)throws ReflectiveOperationException{return "";}
     }
     private static final Map<View,Boolean> MANAGED=Collections.synchronizedMap(new WeakHashMap<>());
     static boolean managed(View view){return view!=null&&MANAGED.containsKey(view);}
@@ -34,6 +36,7 @@ final class SingleNetworkLabelControls {
     private Map<String,Integer> colors=Collections.emptyMap();
     private Map<String,Boolean> alphas=Collections.emptyMap();
     private boolean replaying,released;
+    private long nativeEvents,boundEvents,applications;
     private long fontRevision=-1;
     private static final class Row {
         final WeakReference<TextView> text;final WeakReference<View> image;
@@ -54,12 +57,38 @@ final class SingleNetworkLabelControls {
         Method vm=binder.getMethod("getOplusViewModel");
         Method sub=loader.loadClass("com.oplus.systemui.statusbar.pipeline.mobile.ui.viewmodel.OplusMobileIconViewModel").getMethod("getSubscriptionId");
         Method bind=binder.getMethod("bindNetworkTypeText",model);
+        Method flow=loader.loadClass("com.oplus.systemui.statusbar.pipeline.mobile.ui.viewmodel.OplusMobileIconViewModel").getMethod("getNetworkTypeText");
+        Method value=loader.loadClass("kotlinx.coroutines.flow.StateFlow").getMethod("getValue");
+        Method type=model.getMethod("getNetworkTypeText");
+        Method name=loader.loadClass("com.android.systemui.statusbar.pipeline.mobile.data.OplusNetworkTypeText").getMethod("getName");
         access=new Access(){
             public TextView text(Object owner)throws ReflectiveOperationException{return (TextView)text.invoke(owner);}
             public View image(Object owner)throws ReflectiveOperationException{return (View)image.get(owner);}
             public int subscription(Object owner)throws ReflectiveOperationException{return (Integer)sub.invoke(vm.invoke(owner));}
             public void bind(Object owner,Object value)throws ReflectiveOperationException{bind.invoke(owner,value);}
+            public Object model(Object owner)throws ReflectiveOperationException{return value.invoke(flow.invoke(vm.invoke(owner)));}
+            public String nativeLabel(Object owner)throws ReflectiveOperationException{
+                Object current=model(owner),network=current==null?null:type.invoke(current);
+                Object result=network==null?null:name.invoke(network);return result instanceof String?(String)result:"";
+            }
         };
+    }
+    /** The concrete factory result is available even when OEM initViews was inlined. */
+    void bound(Object binding){
+        if(replaying||released)return;
+        try{Row row=row(binding);if(row==null)return;boundEvents++;
+            row.model=access.model(binding);row.modelKnown=true;apply(binding,row);
+        }catch(ReflectiveOperationException|RuntimeException failure){ModuleDiagnostics.error("single_label","Native network factory binding unavailable",failure);}
+    }
+    /** The current main-SIM model only. The caller still applies Wi-Fi/radio visibility gates. */
+    String nativeLabel(int activeSub){
+        if(released||access==null||activeSub<0)return "";
+        for(Map.Entry<Object,Row> entry:new ArrayList<>(rows.entrySet())){
+            Row row=entry.getValue();if(row.subscription!=activeSub||row.text.get()==null)continue;
+            try{String current=access.nativeLabel(entry.getKey());if(current!=null&&!NetworkLabel.normalize(current).isEmpty())return current;}
+            catch(ReflectiveOperationException|RuntimeException unavailable){/* Preserve native state; never reuse a previous SIM's text. */}
+        }
+        return "";
     }
     void update(FeatureOptions options,String label,int activeSub,float x,float y,float scale,float width,int weight,
             Map<String,Integer> colors,Map<String,Boolean> alphas){
@@ -82,6 +111,7 @@ final class SingleNetworkLabelControls {
     NativeScope beforeNative(Object binding,boolean modelEvent,Object model){
         if(replaying||released)return new NativeScope(null,null);
         try{Row row=row(binding);if(row==null)return new NativeScope(null,null);
+            nativeEvents++;
             if(modelEvent){row.model=model;row.modelKnown=true;}
             if(row.depth++==0&&row.owned){TextView text=row.text.get();if(text!=null)restoreStyle(text,row);}
             return new NativeScope(binding,row);
@@ -91,13 +121,14 @@ final class SingleNetworkLabelControls {
         private Object binding;private Row row;
         NativeScope(Object binding,Row row){this.binding=binding;this.row=row;}
         public void close(){Row current=row;Object owner=binding;row=null;binding=null;if(current==null)return;
-            if(--current.depth!=0)return;TextView text=current.text.get();if(text==null)return;
+            if(--current.depth!=0||released||access==null)return;TextView text=current.text.get();if(text==null)return;
             current.capture(text);
             try{apply(owner,current);}catch(ReflectiveOperationException|RuntimeException failure){ModuleDiagnostics.error("single_label","Native network style application failed",failure);}
         }
     }
     private void apply(Object binding,Row row)throws ReflectiveOperationException{
-        TextView text=row.text.get();if(text==null||row.depth!=0)return;
+        TextView text=row.text.get();if(text==null||row.depth!=0||released||access==null)return;
+        applications++;
         if(!features.enabled("label")||ModuleLifecycle.removed()){
             if(!row.owned)return;row.owned=false;MANAGED.remove(text);restoreStyle(text,row);
             // Rebuild genuine native spans, content description, Tigo image and visibility.
@@ -137,4 +168,10 @@ final class SingleNetworkLabelControls {
     }
     void releaseRuntime(){update(FeatureOptions.from(Collections.emptyMap()),"",-1,0,0,100,22,400,Collections.emptyMap(),Collections.emptyMap());
         for(Row row:rows.values()){TextView text=row.text.get();if(text!=null)MANAGED.remove(text);}rows.clear();access=null;released=true;}
+    String diagnosticSummary(){int live=0,owned=0,visible=0,active=0;
+        for(Row row:rows.values()){TextView text=row.text.get();if(text==null)continue;live++;if(row.owned)owned++;
+            if(text.getVisibility()==View.VISIBLE)visible++;if(row.subscription==subscription)active++;}
+        return "Single network label rows "+live+", owned "+owned+", visible "+visible+", active "+active
+                +", factory events "+boundEvents+", native events "+nativeEvents+", applications "+applications;
+    }
 }

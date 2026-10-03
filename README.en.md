@@ -1,8 +1,8 @@
-# C17 Status Bar · 1.7.1
+# C17 Status Bar · 1.7.2
 
 A SystemUI customization module for ColorOS 17, primarily developed against OnePlus 13. Uses LibXposed API 101; package: `dev.puitheme.iosstatusbar`.
 
-**1.7.1 stable release / versionCode 63.** Get the APK from [GitHub Releases](https://github.com/SANWU5/c17-statusbar/releases). See the [1.7.1 release notes](docs/RELEASE-1.7.1.zh-CN.md) for changes since 1.6.0 and the [validation record](VALIDATION.md) for actual verification scope.
+**1.7.2 / versionCode 64.** Get the APK from [GitHub Releases](https://github.com/SANWU5/c17-statusbar/releases). This update fixes cellular positioning and network labels in some single-SIM layouts, and prevents shade clocks from inheriting status-bar position offsets. See the [1.7.2 release notes](docs/RELEASE-1.7.2.zh-CN.md) for changes since 1.7.1 and the [validation record](VALIDATION.md) for actual verification scope.
 
 [中文](README.md) · [GitHub Releases](https://github.com/SANWU5/c17-statusbar/releases) · [Changelog](CHANGELOG.md)
 

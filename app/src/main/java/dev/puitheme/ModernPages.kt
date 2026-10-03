@@ -375,7 +375,7 @@ private fun ActivationHero(app: ModernMainActivity) {
         else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
     }
     val version = remember(app) {
-        runCatching { app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: "1.7.1" }
+        runCatching { app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: "1.7.2" }
             .getOrDefault("1.7.0")
     }
     Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.defaultColors(color = background), onClick = app::checkActivation) {

@@ -1,8 +1,8 @@
-# 更好的 C17 状态栏 · 1.7.1
+# 更好的 C17 状态栏 · 1.7.2
 
 面向 ColorOS 17 的 SystemUI 定制模块，主要适配依据为 OnePlus 13。使用 LibXposed API 101，包名为 `dev.puitheme.iosstatusbar`。
 
-**1.7.1 正式版 / versionCode 63。** 安装包通过 [GitHub Releases](https://github.com/SANWU5/c17-statusbar/releases) 获取。本版对比上一正式版 1.6.0 的完整变化见 [1.7.1 发布说明](docs/RELEASE-1.7.1.zh-CN.md)，实际检查范围见 [验证记录](VALIDATION.md)。
+**1.7.2 / versionCode 64。** 安装包通过 [GitHub Releases](https://github.com/SANWU5/c17-statusbar/releases) 获取。本版修复部分单卡布局的蜂窝位置与网络文字不生效，以及下拉时钟跟随状态栏位置导致的错位。对比 1.7.1 的变化见 [1.7.2 发布说明](docs/RELEASE-1.7.2.zh-CN.md)，实际检查范围见 [验证记录](VALIDATION.md)。
 
 [English](README.en.md) · [GitHub Releases](https://github.com/SANWU5/c17-statusbar/releases) · [更新记录](CHANGELOG.md)
 

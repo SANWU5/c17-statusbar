@@ -136,7 +136,7 @@ public final class MainActivity extends Activity {
             new Setting("模糊半径（高级选项）","tiles_blur_radius"," dp",0,48,.01f),
             new Setting("渐隐强度","tiles_strength","%",0,100,.01f)}),
         new Group("qs_appearance","磁贴活动调色","全局调整内部活动填充，保留 ColorOS 17 原生玻璃与高光。",new Setting[]{}),
-        new Group("shade_clock","通知栏与控制中心时钟","单独设置下拉时钟的格式、位置、大小、粗细、字距与颜色，保留系统展开动画。关闭独立调节后继续跟随状态栏时间。",new Setting[]{
+        new Group("shade_clock","通知栏与控制中心时钟","单独设置下拉时钟的格式、位置、大小、粗细、字距与颜色，保留系统展开动画。关闭独立调节后跟随状态栏时间格式与文字样式，位置保留原生布局。",new Setting[]{
             pos("水平位置",StatusBarSettings.SHADE_CLOCK_OFFSET_X,true),pos("垂直位置",StatusBarSettings.SHADE_CLOCK_OFFSET_Y,false),
             scale("文字大小",StatusBarSettings.SHADE_CLOCK_SCALE),weight(StatusBarSettings.SHADE_CLOCK_WEIGHT),
             new Setting("字距微调",StatusBarSettings.SHADE_CLOCK_SPACING," dp",-2,8,.01f)}),
@@ -287,7 +287,7 @@ public final class MainActivity extends Activity {
         card.setPadding(dp(18),dp(10),dp(18),dp(12));card.setBackground(rounded(CARD,22,false));editor.addView(card,matchWrap());
         addHint(card,group.detail);
         if(group.key.equals("shade_clock"))addBigClockConflict(card);
-        if(group.key.equals("shade_clock"))addHint(card,enabled(masterKey(group.key))?"独立调节已开启，以下设置作用于通知栏与控制中心时钟。":"当前跟随状态栏时间。打开右上角开关后，以下独立设置才会生效。");
+        if(group.key.equals("shade_clock"))addHint(card,enabled(masterKey(group.key))?"独立调节已开启，以下设置作用于通知栏与控制中心时钟。":"当前跟随状态栏时间格式与文字样式，位置保留原生布局。打开右上角开关后，以下独立设置才会生效。");
         else if(!enabled(masterKey(group.key)))addHint(card,"本项已停用，当前使用系统显示。开启后应用以下设置。");
         if(group.key.equals("carrier")) {
             addCarrierEditor(card);finishDetailLayout(card);updateSample();schedulePreview();pageScroll.post(()->pageScroll.scrollTo(0,oldScroll));return;

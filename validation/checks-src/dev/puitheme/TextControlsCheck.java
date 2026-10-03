@@ -51,6 +51,7 @@ public final class TextControlsCheck {
         equal(TextControls.NONE,control.kind(new TextView(context)));
         shadeClocks(context);
         independentShadeClocks(context);
+        shadePositionIsolation(context);
         classificationCaching(context);
         nativeStyleIsolation(context);
         System.out.println(checks+" text state, precision, tint and scheduler checks passed");
@@ -224,7 +225,8 @@ public final class TextControlsCheck {
         for(TextView clock:clocks) {
             equal(status.getText(),clock.getText());equal(status.getText(),clock.getContentDescription());near(19.5f,clock.getTextSize());
             equal(712,clock.getTypeface().weight);near(1f/19.5f,clock.getLetterSpacing());equal(0xcc123456,clock.getCurrentTextColor());
-            android.graphics.Canvas canvas=new android.graphics.Canvas();control.beforeDraw(clock,canvas);near(12f,canvas.translateX);near(-8f,canvas.translateY);
+            android.graphics.Canvas canvas=new android.graphics.Canvas();control.beforeDraw(clock,canvas);
+            near(clock==status?12f:0f,canvas.translateX);near(clock==status?-8f:0f,canvas.translateY);
             clock.setText(control.nativeText(clock,"系统更新"));equal(status.getText(),clock.getText());
             // Simulate the vendor probing width with its native 13px Paint size.
             for(int i=0;i<3;i++) { clock.setTextSize(0,13f);near(90f,control.restoreClockWidth(clock,60f,13f));near(19.5f,clock.getTextSize()); }
@@ -254,6 +256,66 @@ public final class TextControlsCheck {
         for(TextView clock:clocks) { equal("系统更新",clock.getText());equal("系统描述",clock.getContentDescription());near(13f,clock.getTextSize());near(0f,clock.getLetterSpacing());equal(0xccffffff,clock.getCurrentTextColor());near(60f,control.restoreClockWidth(clock,60f,13f));near(13f,clock.getTextSize()); }
         near(60f,control.restoreClockWidth(carrier,60f,13f));
         equal("独立通知文字",carrier.getText());equal(true,handler.delayed==null);
+    }
+
+    /** Reproduce PKB110's saved 20dp status-only offset without shifting native panel anchors. */
+    private static void shadePositionIsolation(Context context) {
+        TextControls control=new TextControls(new Handler(Looper.getMainLooper()));
+        TextView status=new StatClock(context);
+        TextView notification=new com.oplus.systemui.qs.widget.SimpleQsClock(context);
+        TextView fake=new com.oplus.systemui.qs.fake.view.QsClock(context);
+        TextView qs=new com.oplus.systemui.qs.widget.OplusQSClock(context);
+        TextView recreated=new NamedClock(context,"qs_footer_clock",true);
+        TextView[] shades={notification,fake,qs,recreated};
+        com.oplus.systemui.separate.OplusQSSimpleHeader header=new com.oplus.systemui.separate.OplusQSSimpleHeader(context);
+        header.addView(notification);header.addView(recreated);
+        for(TextView view:shades) {
+            view.getResources().getDisplayMetrics().density=3.5f;
+            view.getResources().getDisplayMetrics().scaledDensity=3.15f;
+            view.setTextSize(0,46f);view.setText("原生下拉时间");
+            view.setTranslationX(11f);view.setTranslationY(17f);view.offsetLeftAndRight(31);
+            control.attach(view);
+        }
+        status.getResources().getDisplayMetrics().density=3.5f;
+        status.setTextSize(0,45.5f);status.setText("原生状态栏时间");control.attach(status);
+        Bundle settings=new Bundle();
+        settings.putBoolean("clock_controls_enabled",true);
+        settings.putBoolean("clock_position_enabled",true);
+        settings.putFloat(StatusBarSettings.CLOCK_OFFSET_X,20f);
+        settings.putFloat(StatusBarSettings.CLOCK_OFFSET_Y,.5f);
+        settings.putFloat(StatusBarSettings.CLOCK_SCALE,114.32f);
+        settings.putBoolean("shade_clock_position_enabled",true);
+        settings.putFloat(StatusBarSettings.SHADE_CLOCK_OFFSET_X,-3f);
+        settings.putFloat(StatusBarSettings.SHADE_CLOCK_OFFSET_Y,2f);
+        settings.putBoolean("shade_clock_size_enabled",false);
+        // Rapidly alternating the page master must never borrow the 70px status offset.
+        for(int i=0;i<300;i++) {
+            boolean independent=(i&1)!=0;
+            settings.putBoolean(StatusBarSettings.SHADE_CLOCK_CONTROLS_ENABLED,independent);
+            control.configure(settings,StatusBarSettings.COLOR_DEFAULTS,Collections.emptyMap());
+            android.graphics.Canvas statusCanvas=new android.graphics.Canvas();
+            control.beforeDraw(status,statusCanvas);near(70f,statusCanvas.translateX);near(1.75f,statusCanvas.translateY);
+            for(TextView shade:shades) {
+                android.graphics.Canvas canvas=new android.graphics.Canvas();
+                // Preserve the existing parent/page transform as well as the native view geometry.
+                canvas.translate(5f,9f);control.beforeDraw(shade,canvas);
+                near(5f+(independent?-10.5f:0f),canvas.translateX);
+                near(9f+(independent?7f:0f),canvas.translateY);
+                equal(independent?"shade_clock":"clock",control.group(shade));
+                near(independent?46f:46f*1.1432f,shade.getTextSize());
+                near(11f,shade.getTranslationX());near(17f,shade.getTranslationY());equal(31,shade.getLeft());
+                equal("原生下拉时间",shade.getText());
+            }
+        }
+        // Disabling position or safe mode independently makes every panel copy pass through.
+        settings.putBoolean(StatusBarSettings.SHADE_CLOCK_CONTROLS_ENABLED,true);
+        settings.putBoolean("shade_clock_position_enabled",false);
+        control.configure(settings,StatusBarSettings.COLOR_DEFAULTS,Collections.emptyMap());
+        for(TextView shade:shades) {android.graphics.Canvas canvas=new android.graphics.Canvas();control.beforeDraw(shade,canvas);near(0f,canvas.translateX);near(0f,canvas.translateY);}
+        settings.putBoolean("shade_clock_position_enabled",true);
+        settings.putBoolean(StatusBarSettings.SAFE_MODE,true);
+        control.configure(settings,StatusBarSettings.COLOR_DEFAULTS,Collections.emptyMap());
+        for(TextView shade:shades) {android.graphics.Canvas canvas=new android.graphics.Canvas();control.beforeDraw(shade,canvas);near(0f,canvas.translateX);near(0f,canvas.translateY);near(46f,shade.getTextSize());}
     }
 
     private static void independentShadeClocks(Context context) {

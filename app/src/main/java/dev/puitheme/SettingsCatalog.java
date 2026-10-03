@@ -301,7 +301,7 @@ public final class SettingsCatalog {
     }
     private static Group clock(String id, String category) {
         boolean shade = "shade_clock".equals(id);
-        Builder b = builder(id, shade ? "通知栏与控制中心时钟" : "状态栏时间", shade ? "独立设置下拉时钟，关闭后跟随状态栏时间。竖屏通知页的大时钟优先显示。" : "设置时间格式、位置、大小与字距。下拉时钟可跟随此处设置。", category, id + "_controls_enabled");
+        Builder b = builder(id, shade ? "通知栏与控制中心时钟" : "状态栏时间", shade ? "独立设置下拉时钟。关闭后跟随状态栏时间格式与文字样式，位置保留原生布局。竖屏通知页的大时钟优先显示。" : "设置时间格式、位置、大小与字距。下拉时钟可跟随格式与文字样式，不继承此处的位置。", category, id + "_controls_enabled");
         controls(b, id, "独立开关", true);
         b.toggle(id + "_enabled", "自定义时间格式", "支持时分秒、日期、星期与中文时段", "时间格式");
         b.text(id + "_pattern", "时间格式", "可选择常用格式或输入自定义格式", "时间格式", CLOCK_VALUES, CLOCK_LABELS);
