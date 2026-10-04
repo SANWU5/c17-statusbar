@@ -11,6 +11,8 @@ import android.graphics.Rect;
 import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.view.ViewParent;
 import java.lang.ref.WeakReference;
@@ -57,12 +59,15 @@ public final class QsTileAppearance {
         {"RectangleEntranceCardView","rectangle_entrance_constraintLayout"},
         {"SquareEntranceCardView","square_entrance_constraintLayout"}
     };
-    private final Map<View,Integer> tiles=new WeakHashMap<>();
-    private final Map<Drawable,WeakReference<View>> backgrounds=new WeakHashMap<>();
-    private final Map<Drawable,WeakReference<Drawable>> fillSources=new WeakHashMap<>();
-    private final Map<View,Boolean> sliders=new WeakHashMap<>();
-    private final Map<View,Boolean> deviceCards=new WeakHashMap<>();
-    private final Map<View,DeviceSource> deviceSources=new WeakHashMap<>();
+    private final Map<View,Integer> tiles=Collections.synchronizedMap(new WeakHashMap<>());
+    private final Map<Drawable,WeakReference<View>> backgrounds=Collections.synchronizedMap(new WeakHashMap<>());
+    private final Map<Drawable,WeakReference<Drawable>> fillSources=Collections.synchronizedMap(new WeakHashMap<>());
+    private final Map<View,Boolean> sliders=Collections.synchronizedMap(new WeakHashMap<>());
+    private final Map<View,Boolean> deviceCards=Collections.synchronizedMap(new WeakHashMap<>());
+    private final Map<View,DeviceSource> deviceSources=Collections.synchronizedMap(new WeakHashMap<>());
+    private final Handler main=new Handler(Looper.getMainLooper());
+    private final Map<View,Integer> pendingUiViews=new WeakHashMap<>();
+    private static final int UI_TILE=1,UI_DEVICE=2,UI_DETACH=4;
     private final Map<Drawable,WeakReference<View>> glassTracks=Collections.synchronizedMap(new WeakHashMap<>());
     private final Map<Drawable,WeakReference<Drawable>> glassSources=Collections.synchronizedMap(new WeakHashMap<>());
     private final ThreadLocal<Set<Paint>> activePaints=new ThreadLocal<>();
@@ -124,6 +129,7 @@ public final class QsTileAppearance {
     /** Run after native tile state/theme/drawable updates. Big glass cards are deliberately excluded. */
     public void refreshTile(View view) {
         if(!isTile(view))return;
+        if(dispatchUi(view,UI_TILE))return;
         onTileState(view,call(view,"getTileState"));
         if(!largeTile(view)) {
             register(view,call(view,"getBgDrawable"),0,new IdentityHashMap<>());
@@ -149,7 +155,8 @@ public final class QsTileAppearance {
         if(!(object instanceof View))return;
         register(owner,call(object,"getDrawable"),0,new IdentityHashMap<>());
         register(owner,call(object,"getBackground"),0,new IdentityHashMap<>());
-        ((View)object).invalidate();
+        // Registration observes the native update; it is not a new visual change.
+        // An unconditional invalidate here both loops and crashes SysUiTileBg.
     }
     public static boolean isDeviceCard(View view){return deviceBodyName(view)!=null;}
     private static String deviceBodyName(View view) {
@@ -166,6 +173,7 @@ public final class QsTileAppearance {
     }
     /** Only the five native devices-row cards' inner base; spotlight foregrounds are not registered. */
     public void refreshDeviceCard(View view) {
+        if(view==null||dispatchUi(view,UI_DEVICE))return;
         View body=deviceBody(view);if(body==null)return;
         Object background=call(body,"getBackground");
         registerDeviceSource(view,body,background instanceof Drawable?(Drawable)background:null);
@@ -186,27 +194,45 @@ public final class QsTileAppearance {
         // g()/theme/config events still refresh nested drawable state. An unchanged
         // draw must not re-register its entire native graph or recreate weak references.
         if(source==null||!source.matches(body,drawable))registerDeviceSource(view,body,drawable);
-        DrawBuffers buffers=acquireBuffers();
-        try {
-            collectFills(drawable,buffers.paints,0,buffers.seen,true);
-            Rect bounds=drawable.getBounds();
-            // View initializes a newly replaced background's bounds during its first draw.
-            if(!valid(bounds))bounds=new Rect(0,0,body.getWidth(),body.getHeight());
-            withFills(buffers,style(view),bounds,canvas,nativeDraw);
-        }finally{buffers.clear();}
+        // SDK g() selects SepInactive for this body even when a connected device
+        // has an active icon. A normal inactive tile also keeps its native fill.
+        nativeDraw.draw(canvas);
     }
     public void onTileState(View view,Object state) {
+        if(view!=null&&dispatchUi(view,UI_TILE))return;
         if(isTile(view)){Object value=field(state,"state");tiles.put(view,value instanceof Number?((Number)value).intValue():-1);}
     }
     public void detach(View view) {
+        if(view==null||dispatchUi(view,UI_DETACH))return;
         tiles.remove(view);sliders.remove(view);deviceCards.remove(view);deviceSources.remove(view);
-        backgrounds.entrySet().removeIf(item->item.getValue().get()==null||item.getValue().get()==view);
-        fillSources.keySet().removeIf(drawable->!backgrounds.containsKey(drawable));
+        synchronized(backgrounds){backgrounds.entrySet().removeIf(item->item.getValue().get()==null||item.getValue().get()==view);}
+        synchronized(fillSources){fillSources.keySet().removeIf(drawable->!backgrounds.containsKey(drawable));}
         synchronized(glassTracks) {
             glassTracks.entrySet().removeIf(item->{View owner=item.getValue().get();if(owner==null||owner==view){glassSources.remove(item.getKey());dirtyGlass(item.getKey());return true;}return false;});
         }
     }
     public void detachTile(View view){detach(view);}
+    /** One pending UI update per native View; refresh reads the latest native state. */
+    private boolean dispatchUi(View view,int action) {
+        if(Looper.myLooper()==Looper.getMainLooper())return false;
+        boolean post;
+        synchronized(pendingUiViews) {
+            Integer previous=pendingUiViews.get(view);post=previous==null;
+            pendingUiViews.put(view,action==UI_DETACH?UI_DETACH:(previous==null?0:previous&~UI_DETACH)|action);
+        }
+        if(post) {
+            WeakReference<View> reference=new WeakReference<>(view);
+            if(!main.post(()->{
+                View owner=reference.get();if(owner==null)return;
+                Integer work; synchronized(pendingUiViews){work=pendingUiViews.remove(owner);}
+                if(work==null)return;
+                if(work==UI_DETACH||!owner.isAttachedToWindow()){detach(owner);return;}
+                if((work&UI_TILE)!=0)refreshTile(owner);
+                if((work&UI_DEVICE)!=0)refreshDeviceCard(owner);
+            })) synchronized(pendingUiViews){pendingUiViews.remove(view);}
+        }
+        return true;
+    }
     /** Hooks MixColorTileDrawable, GradientTileDrawable and StateListTileDrawable.draw(Canvas). */
     public void drawTile(Drawable drawable,Canvas canvas,DrawAction nativeDraw) throws Throwable {
         if(!enabled){nativeDraw.draw(canvas);return;}
@@ -278,15 +304,18 @@ public final class QsTileAppearance {
             try {nativeDraw.draw(canvas);}finally {if(swap!=null)swap.restore();}
         }
     }
-    private static void dirtyGlass(Drawable engine) {
+    private void dirtyGlass(Drawable engine) {
         Object lock=field(engine,"dataLock");
         if(lock!=null)synchronized(lock){setField(engine,"contentDirty",true);}
-        engine.invalidateSelf();
+        WeakReference<View> reference=glassTracks.get(engine);View owner=reference==null?null:reference.get();
+        if(Looper.myLooper()==Looper.getMainLooper())engine.invalidateSelf();
+        else if(owner!=null)owner.postInvalidate();
     }
     private boolean activeFillOwner(View view) {
         if(isSlider(view))return qsSlider(view);
-        // Devices and entrances share the user's row style even when their native device state is inactive.
-        if(isDeviceCard(view))return true;
+        // The exact SDK inner body is native inactive; never apply the active
+        // user's fill merely because the device card is interactive/connected.
+        if(isDeviceCard(view))return false;
         if(!isTile(view))return false;
         // Glass content recording may run off the UI thread; only read native state here.
         Object state=call(view,"getTileState"),value=field(state,"state");

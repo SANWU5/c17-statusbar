@@ -63,7 +63,12 @@ public final class SettingsFrameworkMirrorCheck {
         for(String key:Upgrade65.DEFAULTS.keySet())values.remove(key);
         for(String key:Upgrade66.DEFAULTS.keySet())values.remove(key);
         for(String key:Upgrade67.DEFAULTS.keySet())values.remove(key);
+        for(String key:Upgrade70.DEFAULTS.keySet())values.remove(key);
         return values;
+    }
+    private static Object legacyExpected(Bundle current,String key){
+        // A historical wire copy retains the old clock basis; clean installs use basis 2.
+        return NativeClockMeasurement.SCALE_BASIS_VERSION.equals(key)?1f:current.get(key);
     }
     private static void settle() throws Exception {
         Field field=SettingsFrameworkMirror.class.getDeclaredField("WORK");field.setAccessible(true);
@@ -138,7 +143,7 @@ public final class SettingsFrameworkMirrorCheck {
         Map<String,Object> untouched=new LinkedHashMap<>(legacy);
         Bundle upgraded=SettingsFrameworkMirror.decode(legacy);
         equal(true,SettingsSnapshot.complete(upgraded));equal(untouched,legacy);
-        for(String key:current.keySet())if(!added59(key)&&!added60(key)&&!added61(key)&&!added62(key)&&!added63(key))equal(current.get(key),upgraded.get(key));
+        for(String key:current.keySet())if(!added59(key)&&!added60(key)&&!added61(key)&&!added62(key)&&!added63(key))equal(legacyExpected(current,key),upgraded.get(key));
         equal(4000f,upgraded.get(NetworkSpeedControls.INTERVAL_MILLIS));
         for(String key:current.keySet())if(added60(key)&&!NetworkSpeedControls.INTERVAL_MILLIS.equals(key))equal(defaults.get(key),upgraded.get(key));
         equal(false,upgraded.get(NativeNetworkBadgeControls.MASTER));
@@ -183,7 +188,7 @@ public final class SettingsFrameworkMirrorCheck {
         Bundle loaded=SettingsFrameworkMirror.decode(old);equal(true,SettingsSnapshot.complete(loaded));equal(untouched,old);
         equal(false,loaded.get(FeatureOptions.STACK_LANDSCAPE_ENABLED));equal(false,loaded.get(NativeDataActivity.MASTER));
         equal(false,loaded.get(NotificationGroupStack.MASTER));equal(true,loaded.get(NotificationBigClockSettings.STACK_ENABLED));
-        for(String key:current.keySet())if(!added63(key)&&!NotificationGroupStack.MASTER.equals(key))equal(current.get(key),loaded.get(key));
+        for(String key:current.keySet())if(!added63(key)&&!NotificationGroupStack.MASTER.equals(key))equal(legacyExpected(current,key),loaded.get(key));
         String[] keys=current.keySet().stream().filter(SettingsFrameworkMirrorCheck::added63).toArray(String[]::new);equal(10,keys.length);
         for(int mask=1;mask<(1<<keys.length)-1;mask++){
             Map<String,Object> mixed=new LinkedHashMap<>(old);
@@ -232,7 +237,7 @@ public final class SettingsFrameworkMirrorCheck {
         Map<String,Object> untouched=new LinkedHashMap<>(legacy);
         Bundle upgraded=SettingsFrameworkMirror.decode(legacy);
         equal(true,SettingsSnapshot.complete(upgraded));equal(untouched,legacy);
-        for(String key:current.keySet())if(!added62(key)&&!added63(key))equal(current.get(key),upgraded.get(key));
+        for(String key:current.keySet())if(!added62(key)&&!added63(key))equal(legacyExpected(current,key),upgraded.get(key));
         for(Map.Entry<String,String> item:NotificationClearAppearance.LANDSCAPE_LEGACY.entrySet())
             equal(current.get(item.getValue()),upgraded.get(item.getKey()));
         // Independent manifest assertions catch swapped light/dark or endpoint mappings.
@@ -280,7 +285,7 @@ public final class SettingsFrameworkMirrorCheck {
         Map<String,Object> untouched=new LinkedHashMap<>(legacy);
         Bundle upgraded=SettingsFrameworkMirror.decode(legacy);
         equal(true,SettingsSnapshot.complete(upgraded));equal(untouched,legacy);
-        for(String key:current.keySet())if(!added61(key)&&!added62(key)&&!added63(key))equal(current.get(key),upgraded.get(key));
+        for(String key:current.keySet())if(!added61(key)&&!added62(key)&&!added63(key))equal(legacyExpected(current,key),upgraded.get(key));
         equal(true,upgraded.get(C17HighlightRemoval.NOTIFICATION_ENABLED));equal(true,upgraded.get(C17HighlightRemoval.CONTROL_ENABLED));
         equal(false,upgraded.get(C17HighlightRemoval.UNIFORM_NOTIFICATION_ENABLED));equal(false,upgraded.get(NotificationClearMotion.LANDSCAPE_MASTER));
         equal(false,upgraded.get(LockscreenControls.DATE_ENABLED));equal(false,upgraded.get(LockscreenControls.HIDE_LOCK));
@@ -321,7 +326,7 @@ public final class SettingsFrameworkMirrorCheck {
         Map<String,Object> untouched=new LinkedHashMap<>(legacy);
         Bundle upgraded=SettingsFrameworkMirror.decode(legacy);
         equal(true,SettingsSnapshot.complete(upgraded));equal(untouched,legacy);
-        for(String key:current.keySet())if(!added60(key)&&!added61(key)&&!added62(key)&&!added63(key))equal(current.get(key),upgraded.get(key));
+        for(String key:current.keySet())if(!added60(key)&&!added61(key)&&!added62(key)&&!added63(key))equal(legacyExpected(current,key),upgraded.get(key));
         equal("native",upgraded.get(NativeNetworkBadgeControls.FONT));
         equal(1.25f,upgraded.get(NetworkSpeedControls.INTERVAL_MILLIS));
         equal(false,upgraded.get(NotificationBigClockSettings.LANDSCAPE_NOTIFICATION_WIDTH_ENABLED));
@@ -372,7 +377,7 @@ public final class SettingsFrameworkMirrorCheck {
         Bundle loaded=SettingsFrameworkMirror.decode(old);
         equal(true,SettingsSnapshot.complete(loaded));equal(untouched,old);
         equal("native",loaded.get("speed_position"));
-        for(String key:current.keySet())if(!Upgrade65.DEFAULTS.containsKey(key))equal(current.get(key),loaded.get(key));
+        for(String key:current.keySet())if(!Upgrade65.DEFAULTS.containsKey(key))equal(legacyExpected(current,key),loaded.get(key));
         for(Map.Entry<String,Object> addition:Upgrade65.DEFAULTS.entrySet())equal(addition.getValue(),loaded.get(addition.getKey()));
         for(String key:old.keySet())if(!SettingsFrameworkMirror.SCHEMA.equals(key)&&!SettingsFrameworkMirror.REVISION.equals(key)){
             Map<String,Object> missing=new LinkedHashMap<>(old);missing.remove(key);
@@ -405,7 +410,7 @@ public final class SettingsFrameworkMirrorCheck {
         modern=wire(current,6500L);modern.keySet().removeIf(SettingsFrameworkMirrorCheck::added63);
         equal(null,SettingsFrameworkMirror.decode(modern));
         Store persisted=new Store();equal(true,SettingsFrameworkMirror.write(persisted.preferences,current,6500L));
-        equal(4,persisted.disk.get(SettingsFrameworkMirror.SCHEMA));
+        equal(5,persisted.disk.get(SettingsFrameworkMirror.SCHEMA));
         equal("clock_right",persisted.disk.get("speed_position"));
         Store daemon=new Store();daemon.replace(old);int[] providerReads={0};
         SettingsFrameworkReader reader=new SettingsFrameworkReader(()->daemon.preferences,()->{},()->false);
@@ -430,7 +435,7 @@ public final class SettingsFrameworkMirrorCheck {
         map.remove(StatusBarSettings.DATA_OFFSET_X);equal(null,SettingsFrameworkMirror.decode(map));
         map=wire(first,1L);map.put(StatusBarSettings.DATA_OFFSET_X,9);equal(null,SettingsFrameworkMirror.decode(map));
         map=wire(first,1L);map.put(StatusBarSettings.DATA_OFFSET_X,Float.NaN);equal(null,SettingsFrameworkMirror.decode(map));
-        map=wire(first,1L);map.put(SettingsFrameworkMirror.SCHEMA,5);equal(null,SettingsFrameworkMirror.decode(map));
+        map=wire(first,1L);map.put(SettingsFrameworkMirror.SCHEMA,6);equal(null,SettingsFrameworkMirror.decode(map));
         map=wire(first,0L);equal(null,SettingsFrameworkMirror.decode(map));
         map=wire(first,1L);map.put(SettingsFrameworkMirror.REVISION,1);equal(null,SettingsFrameworkMirror.decode(map));
 

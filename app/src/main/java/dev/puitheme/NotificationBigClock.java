@@ -314,9 +314,9 @@ public final class NotificationBigClock {
         // Retire the previous fixed-row policy before a native Phone-only alpha owner may run.
         fixedStatusIcons.setPhoneCaptureAllowed(false);
         fixedStatusIcons.hide();
-        // The control-center fake/header already owns the real Phone RIGHT handoff.
-        // A second force-zero owner breaks that native render transition at both endpoints.
-        phoneRightIcons.configure(false);
+        // Acquire only opacity; the notification-only gate below leaves control-center
+        // geometry, parent alpha and native handoff entirely with their original owner.
+        phoneRightIcons.configure(settings.rightStatusIconsEnabled && !settings.safeMode);
         notificationRightIcons.configure(settings.rightStatusIconsEnabled && !settings.safeMode,
                 settings.enabled && !settings.safeMode);
         restoreClosingSources();
@@ -355,6 +355,7 @@ public final class NotificationBigClock {
         if(previous!=settings&&overlay!=null)overlay.clearStyle();
         if(previous!=settings)notificationRightIcons.configure(settings.rightStatusIconsEnabled&&!settings.safeMode,
                 settings.enabled&&!settings.safeMode);
+        if(previous!=settings)phoneRightIcons.configure(settings.rightStatusIconsEnabled&&!settings.safeMode);
     }
     public boolean notificationPage() {
         return !settings.safeMode && !ModuleLifecycle.removed() && barState==0 && !qsExpanded && fraction>0f;
@@ -1108,7 +1109,8 @@ public final class NotificationBigClock {
         pageLeftIcons.progress(hideNotificationLeft());
         // A single page fraction can cross zero while another page/its native switch still owns
         // the shade. Release only at the real global settled close, never at a horizontal zero.
-        phoneRightIcons.progress(1f, false);
+        boolean notificationVertical = managed && !panelSettledClosed && separateQsSettledClosed && !qsExpanded;
+        phoneRightIcons.progress(fraction, notificationVertical);
         // LEFT and RIGHT keep the original OEM Phone/fake/header rendering chain.
         notificationRightIcons.progress(1f, hide);
         nativeCopyDrawCache.refresh();

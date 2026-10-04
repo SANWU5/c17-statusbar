@@ -170,6 +170,7 @@ public final class QsTileCornersCheck {
     private static void nativeGeometry() {
         QSConstant.reset();QSConstant.mappedScale=1.5f;
         QsTileCorners corners=new QsTileCorners();CornerOutlineProvider nativeProvider=new CornerOutlineProvider(56f,.8f);
+        corners.setFixedTransitionAvailable(true);
         Tile tile=new Tile(nativeProvider);corners.configure(settings(true,45.5f));corners.onNativeUpdate(tile);
         near(60f,corners.cornerRadius(tile,56f));near(.6f,corners.cornerWeight(tile,.8f));
         CornerOutlineProvider custom=tile.drawable().getPathProvider();
@@ -194,5 +195,70 @@ public final class QsTileCornersCheck {
         corners.configure(settings(true,0f));near(0f,corners.cornerRadius(tile,56f));
         near(56f,nativeProvider.radius);equal(false,custom==nativeProvider);
     }
-    public static void main(String[] args) throws Exception {ownership();generationAndSafety();failures();policy();allSizes();migration();nativeGeometry();System.out.println("QsTileCornersCheck passed: "+checks);}
+    private static void nativeInteraction() {
+        QSConstant.reset(); QsTileCorners corners=new QsTileCorners();
+        corners.setFixedTransitionAvailable(true);
+        CornerOutlineProvider nativeProvider=new CornerOutlineProvider(56f,.8f);
+        Tile tile=new Tile(nativeProvider), unrelated=new Tile(nativeProvider);
+        corners.configure(settings(true,24f));corners.onNativeUpdate(tile);corners.onNativeUpdate(unrelated);
+        com.oplus.systemui.plugins.qs.customize.view.animation.deform.tile.fixed.TileDeformOutlineProvider original=
+                new com.oplus.systemui.plugins.qs.customize.view.animation.deform.tile.fixed.TileDeformOutlineProvider(56f,.8f);
+        original.setCurrentSpanSize(1);
+        Object displayed=corners.adaptBlock(tile.drawable(),original);
+        tile.drawable().setBlockPathProvider((CornerOutlineProvider)displayed);
+        equal(true,displayed!=original);near(48f,((CornerOutlineProvider)displayed).radius);near(56f,original.radius);
+        com.oplus.systemui.plugins.qs.customize.view.animation.deform.tile.fixed.TileFixedRadiusShareTransitionProperty spring=
+                new com.oplus.systemui.plugins.qs.customize.view.animation.deform.tile.fixed.TileFixedRadiusShareTransitionProperty(tile.drawable(),original);
+        spring.deformCornerWeight=.61f;
+        Object nativeOutline=tile.getOutlineProvider(),bodyOutline=tile.body.getOutlineProvider();
+        tile.setScaleX(.93f);tile.setScaleY(.93f);tile.body.setScaleX(.97f);tile.body.setScaleY(.97f);
+        int factories=QSConstant.calls;
+        for(float value:new float[]{48,45,35,20,22,35,45,48}) {
+            int paths=tile.drawable().pathUpdates;
+            // This models the exact pre-hook then original call; only OEM invalidates paths.
+            corners.beforeFixedTransitionValue(spring,value); spring.setValue(tile,value);
+            near(value,original.radius);near(value,((CornerOutlineProvider)displayed).radius);
+            near(value,corners.viewRadius(tile,56f));near(48f,corners.cornerRadius(tile,56f));
+            near(.61f,((CornerOutlineProvider)displayed).weight);
+            equal(paths+1,tile.drawable().pathUpdates);equal(displayed,tile.drawable().childProvider);
+            corners.onNativeUpdate(tile);equal(displayed,tile.drawable().getPathProvider());
+            near(value,((CornerOutlineProvider)displayed).radius);near(48f,corners.cornerRadius(unrelated,56f));
+        }
+        equal(factories,QSConstant.calls);equal(nativeOutline,tile.getOutlineProvider());equal(bodyOutline,tile.body.getOutlineProvider());
+        near(.93f,tile.getScaleX());near(.93f,tile.getScaleY());near(.97f,tile.body.getScaleX());near(.97f,tile.body.getScaleY());
+        original.setCurrentSpanSize(0);corners.beforeFixedTransitionValue(spring,48f);spring.setValue(tile,48f);
+        equal(0,((com.oplus.systemui.plugins.qs.customize.view.animation.deform.tile.fixed.TileDeformOutlineProvider)displayed).getCurrentSpanSize());
+        tile.drawable().setBounds(0,0,160,30);corners.beforeFixedTransitionValue(spring,48f);spring.setValue(tile,48f);
+        near(15f,corners.viewRadius(tile,56f));near(48f,original.radius);
+        corners.beforeFixedTransitionValue(spring,Float.NaN);corners.beforeFixedTransitionValue(spring,-1f);near(15f,corners.viewRadius(tile,56f));
+        tile.drawable().setBounds(0,0,240,120);
+        // Clearing the block at transition end returns to the configured base, not the last frame.
+        tile.drawable().setBlockPathProvider((CornerOutlineProvider)corners.adaptBlock(tile.drawable(),null));
+        near(48f,corners.viewRadius(tile,56f));equal(true,tile.drawable().getPathProvider()!=displayed);
+        // Re-entry uses the same native animation, with a new displayed clone and ownership.
+        displayed=corners.adaptBlock(tile.drawable(),original);tile.drawable().setBlockPathProvider((CornerOutlineProvider)displayed);
+        corners.beforeFixedTransitionValue(spring,27f);spring.setValue(tile,27f);near(27f,corners.viewRadius(tile,56f));
+        Bundle safe=settings(true,24f);safe.putBoolean(StatusBarSettings.SAFE_MODE,true);corners.configure(safe);
+        equal(original,tile.drawable().getPathProvider());near(27f,original.radius);
+        corners.beforeFixedTransitionValue(spring,12f);spring.setValue(tile,12f);near(12f,original.radius);
+        near(27f,((CornerOutlineProvider)displayed).radius);near(56f,corners.viewRadius(tile,56f));
+        corners.configure(settings(true,10f));Object nextDisplayed=tile.drawable().getPathProvider();equal(true,nextDisplayed!=displayed);
+        near(20f,corners.viewRadius(tile,56f));
+        CornerOutlineProvider foreign=new CornerOutlineProvider(33f,null);tile.drawable().setBlockPathProvider(foreign);
+        corners.beforeFixedTransitionValue(spring,22f);near(33f,foreign.radius);near(20f,((CornerOutlineProvider)nextDisplayed).radius);
+        corners.detach(tile);equal(foreign,tile.drawable().getPathProvider());near(56f,nativeProvider.radius);
+    }
+    private static void partialHookCapability() {
+        QSConstant.reset();QsTileCorners corners=new QsTileCorners();
+        CornerOutlineProvider nativeProvider=new CornerOutlineProvider(56f,.8f);Tile tile=new Tile(nativeProvider);
+        com.oplus.systemui.plugins.qs.customize.view.animation.deform.tile.fixed.TileDeformOutlineProvider fixed=
+                new com.oplus.systemui.plugins.qs.customize.view.animation.deform.tile.fixed.TileDeformOutlineProvider(56f,.8f);
+        tile.drawable().setBlockPathProvider(fixed);corners.configure(settings(true,24f));corners.onNativeUpdate(tile);
+        equal(fixed,tile.drawable().getPathProvider());equal(fixed,corners.adaptBlock(tile.drawable(),fixed));
+        near(56f,corners.cornerRadius(tile,56f));
+        corners.setFixedTransitionAvailable(true);equal(true,fixed!=tile.drawable().getPathProvider());near(48f,corners.cornerRadius(tile,56f));
+        corners.setFixedTransitionAvailable(false);equal(fixed,tile.drawable().getPathProvider());near(56f,corners.viewRadius(tile,56f));
+        corners.configure(settings(false,24f));tile.drawable().setBlockPathProvider(null);nativeState(tile,nativeProvider);
+    }
+    public static void main(String[] args) throws Exception {ownership();generationAndSafety();failures();policy();allSizes();migration();nativeGeometry();nativeInteraction();partialHookCapability();System.out.println("QsTileCornersCheck passed: "+checks);}
 }

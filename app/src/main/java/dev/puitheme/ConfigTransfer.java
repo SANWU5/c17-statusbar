@@ -115,6 +115,9 @@ public final class ConfigTransfer {
                 case NUMBER:
                     float number = NumericPolicy.finite(StatusBarSettings.settingNumber(source, key,
                             StatusBarSettings.NUMERIC_DEFAULTS.get(key)), StatusBarSettings.NUMERIC_DEFAULTS.get(key));
+                    // Export must not silently turn an old stored ratio into the new native-pixel basis.
+                    if (NativeClockMeasurement.SCALE_BASIS_VERSION.equals(key)
+                            && !source.containsKey(key) && source.containsKey(StatusBarSettings.CLOCK_SCALE)) number = 1f;
                     value = number;
                     break;
                 case COLOR: value = StatusBarSettings.color(source, key); break;

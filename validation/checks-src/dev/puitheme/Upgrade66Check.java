@@ -22,10 +22,14 @@ public final class Upgrade66Check {
     }
     private static Map<String,Object> historical(Bundle current,int schema) {
         Map<String,Object> values=wire(current,schema);
+        for(String key:Upgrade70.DEFAULTS.keySet())values.remove(key);
         for(String key:Upgrade67.DEFAULTS.keySet())values.remove(key);
         if(schema<3)for(String key:Upgrade66.DEFAULTS.keySet())values.remove(key);
         if(schema==1)for(String key:Upgrade65.DEFAULTS.keySet())values.remove(key);
         return values;
+    }
+    private static Object historicalExpected(Bundle current,String key) {
+        return NativeClockMeasurement.SCALE_BASIS_VERSION.equals(key)?1f:current.get(key);
     }
     private static final class Storage extends Context {
         final ActivationGuardPreferencesCheck.MemoryPreferences backup=new ActivationGuardPreferencesCheck.MemoryPreferences();
@@ -46,7 +50,7 @@ public final class Upgrade66Check {
         for(String key:Upgrade66.DEFAULTS.keySet())equal(Upgrade66.DEFAULTS.get(key),snapshot.get(key));
         for(String key:Upgrade67.DEFAULTS.keySet())equal(Upgrade67.DEFAULTS.get(key),snapshot.get(key));
         // Raw private stores are intentionally sparse; present damaged new fields must not be repaired.
-        Map<String,Object> additions=new LinkedHashMap<>(Upgrade66.DEFAULTS);additions.putAll(Upgrade67.DEFAULTS);
+        Map<String,Object> additions=new LinkedHashMap<>(Upgrade66.DEFAULTS);additions.putAll(Upgrade67.DEFAULTS);additions.putAll(Upgrade70.DEFAULTS);
         for(String key:additions.keySet()) {
             Storage broken=new Storage();broken.backup.values.putAll(untouched);broken.backup.values.put(key,new Object());
             equal(null,SettingsSnapshot.durableSnapshot(broken));
@@ -102,7 +106,7 @@ public final class Upgrade66Check {
         Map<String,Object> old=historical(current,3),untouched=new LinkedHashMap<>(old);
         Bundle loaded=SettingsFrameworkMirror.decode(old);
         equal(true,SettingsSnapshot.complete(loaded));equal(untouched,old);
-        for(String key:current.keySet())equal(current.get(key),loaded.get(key));
+        for(String key:current.keySet())equal(historicalExpected(current,key),loaded.get(key));
         for(String key:Upgrade66.DEFAULTS.keySet()) {
             Map<String,Object> missing=new LinkedHashMap<>(old);missing.remove(key);equal(null,SettingsFrameworkMirror.decode(missing));
             for(Object invalid:new Object[]{null,new Object()}) {
@@ -117,10 +121,10 @@ public final class Upgrade66Check {
         SettingsFrameworkReader reader=new SettingsFrameworkReader(()->daemon,()->{},()->false);
         Bundle boot=reader.read(false,()->{providerReads[0]++;throw new IllegalStateException("Provider must stay asleep");});
         equal(true,SettingsSnapshot.complete(boot));equal(0,providerReads[0]);equal(untouched,daemon.values);
-        for(String key:current.keySet())equal(current.get(key),boot.get(key));reader.stop();
+        for(String key:current.keySet())equal(historicalExpected(current,key),boot.get(key));reader.stop();
     }
     private static void typedCurrent(Bundle current) {
-        Map<String,Object> modern=wire(current,4);equal(true,SettingsSnapshot.complete(SettingsFrameworkMirror.decode(modern)));
+        Map<String,Object> modern=wire(current,5);equal(true,SettingsSnapshot.complete(SettingsFrameworkMirror.decode(modern)));
         for(String key:current.keySet()) {
             Map<String,Object> missing=new LinkedHashMap<>(modern);missing.remove(key);equal(null,SettingsFrameworkMirror.decode(missing));
             Bundle incomplete=new Bundle(current);incomplete.keySet().remove(key);equal(false,SettingsSnapshot.complete(incomplete));
@@ -140,7 +144,7 @@ public final class Upgrade66Check {
         absentBatch=new LinkedHashMap<>(modern);
         for(String key:Upgrade66.DEFAULTS.keySet())absentBatch.remove(key);
         equal(null,SettingsFrameworkMirror.decode(absentBatch));
-        for(Object invalid:new Object[]{null,0,5,4L,"4",new Object()}) {
+        for(Object invalid:new Object[]{null,0,6,4L,5L,"4","5",new Object()}) {
             Map<String,Object> wrong=new LinkedHashMap<>(modern);wrong.put(SettingsFrameworkMirror.SCHEMA,invalid);
             equal(null,SettingsFrameworkMirror.decode(wrong));
         }
@@ -180,7 +184,7 @@ public final class Upgrade66Check {
         current.putFloat(StatusBarSettings.DATA_OFFSET_X,-8.24f);current.putBoolean(StatusBarSettings.SAFE_MODE,true);
         current.putBoolean(NotificationBigClockSettings.MASTER,true);
         current.putString(IconPackRepository.LAYERS,"[]");current.putBoolean(IconPackRepository.MASTER,true);
-        equal(69,Upgrade66.DEFAULTS.size());equal(4,SettingsFrameworkMirror.VERSION);
+        equal(69,Upgrade66.DEFAULTS.size());equal(5,SettingsFrameworkMirror.VERSION);
         Map<String,Object> expected67=new LinkedHashMap<>();
         expected67.put("native_network_badge_1_hidden",false);expected67.put("native_network_badge_2_hidden",false);
         expected67.put("notification_big_clock_screen_padding",24f);equal(expected67,Upgrade67.DEFAULTS);
@@ -191,7 +195,7 @@ public final class Upgrade66Check {
             Map<String,Object> old=historical(current,schema),untouched=new LinkedHashMap<>(old);
             Bundle loaded=SettingsFrameworkMirror.decode(old);
             equal(true,SettingsSnapshot.complete(loaded));equal(untouched,old);
-            for(String key:current.keySet())if(schema!=1||!Upgrade65.DEFAULTS.containsKey(key))equal(current.get(key),loaded.get(key));
+            for(String key:current.keySet())if(schema!=1||!Upgrade65.DEFAULTS.containsKey(key))equal(historicalExpected(current,key),loaded.get(key));
             if(schema<3)for(String key:Upgrade66.DEFAULTS.keySet()) {
                 Map<String,Object> mixed=new LinkedHashMap<>(old);mixed.put(key,Upgrade66.DEFAULTS.get(key));
                 equal(null,SettingsFrameworkMirror.decode(mixed));
@@ -220,7 +224,7 @@ public final class Upgrade66Check {
         current.putInt(PanelMode.CLOCK+"_color_light",0);current.putString(CarrierPanels.CLASSIC+"_text","");
         current.putBoolean(NativeNetworkBadgeSettings.key(1,"hidden"),true);
         current.putFloat(NotificationBigClockSettings.SCREEN_PADDING,37.125f);
-        Bundle loaded=SettingsFrameworkMirror.decode(wire(current,4));
+        Bundle loaded=SettingsFrameworkMirror.decode(wire(current,5));
         equal(true,loaded.get(ClassicTextSettings.CLOCK_MASTER));equal(112.5f,loaded.get(PanelMode.CLOCK+"_scale"));
         equal(0,loaded.get(PanelMode.CLOCK+"_color_light"));equal("",loaded.get(CarrierPanels.CLASSIC+"_text"));
         equal(true,loaded.get(NativeNetworkBadgeSettings.key(1,"hidden")));

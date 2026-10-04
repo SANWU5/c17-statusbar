@@ -45,14 +45,15 @@ public final class FontDownloadRepository {
         File cache=new File(fonts,"catalog");
         if(!cache.isDirectory()&&!cache.mkdirs())throw new IOException("无法创建私有字体缓存");
         clearStaleDownloads(cache);
-        File cached=new File(cache,entry.id+"-"+entry.sha256+".font");
+        File owned=FontLibrary.downloaded(context,entry);
+        File cached=owned!=null?owned:new File(cache,entry.id+"-"+entry.sha256+".font");
         boolean valid=false;
         if(cached.isFile()) {
             try { FontFileValidator.validate(cached,entry,cancelled);valid=true; }
             catch(java.io.InterruptedIOException aborted) { throw aborted; }
             catch(IOException stale) { /* A stale cache is replaced only after a valid download. */ }
         }
-        if(!valid)download(entry,cached,progress,cancelled);
+        if(!valid){cached=new File(cache,entry.id+"-"+entry.sha256+".font");download(entry,cached,progress,cancelled);}
         else if(progress!=null)progress.onProgress(entry.bytes,entry.bytes);
         FontFileValidator.checkCancelled(cancelled);
         if(new Typeface.Builder(cached).setFontVariationSettings("'wght' "+entry.clampWeight(400)).build()==null)

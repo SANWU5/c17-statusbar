@@ -67,7 +67,7 @@ fun C17Theme(content: @Composable () -> Unit) {
 /** The top native surface owns every app popup, above both the page and navigation. */
 @Composable
 fun C17OverlayLayer(app: ModernMainActivity) {
-    val visible = app.freeNoticeRequired || app.donationImage != null || app.confirmation != null || app.editing != null || app.colorEditing != null || app.fontCatalogOpen || app.downloadingFont != null || app.notificationOverridesOpen || app.shadeWallpaperOpen
+    val visible = app.freeNoticeRequired || app.donationImage != null || app.confirmation != null || app.editing != null || app.colorEditing != null || app.fontCatalogOpen || app.fontRenameTarget != null || app.downloadingFont != null || app.notificationOverridesOpen || app.shadeWallpaperOpen
     SideEffect { app.syncModalLayer(visible) }
     Scaffold(containerColor = Color.Transparent) {
         C17Dialogs(app)
@@ -84,6 +84,10 @@ private fun C17Dialogs(app: ModernMainActivity) {
     if (app.notificationOverridesOpen) NotificationOverridesDialog(app)
     if (app.shadeWallpaperOpen) ShadeWallpaperDialog(app)
     if (app.fontCatalogOpen) FontCatalogDialog(app)
+    app.fontRenameTarget?.let { entry ->
+        UiInputDialog("重命名字体", entry.name, "只修改字体列表中的名称，不改变字形、粗细或其他已导入字体。",
+            onDismiss = { app.fontRenameTarget = null; app.fontCatalogOpen = true }) { app.renameLibraryFont(entry, it) }
+    }
     app.downloadingFont?.let { entry ->
         OverlayDialog(show = true, title = "下载 ${entry.displayName}",
             summary = "${app.fontDownloadPercent}% · ${if (app.fontDownloadPercent == 100) "正在校验与加载" else "官方 GitHub 字体文件"}\n取消或离开应用会保留原字体。",
@@ -115,7 +119,7 @@ fun C17Pages(app: ModernMainActivity) {
         if (app.iconLibraryOpen) IconLibraryDialog(app) else IconAssignmentsDialog(app)
         return
     }
-    val modalVisible = app.freeNoticeRequired || app.donationImage != null || app.confirmation != null || app.editing != null || app.colorEditing != null || app.fontCatalogOpen || app.downloadingFont != null || app.notificationOverridesOpen || app.shadeWallpaperOpen
+    val modalVisible = app.freeNoticeRequired || app.donationImage != null || app.confirmation != null || app.editing != null || app.colorEditing != null || app.fontCatalogOpen || app.fontRenameTarget != null || app.downloadingFont != null || app.notificationOverridesOpen || app.shadeWallpaperOpen
     SideEffect { app.syncModalLayer(modalVisible) }
     val group = app.selectedGroup?.let { SettingsCatalog.group(it) }
     var requestedSetting by remember { mutableStateOf<String?>(null) }
@@ -135,6 +139,7 @@ fun C17Pages(app: ModernMainActivity) {
     }
     val revealedSetting = remember(group?.id, app.category) { requestedSetting }
     val detailSections = activeDetail?.items?.filterNot { it.key == detailMaster }
+        ?.filterNot { group?.id == "font" && it.key == StatusBarSettings.FONT_NAME }
         ?.filter { SettingsCatalog.applicable(it, app.values) }
         ?.filter { item -> group?.id != "notification_icons" || when (item.key) {
             NotificationIconArea.TEXT -> app.value(NotificationIconArea.MODE) == "text" || item.key == revealedSetting
@@ -213,6 +218,7 @@ fun C17Pages(app: ModernMainActivity) {
                         DetailSettingsSection(app, group, section, items, revealedSetting)
                     }
                 }
+                if (group.id == "font") item { FontLicenseFooter(app) }
                 val resetItems = if (group.id == "carrier" || detailPages.size > 1) activeDetail?.items ?: emptyList() else group.items
                 val resetTitle = title + if (detailPages.size > 1) " · ${activeDetail?.title}" else ""
                 item { UiGroupCard { UiRow("恢复本页默认设置", "只重置$resetTitle", icon = MiuixIcons.Reset, enabled = app.canEdit && !app.busy) {
@@ -620,6 +626,11 @@ private fun SettingsItem(app: ModernMainActivity, item: SettingsCatalog.Item) {
         UiRow(item.title, "按应用替换为文字、表情或其他应用图标", "进入", Icons.Outlined.EmojiEmotions, enabled = enabled) { app.openNotificationOverrides() }
         return
     }
+    if (item.key == StatusBarSettings.FONT_MODE) {
+        UiRow("文字来源", "系统、苹方、已导入字体和 10 款开源可变字体", app.currentFontTitle(), Icons.Outlined.TextFields,
+            enabled = !app.busy) { app.chooseOpenFont() }
+        return
+    }
     when (item.type) {
         "boolean" -> UiSwitchRow(item.title, unavailable.ifEmpty { item.description }, value == true, enabled) { app.save(item.key, it) }
         "numeric" -> {
@@ -645,8 +656,8 @@ private fun SettingsItem(app: ModernMainActivity, item: SettingsCatalog.Item) {
                     .border(0.75.dp, MiuixTheme.colorScheme.dividerLine, CircleShape))
             })
         "font" -> {
-            UiRow("GitHub 开源字体", "10 款可变字体，支持连续粗细调节", "选择", enabled = enabled) { app.chooseOpenFont() }
-            UiRow(item.title, item.description, value?.toString()?.takeIf { it.isNotBlank() } ?: "选择字体", enabled = enabled) { app.chooseFont() }
+            UiRow("导入字体", "TTF / OTF / TTC；导入后保留在文字来源列表", "导入", Icons.Outlined.FileUpload,
+                enabled = app.canEdit && !app.busy) { app.chooseFont() }
         }
         "image" -> UiRow(item.title, item.description, value?.toString()?.takeIf { it.isNotBlank() }
             ?: if ((app.value(NotificationIconArea.IMAGE_REVISION) as? String).isNullOrBlank()) "选择图片" else "已导入图片",
@@ -657,21 +668,81 @@ private fun SettingsItem(app: ModernMainActivity, item: SettingsCatalog.Item) {
 
 @Composable
 private fun FontCatalogDialog(app: ModernMainActivity) {
-    OverlayDialog(show = true, title = "GitHub 开源可变字体",
-        summary = "精选 10 款成熟字体；点击后下载，字号和粗细仍在各功能里调节。中文优先选择 Noto Sans SC 或 Noto Serif SC。",
+    val mode = app.value(StatusBarSettings.FONT_MODE)?.toString() ?: "system"
+    val revision = app.value(StatusBarSettings.FONT_REVISION)?.toString() ?: ""
+    val ready = app.fontLibraryEntries.associateBy { it.revision }
+    OverlayDialog(show = true, title = "文字来源",
+        summary = "所有字体在这里选择。标记“需下载”的字体选中后会下载并校验；字号与粗细在各功能里调节。",
         onDismissRequest = { app.fontCatalogOpen = false }) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item { UiGroupCard {
+                    UiRow("跟随系统", "保留系统字体家族", if (mode == "system") "已选择" else "", enabled = app.canEdit && !app.busy) {
+                        app.save(StatusBarSettings.FONT_MODE, "system"); app.fontCatalogOpen = false
+                    }
+                    UiRow("苹方", "内置可变字体，粗细 100–900；缺失字符由系统补齐", if (mode == "pingfang") "已选择" else "", enabled = app.canEdit && !app.busy) {
+                        app.save(StatusBarSettings.FONT_MODE, "pingfang"); app.fontCatalogOpen = false
+                    }
+                    UiRow("导入字体", "TTF / OTF / TTC；保留已有字体", "导入", Icons.Outlined.FileUpload,
+                        enabled = app.canEdit && !app.busy) { app.chooseFont() }
+                } }
+                items(app.fontLibraryEntries.filter { it.catalog == null }, key = { "import-${it.revision}" }) { entry ->
+                    UiGroupCard { FontSourceRow(app, entry.name, "已导入 · 字重支持取决于字体文件", mode == "custom" && revision == entry.revision,
+                        entry, canRename = true) { app.selectLibraryFont(entry) } }
+                }
                 items(FontCatalog.entries(), key = { it.id }) { entry ->
                     UiGroupCard {
-                        UiRow(entry.displayName, "${entry.coverage}\n粗细 ${entry.minWeight}–${entry.maxWeight} · %.1f MB".format(Locale.ROOT, entry.bytes / 1048576.0),
-                            "下载", enabled = app.canEdit && !app.busy) { app.downloadFont(entry) }
-                        UiRow("字体来源", "官方 GitHub 仓库", "GitHub", icon = Icons.Outlined.Code) { app.openUrl(entry.sourceUrl) }
-                        UiRow("开源许可", entry.licenseName, "查看", icon = Icons.Outlined.Article) { app.openUrl(entry.licenseUrl) }
+                        val stored = ready[entry.sha256]
+                        FontSourceRow(app, entry.displayName,
+                            "${entry.coverage}\n粗细 ${entry.minWeight}–${entry.maxWeight} · %.1f MB · ${if (stored == null) "需下载" else "已下载"}".format(Locale.ROOT, entry.bytes / 1048576.0),
+                            mode == "custom" && revision == entry.sha256, stored) {
+                            if (stored == null) app.downloadFont(entry) else app.selectLibraryFont(stored)
+                        }
                     }
                 }
+                item { FontLicenseFooter(app) }
             }
             TextButton(text = "关闭", onClick = { app.fontCatalogOpen = false }, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+@Composable
+private fun FontSourceRow(app: ModernMainActivity, title: String, summary: String, selected: Boolean,
+    stored: FontLibrary.Entry?, canRename: Boolean = false, onClick: () -> Unit) {
+    ArrowPreference(title = title, summary = summary, enabled = app.canEdit && !app.busy,
+        onClick = onClick, endActions = {
+            if (selected) Icon(Icons.Outlined.Check, "已选择", tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+            if (stored != null) {
+                if (canRename) IconButton(enabled = app.canEdit && !app.busy, onClick = { app.fontCatalogOpen = false; app.fontRenameTarget = stored }) {
+                    Icon(Icons.Outlined.Edit, "重命名 $title", modifier = Modifier.size(20.dp))
+                }
+                IconButton(enabled = app.canEdit && !app.busy, onClick = { app.fontCatalogOpen = false; app.deleteLibraryFont(stored) }) {
+                    Icon(Icons.Outlined.DeleteOutline, "删除 $title", modifier = Modifier.size(20.dp))
+                }
+            }
+        })
+}
+
+@Composable
+private fun FontLicenseFooter(app: ModernMainActivity) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionTitle("字体来源与许可")
+        UiGroupCard {
+            UiRow("内置苹方", "Apple 原始设计 · ACT-02 可变字体重建；应用保留来源说明", "来源", Icons.Outlined.Code) {
+                app.openUrl("https://github.com/ACT-02/PingFangUI-VF")
+            }
+            UiRow("开源可变字体", "10 款字体均使用 SIL Open Font License 1.1，来源与许可文件随应用保留", if (expanded) "收起" else "查看", Icons.Outlined.Article) {
+                expanded = !expanded
+            }
+            if (expanded) FontCatalog.entries().forEach { entry ->
+                ArrowPreference(title = entry.displayName, summary = entry.licenseName,
+                    onClick = { app.openUrl(entry.sourceUrl) }, endActions = {
+                        IconButton(onClick = { app.openUrl(entry.licenseUrl) }) { Icon(Icons.Outlined.Article, "查看 ${entry.displayName} 许可", modifier = Modifier.size(20.dp)) }
+                    })
+            }
+            UiRow("导入字体", "字体文件保存在本机；导入前请确认你拥有使用权限。可变粗细由文件支持范围决定。")
         }
     }
 }
@@ -881,6 +952,8 @@ private fun groupIcon(id: String): ImageVector = when (id) {
     "network_order" -> Icons.Outlined.SwapHoriz
     "clock", "shade_clock", "notification_big_clock", "notification_big_clock_landscape", "lockscreen_date", "classic_text" -> Icons.Outlined.Schedule
     "lockscreen_lock_icon" -> Icons.Outlined.Lock
+    "lockscreen_status_blur" -> Icons.Outlined.BlurOn
+    "fluid_cloud_accent" -> Icons.Outlined.Palette
     "carrier" -> Icons.Outlined.CellTower
     "font" -> Icons.Outlined.TextFields
     "battery" -> Icons.Outlined.BatteryFull

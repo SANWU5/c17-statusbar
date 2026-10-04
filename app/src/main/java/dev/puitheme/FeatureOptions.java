@@ -60,6 +60,7 @@ public final class FeatureOptions {
                         !"enabled".equals(suffix));
         add(defaults, groups, "battery", "battery_style_enabled", true);
         add(defaults, groups, "battery", "battery_charge_inside", true);
+        add(defaults, groups, "battery", BatteryControls.HIDE_CHARGE, false);
         for (String part : new String[]{"text", "bolt", "charge", "alert"})
             add(defaults, groups, "battery", "battery_" + part + "_color_enabled", true);
         add(defaults, groups, "tiles", "tiles_fade_enabled", true);

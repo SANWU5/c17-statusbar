@@ -40,6 +40,7 @@ public final class QsTileCorners {
     private static final String OUTLINE_CLASS = "com.oplusos.systemui.common.outline.CornerOutlineProvider";
     private static final String FACTORY_CLASS = "com.oplus.systemui.qs.base.res.util.QSConstant";
     private static final String DEFORM_CLASS = "com.oplus.systemui.plugins.qs.customize.view.animation.deform.tile.fixed.TileDeformOutlineProvider";
+    public static final String FIXED_RADIUS_CLASS = "com.oplus.systemui.plugins.qs.customize.view.animation.deform.tile.fixed.TileFixedRadiusShareTransitionProperty";
     public static final Map<String, Boolean> BOOLEANS;
     public static final Map<String, Float> NUMBERS;
     static {
@@ -58,6 +59,8 @@ public final class QsTileCorners {
         Object nativeProvider, customProvider, cachedProvider, weight;
         Object nativeBlock, customBlock;
         float cachedPixels = -1f, radius;
+        float blockBaseRadius = Float.NaN;
+        Object blockBaseWeight;
         boolean restorePending, writingBlock;
         Method factory;
         WeakReference<View> body = new WeakReference<>(null);
@@ -68,6 +71,7 @@ public final class QsTileCorners {
     private final Map<Drawable, WeakReference<View>> owners = new WeakHashMap<>();
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile Policy policy = new Policy(false, DEFAULT_RADIUS);
+    private volatile boolean fixedTransitionAvailable;
     private boolean loggedError, loggedApplied;
 
     public static boolean isTile(View view) { return QsTileAppearance.type(view, TILE_CLASS); }
@@ -107,6 +111,17 @@ public final class QsTileCorners {
         runOnMain(() -> {
             synchronized (lock) {
                 loggedError = false; loggedApplied = false;
+                for (View view : new ArrayList<>(tiles.keySet())) if (view != null) refresh(view);
+            }
+        });
+    }
+    /** Enable cloning only after the concrete OEM spring callback hook was installed.
+     * A ROM with only the static drawable API retains its animated block provider. */
+    public void setFixedTransitionAvailable(boolean available) {
+        if (fixedTransitionAvailable == available) return;
+        fixedTransitionAvailable = available;
+        runOnMain(() -> {
+            synchronized (lock) {
                 for (View view : new ArrayList<>(tiles.keySet())) if (view != null) refresh(view);
             }
         });
@@ -154,6 +169,18 @@ public final class QsTileCorners {
             Owned state = owned(view);
             // A null native smooth weight is meaningful and must not fall back to the old weight.
             return state == null ? nativeResult : state.weight;
+        }
+    }
+    /** The editable stroke follows the installed provider during the ROM's size transition.
+     * getCornerRadius remains the configured endpoint used to capture native spring values. */
+    public Object viewRadius(View view, Object nativeResult) {
+        synchronized (lock) {
+            Owned state = owned(view);
+            if (state == null) return nativeResult;
+            Drawable drawable = state.drawable == null ? null : state.drawable.get();
+            Object provider = state.customBlock == null ? state.customProvider : state.customBlock;
+            Object radius = QsTileAppearance.call(provider, "getCornerRadius", drawable);
+            return validRadius(radius) ? ((Number) radius).floatValue() : nativeResult;
         }
     }
     private Owned owned(View view) {
@@ -257,6 +284,7 @@ public final class QsTileCorners {
         Drawable drawable = state.drawable == null ? null : state.drawable.get();
         if (drawable == null) {
             state.customProvider = state.customBlock = state.nativeBlock = null;
+            state.blockBaseRadius = Float.NaN; state.blockBaseWeight = null;
             state.restorePending = false; return true;
         }
         try {
@@ -267,6 +295,7 @@ public final class QsTileCorners {
                 finally { state.writingBlock = false; }
             }
             state.customBlock = null; state.nativeBlock = null;
+            state.blockBaseRadius = Float.NaN; state.blockBaseWeight = null;
             Object current = baseProvider(drawable);
             if (current != state.customProvider && !(state.restorePending && current == state.nativeProvider)) {
                 state.customProvider = null; state.restorePending = false; return true;
@@ -327,16 +356,20 @@ public final class QsTileCorners {
             Owned state = view == null ? null : tiles.get(view);
             if (state == null || state.writingBlock) return nativeBlock;
             if (nativeBlock == state.customBlock) return nativeBlock;
-            if (nativeBlock == state.nativeBlock && state.customBlock != null) try {
-                Object radius = QsTileAppearance.invoke(state.customBlock, "getCornerRadius", drawable);
+            if (policy.enabled && fixedTransitionAvailable && view.isAttachedToWindow()
+                    && nativeBlock == state.nativeBlock && state.customBlock != null
+                    && state.blockBaseRadius == state.radius
+                    && java.util.Objects.equals(state.blockBaseWeight, state.weight)) try {
                 Object span = QsTileAppearance.invoke(nativeBlock, "getCurrentSpanSize");
-                if (radius instanceof Number && ((Number) radius).floatValue() == state.radius
-                        && java.util.Objects.equals(state.weight, QsTileAppearance.invoke(state.customBlock, "getCornerWeight", drawable))
-                        && java.util.Objects.equals(span, QsTileAppearance.invoke(state.customBlock, "getCurrentSpanSize")))
-                    return state.customBlock;
+                // A spring frame can legitimately differ from the configured endpoint.
+                // Do not replace it with another static clone on a state/layout callback.
+                if (!java.util.Objects.equals(span, QsTileAppearance.invoke(state.customBlock, "getCurrentSpanSize")))
+                    QsTileAppearance.invoke(state.customBlock, "setCurrentSpanSize", span);
+                return state.customBlock;
             } catch (ReflectiveOperationException | RuntimeException changedNativeProvider) { }
             state.nativeBlock = nativeBlock; state.customBlock = null;
-            if (!policy.enabled || !view.isAttachedToWindow() || state.customProvider == null
+            state.blockBaseRadius = Float.NaN; state.blockBaseWeight = null;
+            if (!policy.enabled || !fixedTransitionAvailable || !view.isAttachedToWindow() || state.customProvider == null
                     || !QsTileAppearance.type(nativeBlock, DEFORM_CLASS)) return nativeBlock;
             try {
                 Object custom = nativeBlock.getClass().getConstructor(float.class, Float.class)
@@ -344,11 +377,53 @@ public final class QsTileCorners {
                 Object span = QsTileAppearance.invoke(nativeBlock, "getCurrentSpanSize");
                 QsTileAppearance.invoke(custom, "setCurrentSpanSize", span);
                 state.customBlock = custom;
+                state.blockBaseRadius = state.radius; state.blockBaseWeight = state.weight;
                 return custom;
             } catch (ReflectiveOperationException | RuntimeException unavailable) {
                 error(unavailable); return nativeBlock;
             }
         }
+    }
+    /** Called before the concrete OEM setValue(View,float), never its synthetic bridge.
+     * The ROM animates its own final deformPathProvider; only the displayed, per-tile clone
+     * is mirrored here. Its subsequent native invalidatePath refreshes every material layer.
+     * No outline, view scale, spring timing, source field or shared provider is overwritten. */
+    public void beforeFixedTransitionValue(Object transition, Object nativeRadius) {
+        if (!policy.enabled || !fixedTransitionAvailable || !validRadius(nativeRadius)
+                || !QsTileAppearance.type(transition, FIXED_RADIUS_CLASS)) return;
+        Object candidate = QsTileAppearance.field(transition, "tileDrawable");
+        if (!(candidate instanceof Drawable)) return;
+        Drawable drawable = (Drawable) candidate;
+        synchronized (lock) {
+            WeakReference<View> ref = owners.get(drawable);
+            View view = ref == null ? null : ref.get();
+            Owned state = view == null ? null : owned(view);
+            Object source = QsTileAppearance.field(transition, "deformPathProvider");
+            if (state == null || state.writingBlock || state.customBlock == null
+                    || source != state.nativeBlock || blockProvider(drawable) != state.customBlock) return;
+            Object weight = QsTileAppearance.field(transition, "deformCornerWeight");
+            if (weight != null && (!(weight instanceof Float) || !Float.isFinite((Float) weight))) return;
+            float radius = ((Number) nativeRadius).floatValue();
+            Rect bounds = drawable.getBounds();
+            if (bounds != null && bounds.width() > 0 && bounds.height() > 0)
+                radius = Math.min(radius, Math.min(bounds.width(), bounds.height()) / 2f);
+            try {
+                Object current = QsTileAppearance.invoke(state.customBlock, "getCornerRadius", drawable);
+                Object currentWeight = QsTileAppearance.invoke(state.customBlock, "getCornerWeight", drawable);
+                if (!validRadius(current) || ((Number) current).floatValue() != radius
+                        || !java.util.Objects.equals(weight, currentWeight))
+                    QsTileAppearance.invoke(state.customBlock, "update", radius, weight);
+                Object span = QsTileAppearance.invoke(source, "getCurrentSpanSize");
+                if (!java.util.Objects.equals(span, QsTileAppearance.invoke(state.customBlock, "getCurrentSpanSize")))
+                    QsTileAppearance.invoke(state.customBlock, "setCurrentSpanSize", span);
+            } catch (ReflectiveOperationException | RuntimeException unavailable) {
+                error(unavailable);
+            }
+        }
+    }
+    private static boolean validRadius(Object radius) {
+        return radius instanceof Number && Float.isFinite(((Number) radius).floatValue())
+                && ((Number) radius).floatValue() >= 0f;
     }
     private void syncBlock(Drawable drawable, Owned state) throws ReflectiveOperationException {
         Object current = blockProvider(drawable);

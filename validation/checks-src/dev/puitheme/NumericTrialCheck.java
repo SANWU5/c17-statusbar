@@ -111,6 +111,61 @@ public final class NumericTrialCheck {
         Field field=NumericTrial.class.getDeclaredField("initialized");field.setAccessible(true);field.setBoolean(null,false);
         NumericTrial.recover(storage,raw);
     }
+    private static void clockScaleJournal() throws Exception {
+        String scale=StatusBarSettings.CLOCK_SCALE,basis=NativeClockMeasurement.SCALE_BASIS_VERSION,factor=NativeClockMeasurement.LEGACY_SCALE_FACTOR;
+        // Missing metadata and missing scale must return to their exact pre-trial existence.
+        for(int mask=0;mask<8;mask++)for(boolean malformed:new boolean[]{false,true}) {
+            Storage storage=new Storage();Map<String,Object> original=new HashMap<>();original.put("unrelated","retained");
+            if((mask&1)!=0)original.put(scale,650.25f);
+            if((mask&2)!=0)original.put(basis,malformed?(Object)1:1f);
+            if((mask&4)!=0)original.put(factor,malformed?(Object)"legacy-invalid":.375f);
+            DurablePreferences raw=new DurablePreferences(original),journal=new DurablePreferences(new HashMap<>());
+            storage.files.put(StatusBarSettings.PREFS,raw.proxy);storage.files.put("statusbar_numeric_trial",journal.proxy);coldStart(storage,raw.proxy);
+            AtomicBoolean allowed=new AtomicBoolean(true);
+            SharedPreferences guarded=new ActivationGuardPreferences(raw.proxy,allowed::get,()->{});
+            int before=raw.memory.writes;
+            equal(true,NumericTrial.begin(storage,raw.proxy,guarded,scale,1000f));equal(before+1,raw.memory.writes);
+            equal(1000f,raw.disk.get(scale));equal(2f,raw.disk.get(basis));equal(0f,raw.disk.get(factor));
+            equal(true,journal.disk.get("clock_metadata"));equal((mask&2)!=0,journal.disk.get("clock_basis_present"));equal((mask&4)!=0,journal.disk.get("clock_factor_present"));
+            if((mask&2)!=0)equal(original.get(basis),journal.disk.get("clock_basis_value"));
+            if((mask&4)!=0)equal(original.get(factor),journal.disk.get("clock_factor_value"));
+            if(mask%3==0){
+                raw=raw.reopen();journal=journal.reopen();storage.files.put(StatusBarSettings.PREFS,raw.proxy);storage.files.put("statusbar_numeric_trial",journal.proxy);
+                coldStart(storage,raw.proxy);
+            }else if(mask%3==1){SystemClock.uptime=NumericTrial.deadline();equal(false,NumericTrial.keep());}
+            else equal(true,NumericTrial.rollback());
+            equal(false,NumericTrial.active());equal(false,journal.disk.containsKey("key"));
+            for(String key:new String[]{scale,basis,factor}){equal(original.containsKey(key),raw.disk.containsKey(key));equal(original.get(key),raw.disk.get(key));}
+            equal("retained",raw.disk.get("unrelated"));
+            guarded=new ActivationGuardPreferences(raw.proxy,allowed::get,()->{});
+            equal(true,NumericTrial.begin(storage,raw.proxy,guarded,scale,777f));equal(true,NumericTrial.keep());
+            equal(777f,raw.disk.get(scale));equal(2f,raw.disk.get(basis));equal(0f,raw.disk.get(factor));
+            // A confirmed new basis survives process death; no stale journal can restore the old pair.
+            raw=raw.reopen();journal=journal.reopen();storage.files.put(StatusBarSettings.PREFS,raw.proxy);storage.files.put("statusbar_numeric_trial",journal.proxy);coldStart(storage,raw.proxy);
+            equal(777f,raw.disk.get(scale));equal(2f,raw.disk.get(basis));equal(0f,raw.disk.get(factor));equal(false,NumericTrial.active());
+        }
+        Storage storage=new Storage();Map<String,Object> original=new HashMap<>();original.put(scale,610f);original.put(basis,1f);original.put(factor,.375f);
+        DurablePreferences raw=new DurablePreferences(original),journal=new DurablePreferences(new HashMap<>());
+        storage.files.put(StatusBarSettings.PREFS,raw.proxy);storage.files.put("statusbar_numeric_trial",journal.proxy);coldStart(storage,raw.proxy);
+        SharedPreferences guarded=new ActivationGuardPreferences(raw.proxy,()->true,()->{});
+        journal.failCommits=1;equal(false,NumericTrial.begin(storage,raw.proxy,guarded,scale,999f));equal(original,raw.disk);equal(false,NumericTrial.active());
+        equal(true,NumericTrial.begin(storage,raw.proxy,guarded,scale,999f));raw.failCommits=1;
+        equal(false,NumericTrial.rollback());equal(true,NumericTrial.active());equal(2f,raw.disk.get(basis));equal(.375f,journal.disk.get("clock_factor_value"));
+        raw=raw.reopen();journal=journal.reopen();storage.files.put(StatusBarSettings.PREFS,raw.proxy);storage.files.put("statusbar_numeric_trial",journal.proxy);coldStart(storage,raw.proxy);
+        equal(false,NumericTrial.active());equal(610f,raw.disk.get(scale));equal(1f,raw.disk.get(basis));equal(.375f,raw.disk.get(factor));equal(false,journal.disk.containsKey("key"));
+        // The legacy journal has no metadata flag and must not delete independently existing metadata.
+        journal.disk.put("key",scale);journal.disk.put("present",true);journal.disk.put("value",590f);journal=journal.reopen();
+        storage.files.put("statusbar_numeric_trial",journal.proxy);coldStart(storage,raw.proxy);
+        equal(590f,raw.disk.get(scale));equal(1f,raw.disk.get(basis));equal(.375f,raw.disk.get(factor));
+        guarded=new ActivationGuardPreferences(raw.proxy,()->true,()->{});
+        equal(true,NumericTrial.begin(storage,raw.proxy,guarded,scale,2000f));journal.failCommits=1;raw.failCommits=1;
+        equal(false,NumericTrial.keep());equal(true,NumericTrial.active());
+        equal(2000f,raw.disk.get(scale));equal(2f,raw.disk.get(basis));equal(0f,raw.disk.get(factor));
+        equal(1f,journal.disk.get("clock_basis_value"));equal(.375f,journal.disk.get("clock_factor_value"));
+        raw=raw.reopen();journal=journal.reopen();storage.files.put(StatusBarSettings.PREFS,raw.proxy);storage.files.put("statusbar_numeric_trial",journal.proxy);coldStart(storage,raw.proxy);
+        equal(590f,raw.disk.get(scale));equal(1f,raw.disk.get(basis));equal(.375f,raw.disk.get(factor));equal(false,NumericTrial.active());
+        equal(false,journal.disk.containsKey("key"));
+    }
     private static void suggestedRangeSaveOrTrial(String key) throws Exception {
         Storage storage=new Storage();
         Map<String,Object> original=new HashMap<>();original.put(key,3f);original.put("unrelated","retained");
@@ -204,6 +259,7 @@ public final class NumericTrialCheck {
         equal(1f,SettingsCatalog.item(NetworkSpeedControls.INTERVAL_MILLIS).min);
         equal(500f,SettingsCatalog.item(NetworkSpeedControls.INTERVAL_MILLIS).max);
         suggestedRangeSaveOrTrial(NetworkSpeedControls.INTERVAL_MILLIS);
+        clockScaleJournal();
         System.out.println("Numeric trial checks passed: "+checks);
     }
 }

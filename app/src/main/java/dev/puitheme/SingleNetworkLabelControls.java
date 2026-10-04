@@ -41,10 +41,12 @@ final class SingleNetworkLabelControls {
     private static final class Row {
         final WeakReference<TextView> text;final WeakReference<View> image;
         final int subscription;
+        final SingleNetworkLabelPlacement placement;
         Object model;boolean modelKnown,owned;
         int depth,color,minWidth;float size,x,y,spacing;
         Typeface face;String axes;
-        Row(TextView text,View image,int sub){this.text=new WeakReference<>(text);this.image=new WeakReference<>(image);subscription=sub;capture(text);}
+        Row(TextView text,View image,int sub){this.text=new WeakReference<>(text);this.image=new WeakReference<>(image);subscription=sub;
+            placement=new SingleNetworkLabelPlacement(text);capture(text);}
         void capture(TextView view){color=view.getCurrentTextColor();minWidth=view.getMinimumWidth();size=view.getTextSize();
             x=view.getTranslationX();y=view.getTranslationY();spacing=view.getLetterSpacing();face=view.getTypeface();axes=view.getFontVariationSettings();}
     }
@@ -138,7 +140,8 @@ final class SingleNetworkLabelControls {
         row.owned=true;MANAGED.put(text,true);
         boolean show=row.subscription==subscription&&subscription>=0&&!features.hideNetworkLabel()&&!label.isEmpty();
         View image=row.image.get();if(image!=null&&image.getVisibility()!=View.GONE)image.setVisibility(View.GONE);
-        if(!show){if(text.getVisibility()!=View.GONE)text.setVisibility(View.GONE);return;}
+        if(!show){row.placement.restore();if(text.getVisibility()!=View.GONE)text.setVisibility(View.GONE);return;}
+        row.placement.apply();
         float density=text.getResources().getDisplayMetrics().density;
         float tx=row.x+NumericPolicy.pixels(features.position("label")?x:0,density);
         float ty=row.y+NumericPolicy.pixels(features.position("label")?y:0,density);
@@ -159,6 +162,7 @@ final class SingleNetworkLabelControls {
         if(text.getVisibility()!=View.VISIBLE)text.setVisibility(View.VISIBLE);
     }
     private static void restoreStyle(TextView text,Row row){
+        row.placement.restore();
         if(text.getTextSize()!=row.size)text.setTextSize(TypedValue.COMPLEX_UNIT_PX,row.size);
         FontWeight.restore(text,row.face,row.axes);
         if(text.getTranslationX()!=row.x)text.setTranslationX(row.x);if(text.getTranslationY()!=row.y)text.setTranslationY(row.y);

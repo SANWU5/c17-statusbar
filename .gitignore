@@ -24,3 +24,6 @@ test-ui.xml
 /.local-native-reference/
 /.local-toolchain/
 /.local-private/
+
+# Local screenshots, promotional exports and verification APKs are not source assets.
+/artifacts/

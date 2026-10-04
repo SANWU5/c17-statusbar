@@ -54,6 +54,12 @@ public final class NumericTrial {
             record.putBoolean("header_present", before.containsKey(master));
             if (before.containsKey(master)) StatusBarSettings.copyPreference(record, "header_value", before.get(master));
         }
+        boolean clockScale = StatusBarSettings.CLOCK_SCALE.equals(key);
+        record.putBoolean("clock_metadata", clockScale);
+        if (clockScale) {
+            recordClockMetadata(record, before, NativeClockMeasurement.SCALE_BASIS_VERSION, "clock_basis");
+            recordClockMetadata(record, before, NativeClockMeasurement.LEGACY_SCALE_FACTOR, "clock_factor");
+        }
         boolean recorded = commit(record);
         Map<String, ?> recordedValues = journal.getAll();
         pending = recordedValues.containsKey("key") ? new HashMap<>(recordedValues) : null;
@@ -62,7 +68,10 @@ public final class NumericTrial {
         TIMER.removeCallbacks(EXPIRE);
         TIMER.postDelayed(EXPIRE, SECONDS * 1000L);
         try {
-            if (!commit(guarded.edit().putFloat(key, value))) { rollback(); return false; }
+            SharedPreferences.Editor tested = guarded.edit().putFloat(key, value);
+            if (clockScale) tested.putFloat(NativeClockMeasurement.SCALE_BASIS_VERSION,
+                    NativeClockMeasurement.NATIVE_PIXEL_BASIS).putFloat(NativeClockMeasurement.LEGACY_SCALE_FACTOR, 0f);
+            if (!commit(tested)) { rollback(); return false; }
         } catch (RuntimeException unavailable) { rollback(); return false; }
         notifyChanged();
         return true;
@@ -133,6 +142,10 @@ public final class NumericTrial {
                 StatusBarSettings.copyPreference(restore, NotificationBigClockSettings.MASTER, previous.get("header_value"));
             else restore.remove(NotificationBigClockSettings.MASTER);
         }
+        if (Boolean.TRUE.equals(previous.get("clock_metadata"))) {
+            restoreClockMetadata(restore, previous, NativeClockMeasurement.SCALE_BASIS_VERSION, "clock_basis");
+            restoreClockMetadata(restore, previous, NativeClockMeasurement.LEGACY_SCALE_FACTOR, "clock_factor");
+        }
         // Retain the journal on a failed write; a subsequent cold start can retry safely.
         if (!commit(restore)) { retryRollback(); return false; }
         TIMER.removeCallbacks(EXPIRE);
@@ -149,6 +162,18 @@ public final class NumericTrial {
         SharedPreferences.Editor record = journal.edit().clear();
         for (Map.Entry<String, ?> entry : pending.entrySet()) StatusBarSettings.copyPreference(record, entry.getKey(), entry.getValue());
         commit(record);
+    }
+
+    private static void recordClockMetadata(SharedPreferences.Editor record, Map<String, ?> before,
+            String key, String marker) {
+        record.putBoolean(marker + "_present", before.containsKey(key));
+        if (before.containsKey(key)) StatusBarSettings.copyPreference(record, marker + "_value", before.get(key));
+    }
+    private static void restoreClockMetadata(SharedPreferences.Editor restore, Map<String, ?> previous,
+            String key, String marker) {
+        if (Boolean.TRUE.equals(previous.get(marker + "_present")))
+            StatusBarSettings.copyPreference(restore, key, previous.get(marker + "_value"));
+        else restore.remove(key);
     }
 
     private static void retryRollback() {

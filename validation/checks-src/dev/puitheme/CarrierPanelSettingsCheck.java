@@ -18,7 +18,7 @@ public final class CarrierPanelSettingsCheck {
     public static void main(String[] args) {
         equal(11, FeatureOptions.GROUPS.length);
         equal(3, CarrierPanels.GROUPS.length);
-        equal(96, FeatureOptions.DEFAULTS.size());
+        equal(97, FeatureOptions.DEFAULTS.size());
         // Three independent code63 switches do not acquire carrier-panel ownership.
         for(String key:new String[]{FeatureOptions.STACK_LANDSCAPE_ENABLED,NativeDataActivity.MASTER,NativeDataActivity.COLOR_ENABLED}){
             equal(false,FeatureOptions.DEFAULTS.get(key));equal(false,FeatureOptions.GROUP_BY_KEY.containsKey(key));

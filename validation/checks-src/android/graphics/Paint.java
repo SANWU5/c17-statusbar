@@ -14,6 +14,7 @@ public class Paint {
     private String variationSettings;
     /** Android 36+ can store axes on Paint without changing its Typeface. */
     public static boolean fontVariationOnPaint;
+    public static boolean includeLetterSpacingInMeasure;
     public boolean fakeBold;
     public Xfermode mode;
     public Style style=Style.FILL;
@@ -45,7 +46,10 @@ public class Paint {
                 ?.2f+.8f*typeface.variationHeight/70f:1f);
         bounds.left=0;bounds.right=(int)((end-start)*textSize*.6f);bounds.top=-(int)ink;bounds.bottom=0;
     }
-    public float measureText(CharSequence text,int start,int end) {return (end-start)*textSize*.6f;}
+    public float measureText(CharSequence text,int start,int end) {
+        return Math.max(0f, (end-start)*textSize*.6f
+                + (includeLetterSpacingInMeasure ? Math.max(0,end-start-1)*letterSpacing*textSize : 0f));
+    }
     public Typeface getTypeface() {return typeface;}
     public Typeface setTypeface(Typeface face) {Typeface old=typeface;typeface=face;return old;}
     public String getFontVariationSettings() {return variationSettings;}

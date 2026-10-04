@@ -1,5 +1,9 @@
 package android.graphics;
 public class Canvas {
+    public final java.util.List<RenderNode> drawnNodesForCheck=new java.util.ArrayList<>();
+    public final java.util.List<Bitmap> drawnBitmapsForCheck=new java.util.ArrayList<>();
+    public int lastClearColorForCheck;
+    public PorterDuff.Mode lastClearModeForCheck;
     public boolean contrast;
     public boolean hardware,failMaskOnce,failClipOnce,failLayerOnce,failFenceOnce;
     public int nodeDraws,layers,rects,clears;
@@ -51,9 +55,10 @@ public class Canvas {
         if(isFence){lastFenceShader=paint.shader;fenceRects++;}
         else if(paint.shader!=null){lastEffectShader=paint.shader;effectAlpha=paint.getAlpha();effectRects++;}
     }
-    public void drawColor(int color,PorterDuff.Mode mode) {clears++;}
+    public void drawColor(int color,PorterDuff.Mode mode) {clears++;lastClearColorForCheck=color;lastClearModeForCheck=mode;}
     public void drawRenderNode(RenderNode node) {
         nodeDraws++;if(failNodeOnce!=null&&node.name.contains(failNodeOnce)){failNodeOnce=null;throw new IllegalStateException("node unavailable");}
+        drawnNodesForCheck.add(node);
     }
     public boolean clipRect(RectF rect) {clips++;return true;}
     public boolean isHighContrastTextEnabled() {return contrast;}
@@ -74,7 +79,7 @@ public class Canvas {
     public void concat(Matrix matrix){}
     public boolean clipPath(Path path){clips++;return true;}
     public void drawBitmap(Bitmap bitmap,Rect source,RectF dest,Paint paint){
-        bitmapDraws++;
+        bitmapDraws++;drawnBitmapsForCheck.add(bitmap);
         if(bitmapTarget==null)return;
         int left=Math.max(0,(int)dest.left),top=Math.max(0,(int)dest.top);
         int right=Math.min(bitmapTarget.getWidth(),(int)Math.ceil(dest.right)),bottom=Math.min(bitmapTarget.getHeight(),(int)Math.ceil(dest.bottom));

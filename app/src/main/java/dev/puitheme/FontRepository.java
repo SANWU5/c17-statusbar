@@ -208,6 +208,11 @@ public final class FontRepository {
         PreparedFont(File temporary, File target, String revision) {
             this.temporary = temporary; this.target = target; this.revision = revision;
         }
+        /** Validated worker-stage inode for the persistent library; publication still uses commit(). */
+        File stagedFile() throws IOException {
+            if(closed||!temporary.isFile())throw new IOException("字体暂存已关闭");
+            return temporary;
+        }
 
         /** Commit on the main thread so pause/recheck cannot interleave file publication and preference submission. */
         public String commit(BooleanSupplier canCommit, BooleanSupplier saveOptions, Runnable restoreOptions) throws Exception {

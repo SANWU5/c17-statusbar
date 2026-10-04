@@ -73,6 +73,10 @@ class ModernMainActivity : ComponentActivity() {
     var editing by mutableStateOf<SettingsCatalog.Item?>(null)
     var colorEditing by mutableStateOf<SettingsCatalog.Item?>(null)
     var fontCatalogOpen by mutableStateOf(false)
+    var fontRenameTarget by mutableStateOf<FontLibrary.Entry?>(null)
+    var fontLibraryEntries by mutableStateOf<List<FontLibrary.Entry>>(emptyList())
+        private set
+    private var fontLibraryRequest = 0
     var notificationOverridesOpen by mutableStateOf(false)
     var iconAssignmentsOpen by mutableStateOf(false)
     var iconAssignmentCategory by mutableStateOf("hint")
@@ -247,6 +251,7 @@ class ModernMainActivity : ComponentActivity() {
                     donationImage != null -> donationImage = null
                     colorEditing != null -> colorEditing = null
                     downloadingFont != null -> cancelFontDownload()
+                    fontRenameTarget != null -> { fontRenameTarget = null; fontCatalogOpen = true }
                     fontCatalogOpen -> fontCatalogOpen = false
                     iconPackDownloading -> cancelIconPackDownload()
                     iconAssignmentsOpen -> if (!busy) iconAssignmentsOpen = false
@@ -316,7 +321,7 @@ class ModernMainActivity : ComponentActivity() {
     fun selectPage(index: Int) {
         page = index; selectedGroup = null; updateNavigation()
     }
-    fun openGroup(id: String) { selectedGroup = id; updateNavigation() }
+    fun openGroup(id: String) { selectedGroup = id; if (id == "font") refreshFontLibrary(); updateNavigation() }
     fun closeGroup() { selectedGroup = null; updateNavigation() }
     fun syncModalLayer(visible: Boolean) {
         updateNavigation()
@@ -410,17 +415,114 @@ class ModernMainActivity : ComponentActivity() {
     }
     fun chooseImport() { if (canEdit) importConfig.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) else toast("请先激活模块或授予 Root") }
     fun chooseExport() { if (canEdit) exportConfig.launch("C17-settings.json") else toast("请先激活模块或授予 Root") }
-    fun chooseFont() { if (canEdit) importFont.launch(arrayOf("*/*")) else toast("请先激活模块或授予 Root") }
-    fun chooseOpenFont() { if (canEdit && !busy) fontCatalogOpen = true else toast("请先激活模块或授予 Root") }
+    fun chooseFont() { if (canEdit && !busy) { fontCatalogOpen = false; importFont.launch(arrayOf("*/*")) } else toast("请先激活模块或授予 Root") }
+    fun chooseOpenFont() { refreshFontLibrary(); fontCatalogOpen = true }
+    fun refreshFontLibrary() {
+        if (destroyed || maintenanceRunning) return
+        val request = ++fontLibraryRequest
+        val snapshot = values
+        work.execute {
+            val result = runCatching {
+                FontLibrary.retainCurrent(applicationContext, snapshot[StatusBarSettings.FONT_REVISION]?.toString(), snapshot[StatusBarSettings.FONT_NAME]?.toString())
+                FontLibrary.retainDownloads(applicationContext)
+                FontLibrary.entries(applicationContext)
+            }
+            handler.post { if (!destroyed && request == fontLibraryRequest && !maintenanceRunning) {
+                result.onSuccess { fontLibraryEntries = it }.onFailure { ModuleDiagnostics.error("font", "Font library unavailable", it) }
+            } }
+        }
+    }
+    fun currentFontTitle(): String = when (value(StatusBarSettings.FONT_MODE)?.toString()) {
+        "pingfang" -> "苹方"
+        "custom" -> value(StatusBarSettings.FONT_NAME)?.toString()?.takeIf { it.isNotBlank() } ?: "导入字体"
+        else -> "跟随系统"
+    }
+    fun selectLibraryFont(entry: FontLibrary.Entry) {
+        if (!resumed || !canEdit || busy) return
+        busy = true; fontCatalogOpen = false
+        work.execute {
+            try {
+                val prepared = FontLibrary.prepare(applicationContext, entry.revision)
+                handler.post {
+                    val result = runCatching { prepared.use { commitSelectedFont(prepared, entry.name) } }
+                    busy = false
+                    if (!destroyed) { refreshFontLibrary(); toast(if (result.isSuccess) "已选择 ${entry.name}" else "字体未切换，原字体已保留：${result.exceptionOrNull()?.message}") }
+                }
+            } catch (error: Exception) { handler.post { busy = false; if (!destroyed) { refreshFontLibrary(); toast("字体未切换：${error.message}") } } }
+        }
+    }
+    private fun commitSelectedFont(prepared: FontRepository.PreparedFont, name: String): String {
+        val keys = listOf(StatusBarSettings.FONT_MODE, StatusBarSettings.FONT_REVISION, StatusBarSettings.FONT_NAME)
+        val previous = raw.all
+        return prepared.commit({ resumed && canEdit && !destroyed && !maintenanceRunning }, {
+            preferences.edit().putString(StatusBarSettings.FONT_MODE, "custom")
+                .putString(StatusBarSettings.FONT_REVISION, prepared.revision).putString(StatusBarSettings.FONT_NAME, name).commit()
+        }, {
+            val restore = raw.edit()
+            keys.forEach { key -> if (previous.containsKey(key)) restore.putString(key, previous[key] as String?) else restore.remove(key) }
+            check(restore.commit()) { "原字体选项未能恢复" }
+        })
+    }
+    fun renameLibraryFont(entry: FontLibrary.Entry, input: String): String? {
+        if (!resumed || !canEdit || busy) return "请先激活模块或授予 Root"
+        val name = FontLibrary.displayName(input)
+        if (input.isBlank()) return "请输入字体名称"
+        busy = true; fontRenameTarget = null
+        work.execute {
+            val result = runCatching { FontLibrary.rename(applicationContext, entry.revision, name) }
+            handler.post {
+                if (!destroyed) {
+                    if (result.isSuccess && value(StatusBarSettings.FONT_REVISION) == entry.revision)
+                        preferences.edit().putString(StatusBarSettings.FONT_NAME, name).apply()
+                    busy = false; refreshFontLibrary()
+                    if (result.isFailure) toast("重命名失败：${result.exceptionOrNull()?.message}")
+                }
+            }
+        }
+        return null
+    }
+    fun deleteLibraryFont(entry: FontLibrary.Entry) {
+        if (!canEdit || busy) return
+        val active = value(StatusBarSettings.FONT_REVISION) == entry.revision
+        confirmation = UiConfirmation("删除 ${entry.name}", if (active) "这款字体正在使用。删除后改为跟随系统，其他导入字体会保留。" else "删除这款字体，其他已导入或下载的字体会保留。", "删除") {
+            if (!resumed || !canEdit || busy) return@UiConfirmation
+            val current = value(StatusBarSettings.FONT_REVISION) == entry.revision
+            val previous = raw.all
+            val changes = FontLibrary.deletionFallback(previous, entry.revision)
+            busy = true
+            work.execute {
+                try {
+                    val prepared = FontLibrary.prepareDeletion(applicationContext, entry.revision, current)
+                    handler.post {
+                        val result = runCatching { prepared.use {
+                            prepared.commit({ resumed && canEdit && !destroyed && !maintenanceRunning }, {
+                                if (changes.isEmpty()) true else preferences.edit().also { editor -> changes.forEach { (key, selected) -> editor.putString(key, selected) } }.commit()
+                            }, {
+                                val restore = raw.edit()
+                                changes.keys.forEach { key -> if (previous.containsKey(key)) restore.putString(key, previous[key] as String?) else restore.remove(key) }
+                                check(restore.commit()) { "原字体配置未能恢复" }
+                            })
+                        } }
+                        busy = false
+                        if (!destroyed) { refreshFontLibrary(); fontCatalogOpen = true; toast(if (result.isSuccess) "字体已删除" else "删除未完成：${result.exceptionOrNull()?.message}") }
+                    }
+                } catch (error: Exception) { handler.post { busy = false; if (!destroyed) { refreshFontLibrary(); fontCatalogOpen = true; toast("字体未删除：${error.message}") } } }
+            }
+        }
+    }
     fun downloadFont(entry: FontCatalog.Entry) {
         if (!resumed || !canEdit || busy) return
         val token = FontDownloadRepository.Cancellation()
         fontCatalogOpen = false; downloadingFont = entry; fontDownloadPercent = 0; fontCancellation = token; busy = true
         work.execute {
             try {
+                val snapshot = values
+                FontLibrary.retainCurrent(applicationContext, snapshot[StatusBarSettings.FONT_REVISION]?.toString(), snapshot[StatusBarSettings.FONT_NAME]?.toString())
                 val prepared = FontDownloadRepository.prepare(applicationContext, entry, { received, total ->
                     runOnUiThread { if (fontCancellation === token) fontDownloadPercent = if (total > 0) (received * 100 / total).toInt().coerceIn(0, 100) else 0 }
                 }, token)
+                try { FontLibrary.remember(applicationContext, prepared, entry.displayName) }
+                catch (error: Exception) { prepared.close(); throw error }
                 runOnUiThread {
                     prepared.use {
                         if (fontCancellation !== token) return@runOnUiThread
@@ -443,6 +545,7 @@ class ModernMainActivity : ComponentActivity() {
                             })
                         }
                         fontCancellation = null; downloadingFont = null; busy = false
+                        refreshFontLibrary()
                         toast(if (result.isSuccess) "字体已下载，可在各功能中调节粗细；启用文字字体后生效" else "字体应用失败，原字体已保留：${result.exceptionOrNull()?.message}")
                     }
                 }
@@ -602,10 +705,14 @@ class ModernMainActivity : ComponentActivity() {
         runCatching { contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null).use { cursor ->
             if (cursor != null && cursor.moveToFirst()) name = cursor.getString(0).take(120)
         } }
-        val displayName = name
+        val displayName = FontLibrary.displayName(name)
+        val previousFont = values
         work.execute {
             try {
+                FontLibrary.retainCurrent(applicationContext, previousFont[StatusBarSettings.FONT_REVISION]?.toString(), previousFont[StatusBarSettings.FONT_NAME]?.toString())
                 val prepared = FontRepository.prepareFont(applicationContext, uri)
+                try { FontLibrary.remember(applicationContext, prepared, displayName) }
+                catch (error: Exception) { prepared.close(); throw error }
                 runOnUiThread {
                     try {
                         prepared.use {
@@ -620,7 +727,7 @@ class ModernMainActivity : ComponentActivity() {
                                 }
                                 check(restore.commit()) { "原字体选项未能恢复" }
                             })
-                            pendingFile = null; busy = false; toast("字体已导入")
+                            pendingFile = null; busy = false; refreshFontLibrary(); toast("字体已导入")
                         }
                     } catch (error: Exception) { pendingFile = null; busy = false; toast("字体导入失败：${error.message}") }
                 }

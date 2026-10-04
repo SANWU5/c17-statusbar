@@ -124,6 +124,7 @@ public final class SettingsCatalog {
         Set<String> hidden = new LinkedHashSet<>(Arrays.asList(
                 StatusBarSettings.DATA_ACTIVITY_HIDDEN, StatusBarSettings.SAFE_MODE,
                 StatusBarSettings.DIAGNOSTICS_ENABLED, StatusBarSettings.FONT_REVISION, NotificationIconArea.IMAGE_REVISION,
+                StatusBarSettings.FONT_NAME,
                 NotificationBigClockSettings.STATUS_ICONS_FIXED, NotificationBigClockSettings.COMPACT_WEIGHT,
                 NotificationBigClockSettings.STACK_GAP, NotificationBigClockSettings.STACK_INSET,
                 StatusBarSettings.TILES_FADE_RANGE,
@@ -134,6 +135,8 @@ public final class SettingsCatalog {
                 StatusBarSettings.CARRIER_SCALE, StatusBarSettings.CARRIER_WEIGHT, StatusBarSettings.CARRIER_SPACING,
                 "carrier_color_light", "carrier_color_dark"));
         hidden.add(StatusBarShadeIconSettings.MASTER);
+        hidden.add(NativeClockMeasurement.SCALE_BASIS_VERSION);
+        hidden.add(NativeClockMeasurement.LEGACY_SCALE_FACTOR);
         hidden.add(NotificationBigClockSettings.INTERACTIVE_STACK);
         hidden.add(NotificationGroupStack.MASTER);
         hidden.add("data_single_enabled");
@@ -167,7 +170,7 @@ public final class SettingsCatalog {
         groups.add(bigClock()); groups.add(landscapeClock()); groups.add(wholeStack()); groups.add(clear()); groups.add(landscapeClear()); groups.add(media());
         groups.add(highlightRemoval());
         groups.add(classicText()); groups.add(shadeWallpaper());
-        groups.add(lockscreenDate()); groups.add(lockscreenLock());
+        groups.add(lockscreenDate()); groups.add(lockscreenLock()); groups.add(lockscreenBlur()); groups.add(fluidAccent());
         Map<String, Group> byId = new LinkedHashMap<>();
         Map<String, Item> byKey = new LinkedHashMap<>();
         for (Group group : groups) {
@@ -242,6 +245,8 @@ public final class SettingsCatalog {
                 new String[]{SpeedPosition.NATIVE,SpeedPosition.CELLULAR_LEFT,SpeedPosition.RIGHT_START,SpeedPosition.CLOCK_LEFT,SpeedPosition.CLOCK_RIGHT},
                 new String[]{"原生位置","蜂窝数据左侧","右侧图标区最左侧","时钟左侧","时钟右侧"});
         position(b, "speed", "位置");
+        b.toggle(SpeedPosition.SAFE_GAP_ENABLED,"与相邻图标保持距离","按网速、Wi-Fi 和蜂窝信号的实际大小与水平偏移预留间距；不改各自的位置设置。空间不足时保留原生布局","位置");
+        b.number(SpeedPosition.SAFE_GAP,"最小安全间距","位置","dp",0,12,.01f);
         scale(b, StatusBarSettings.SPEED_SCALE, "整体大小", "大小");
         scale(b, StatusBarSettings.SPEED_NUMBER_SCALE, "数字大小", "大小");
         scale(b, StatusBarSettings.SPEED_UNIT_SCALE, "单位大小", "大小");
@@ -398,8 +403,7 @@ public final class SettingsCatalog {
     }
     private static Group font() {
         Builder b = builder("font", "文字字体", "统一用于时间、下拉文字、网络制式与网速。", STATUSBAR, "font_enabled");
-        b.choice(StatusBarSettings.FONT_MODE, "字体来源", "自选字体需要先导入字体文件", "字体来源", new String[]{"system", "pingfang", "custom"}, new String[]{"跟随系统", "苹方", "自选字体"});
-        b.add(StatusBarSettings.FONT_NAME, "自选字体", "导入 TTF / OTF / TTC 字体文件", FONT, "字体文件", "", 0, 0, 0, null, null, null, null);
+        b.choice(StatusBarSettings.FONT_MODE, "文字来源", "统一选择系统、苹方、已导入和需下载的字体；支持导入、重命名和删除", "文字来源", new String[]{"system", "pingfang", "custom"}, new String[]{"跟随系统", "苹方", "自选字体"});
         return new Group(b);
     }
     private static Group battery() {
@@ -407,6 +411,7 @@ public final class SettingsCatalog {
         controls(b, "battery", "独立开关", false);
         b.toggle("battery_style_enabled", "应用所选电池样式", "关闭时恢复系统原生样式", "电池样式");
         b.choice(StatusBarSettings.BATTERY_STYLE, "电池样式", "", "电池样式", new String[]{"pui", "native"}, new String[]{"PUI 默认样式", "系统原生样式"});
+        b.toggle(BatteryControls.HIDE_CHARGE, "隐藏充电图标", "隐藏电池内外的充电闪电；优先于数字与闪电切换，不改变充电状态与充电填充颜色", "充电显示");
         b.toggle(StatusBarSettings.BATTERY_CHARGE_INSIDE, "电池内数字与闪电切换", "充电时平滑切换，停止充电后显示电量", "充电切换");
         b.number(StatusBarSettings.BATTERY_HOLD, "每项停留时间", "充电切换", "秒", 1, 10, .01f);
         b.number(StatusBarSettings.BATTERY_FADE, "淡入淡出时长", "充电切换", "秒", .15f, 3, .01f);
@@ -578,6 +583,21 @@ public final class SettingsCatalog {
                 "只隐藏锁屏小锁的视觉图标，保留解锁触摸区域、原生状态和指纹交互，默认关闭。",
                 LOCK_SCREEN, LockscreenControls.HIDE_LOCK));
     }
+    private static Group lockscreenBlur() {
+        Builder b=builder("lockscreen_status_blur", "状态栏区域模糊",
+                "只模糊锁屏顶部壁纸，向下逐渐恢复清晰。时间、通知和状态图标保持清晰；缓存壁纸模糊，随原生解锁和息屏进度淡出。",
+                LOCK_SCREEN, LockscreenStatusBlur.ENABLED);
+        b.number(LockscreenStatusBlur.RADIUS,"模糊强度","模糊范围","dp",0,40,.1f);
+        b.number(LockscreenStatusBlur.RANGE,"主要模糊高度","模糊范围","dp",0,200,.1f);
+        b.number(LockscreenStatusBlur.TRANSITION,"由虚到实过渡高度","模糊范围","dp",0,120,.1f);
+        b.add(LockscreenStatusBlur.MASK_COLOR,"颜色遮罩","与模糊一起向下渐隐",COLOR,"颜色遮罩","",0,0,0,null,null,null,null);
+        return new Group(b);
+    }
+    private static Group fluidAccent() {
+        return new Group(builder("fluid_cloud_accent", "流体云展开面强调色",
+                "音乐流体云展开后，使用原生进度条的强调色替换黑色填充，保留系统模糊、圆角和动效。缺少可靠强调色的卡片保持原生背景，默认关闭。",
+                OTHER, FluidCloudAccent.ENABLED));
+    }
     private static Group wholeStack() {
         Builder b=builder("notification_stack", "堆叠通知", "使用系统原生堆叠，随列表滑动自动展开和缩放。竖屏需开启竖屏大时钟；横屏需开启横屏大时钟和“横屏也生效”。关闭对应大时钟后，该方向自动恢复原生通知，保留已保存参数。展开应用分组仍使用系统原生点击操作。", STATUSBAR, NotificationBigClockSettings.STACK_ENABLED);
         b.toggle(FeatureOptions.STACK_LANDSCAPE_ENABLED,"横屏也生效","开启堆叠通知后，还需开启横屏大时钟，才允许横屏使用同样的堆叠。默认关闭。","显示规则");
@@ -652,9 +672,10 @@ public final class SettingsCatalog {
         if (OTHER.equals(category)) return Arrays.asList(
                 new NavigationSection("图标库", "status_icon_library"),
                 new NavigationSection("下拉背景", "shade_wallpaper"),
-                new NavigationSection("界面材质", "c17_highlight_removal"));
+                new NavigationSection("界面材质", "c17_highlight_removal", "fluid_cloud_accent"));
         if (LOCK_SCREEN.equals(category)) return Arrays.asList(new NavigationSection("日期与文字", "lockscreen_date", "carrier"),
-                new NavigationSection("提示图标", "lockscreen_lock_icon"));
+                new NavigationSection("提示图标", "lockscreen_lock_icon"),
+                new NavigationSection("壁纸与模糊", "lockscreen_status_blur"));
         return Collections.emptyList();
     }
     public static List<DetailPage> detailPages(Group group) {

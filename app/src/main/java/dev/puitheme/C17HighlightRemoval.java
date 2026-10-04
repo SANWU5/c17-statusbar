@@ -109,6 +109,7 @@ public final class C17HighlightRemoval {
     private volatile boolean enabled, released, restorationPending;
     private volatile long revision;
     private final C17AcrylicMaterial acrylic = new C17AcrylicMaterial();
+    private final C17DeviceAcrylic deviceAcrylic = new C17DeviceAcrylic();
     private volatile boolean backgroundEnabled;
     private volatile boolean notificationEnabled = true, controlEnabled = true, headsUpEnabled = true, uniformNotificationEnabled;
     private volatile CardColors cardColors = new CardColors(DEFAULT_LIGHT_BACKGROUND, DEFAULT_DARK_BACKGROUND);
@@ -161,7 +162,10 @@ public final class C17HighlightRemoval {
     public void onNativeBlurResult(Object proxy, Drawable drawable) {
         if (released || drawable == null) return;
         View host = blurOwner(proxy);
-        bindReturned(host,drawable,0);
+        ProxyAccess access = proxy == null ? null : proxyAccess.get(proxy.getClass());
+        Object rawOwner = access == null ? null : get(access.view, proxy);
+        C17DeviceAcrylic.Source base = rawOwner instanceof View ? deviceAcrylic.exactBody(host, (View) rawOwner) : null;
+        bindReturned(host,drawable,0,base);
     }
 
     private View blurOwner(Object proxy) {
@@ -197,11 +201,19 @@ public final class C17HighlightRemoval {
         return null;
     }
 
-    private void bindReturned(View host,Drawable drawable,int depth) {
+    private void bindReturned(View host,Drawable drawable,int depth,C17DeviceAcrylic.Source deviceBase) {
         if (depth > 4) return;
         EngineAccess access = engineAccess(drawable.getClass());
         if (access.valid()) {
-            if (host == null) forgetEngine(drawable); else bindDrawable(host,drawable);
+            if (host == null) forgetEngine(drawable); else {
+                bindDrawable(host,drawable);
+                Binding binding = engines.get(drawable);
+                if (binding != null) {
+                    C17DeviceAcrylic.Source old = binding.deviceBase;
+                    if (old != null ? !old.sameBase(deviceBase) : deviceBase != null) dirty(drawable, binding);
+                    binding.deviceBase = deviceBase;
+                }
+            }
             return;
         }
         WrapperAccess wrapper = wrapperAccess.get(drawable.getClass());
@@ -211,7 +223,7 @@ public final class C17HighlightRemoval {
             wrapper = raced == null ? created : raced;
         }
         Object child = get(wrapper.engine,drawable);
-        if (child instanceof Drawable && child != drawable) bindReturned(host,(Drawable)child,depth+1);
+        if (child instanceof Drawable && child != drawable) bindReturned(host,(Drawable)child,depth+1,deviceBase);
     }
 
     private void forgetEngine(Drawable engine) {
@@ -291,6 +303,7 @@ public final class C17HighlightRemoval {
             // A native engine can be recycled into a different page. Scoped removal
             // must restore the previous owner's uniforms before accepting the new one.
             restoreEngine(engine); binding.host = new WeakReference<>(host); binding.primed = Long.MIN_VALUE;
+            binding.deviceBase = null;
         }
         int nextScope = scope(host);
         if (binding.scope != nextScope) {
@@ -453,7 +466,7 @@ public final class C17HighlightRemoval {
             if (binding.host.get() != host) continue;
             binding.primed = Long.MIN_VALUE; dirty(entry.getKey(),binding);
         }
-        host.invalidate();
+        invalidateView(host);
     }
 
     /** Native media draws this separate optical layer after both background drawables.
@@ -590,8 +603,32 @@ public final class C17HighlightRemoval {
         if (record != null && record.removesOptics(engine) && record.customShader != null
                 && QsTileAppearance.field(QsTileAppearance.field(engine,"drawableShader"),"shader") == record.customShader)
             return nativeDraw.draw(canvas);
-        C17AcrylicMaterial.Swap swap = acrylic.prepare(engine, host, lightBackground, darkBackground,backgroundEnabled);
+        // SDK device body uses the same SepInactive native palette as a regular
+        // inactive tile. Preserve that base and its alpha; apply the same RGB mix.
+        boolean tint = backgroundEnabled && (!QsTileAppearance.isDeviceCard(host)
+                || binding.deviceBase != null && binding.deviceBase.matches(host));
+        C17AcrylicMaterial.Swap swap = acrylic.prepare(engine, host, lightBackground, darkBackground, tint);
         try { return nativeDraw.draw(canvas); } finally { if (swap != null) swap.restore(); }
+    }
+
+    /** Call after the SDK g()/attach/config update; records only its inner base identity. */
+    public void refreshDeviceCard(View host) {
+        if (!released && host != null && isSurface(host)) {
+            deviceAcrylic.refresh(host); surfaces.put(host, Boolean.TRUE);
+        }
+    }
+
+    /** A themed/no-hardware-blur SDK card can draw a native GradientDrawable instead. */
+    public Object drawDeviceBackground(Drawable drawable, Canvas canvas, ContentDraw nativeDraw) throws Throwable {
+        if (released || !enabled || !controlEnabled) return nativeDraw.draw(canvas);
+        C17DeviceAcrylic.Source source = deviceAcrylic.drawableSource(drawable);
+        View host = source == null ? null : source.card.get();
+        if (host == null || !source.matches(host) || !opticsEnabled(host)) return nativeDraw.draw(canvas);
+        boolean night = (host.getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        int color = backgroundEnabled ? (night ? darkBackground : lightBackground)
+                : (night ? DEFAULT_DARK_BACKGROUND : DEFAULT_LIGHT_BACKGROUND);
+        return deviceAcrylic.drawGradient(drawable, canvas, color, backgroundEnabled, nativeDraw);
     }
 
     public synchronized void configure(Bundle settings) {
@@ -632,7 +669,7 @@ public final class C17HighlightRemoval {
         engineAccess.clear(); materialAccess.clear(); effectAccess.clear(); surfaceTypes.clear(); scopeTypes.clear();
         notificationOwners.clear();
         blurAccess.clear(); proxyAccess.clear(); wrapperAccess.clear(); notificationAccess.clear(); blurOwners.clear(); sliderStrokes.clear();
-        acrylic.clear();
+        acrylic.clear(); deviceAcrylic.clear();
         invalidateMediaLights(); mediaLights.clear(); mediaSpotHosts.clear(); tintingNotification.remove();
         surface.remove(); recording.remove(); surfacePool.remove(); recordPool.remove(); restoring.remove();
     }
@@ -640,6 +677,7 @@ public final class C17HighlightRemoval {
     /** Optional native detach/recycle hook; a reused drawable must leave its previous host's ownership. */
     public void detach(View host) {
         if (host == null) return;
+        deviceAcrylic.detach(host);
         surfaces.remove(host);
         notificationOwners.remove(host);
         sliderStrokes.remove(host);
@@ -781,7 +819,11 @@ public final class C17HighlightRemoval {
             try { binding.access.dirty.setBoolean(engine, true); }
             catch (ReflectiveOperationException | RuntimeException unsupported) { return; }
         }
-        engine.invalidateSelf();
+        View host = binding.host.get();
+        // Native material recording can run on SysUiTileBg. View invalidation
+        // must cross its UI queue rather than Drawable.Callback.invalidateView.
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) engine.invalidateSelf();
+        else if (host != null) host.postInvalidate();
     }
 
     private ArrayList<Map.Entry<Drawable, Binding>> engineSnapshot() {
@@ -791,7 +833,11 @@ public final class C17HighlightRemoval {
     private void invalidateSurfaces() {
         ArrayList<View> snapshot;
         synchronized (surfaces) { snapshot = new ArrayList<>(surfaces.keySet()); }
-        for (View host : snapshot) if (host != null) host.invalidate();
+        for (View host : snapshot) if (host != null) invalidateView(host);
+    }
+    private static void invalidateView(View host) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) host.invalidate();
+        else host.postInvalidate();
     }
 
     private void invalidateMediaLights() {
@@ -1010,6 +1056,7 @@ public final class C17HighlightRemoval {
         volatile WeakReference<View> host;
         volatile WeakReference<RuntimeShader> observed;
         final EngineAccess access; volatile long primed = Long.MIN_VALUE; volatile int scope = UNKNOWN;
+        volatile C17DeviceAcrylic.Source deviceBase;
         Binding(View host, EngineAccess access) { this.host = new WeakReference<>(host); this.access = access; }
     }
 

@@ -160,7 +160,9 @@ final class C17AcrylicMaterial {
     private static boolean immutable(Object value) { return value instanceof String || value instanceof Enum || value instanceof Integer || value instanceof Long || value instanceof Boolean || value instanceof Float || value instanceof Double; }
     private static final class Cached {
         final String source; final RuntimeShader variant; final Signature signature; final float[] blends, tint = new float[4];
-        Cached(String source, RuntimeShader shader, Signature signature, int count) { this.source = source; variant = shader; this.signature = signature; blends = new float[count * 5]; }
+        Cached(String source, RuntimeShader shader, Signature signature, int count) {
+            this.source = source; variant = shader; this.signature = signature; blends = new float[count * 5];
+        }
     }
     private static final class Signature {
         final WeakReference<RuntimeShader> original;

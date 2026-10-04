@@ -43,6 +43,9 @@ public final class FeatureOptionsCheck {
         expectedBooleans.putAll(QsTileIconSize.BOOLEANS);
         expectedBooleans.putAll(StatusBarShadeIconSettings.BOOLEANS);
         expectedBooleans.putAll(ShadeWallpaperSettings.BOOLEANS);
+        expectedBooleans.put(FluidCloudAccent.ENABLED, false);
+        expectedBooleans.put(LockscreenStatusBlur.ENABLED, false);
+        expectedBooleans.putAll(SpeedPosition.booleanDefaults());
         equal(expectedBooleans, StatusBarSettings.BOOLEAN_DEFAULTS);
         equal(false,StatusBarSettings.bool(new HashMap<String,Object>(),NativeNetworkBadgeControls.MASTER));
         equal(false,FeatureOptions.DEFAULTS.containsKey(NativeNetworkBadgeControls.MASTER));
@@ -59,7 +62,7 @@ public final class FeatureOptionsCheck {
         equal(false, defaults.enabled("unknown"));
         equal(false, defaults.isEnabled("unknown"));
         equal(11, FeatureOptions.GROUPS.length);
-        equal(96, FeatureOptions.DEFAULTS.size());
+        equal(97, FeatureOptions.DEFAULTS.size());
         equal(false,defaults.isEnabled(FeatureOptions.STACK_LANDSCAPE_ENABLED));
         Map<String,Object> landscapeStack=new HashMap<>();landscapeStack.put(FeatureOptions.STACK_LANDSCAPE_ENABLED,true);
         equal(true,FeatureOptions.from(landscapeStack).isEnabled(FeatureOptions.STACK_LANDSCAPE_ENABLED));

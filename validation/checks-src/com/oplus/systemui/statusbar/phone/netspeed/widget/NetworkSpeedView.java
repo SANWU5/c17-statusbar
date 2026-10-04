@@ -27,6 +27,9 @@ public final class NetworkSpeedView extends FrameLayout implements com.android.s
     public final NativeTextView mSpeedNumber=new NativeTextView(),mSpeedUnit=new NativeTextView();
     public boolean rtl;
     public int nativeHeight=24;
+    public int nativePaddingStart,nativePaddingEnd;
+    @Override public int getPaddingStart(){return nativePaddingStart;}
+    @Override public int getPaddingEnd(){return nativePaddingEnd;}
     public NetworkSpeedView(){
         super(null);setLayoutParams(new ViewGroup.MarginLayoutParams(24,ViewGroup.LayoutParams.MATCH_PARENT));
         FrameLayout.LayoutParams number=new FrameLayout.LayoutParams(-1,-1,Gravity.CENTER_HORIZONTAL);

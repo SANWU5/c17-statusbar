@@ -25,6 +25,7 @@ import java.util.WeakHashMap;
 
 /** Changes only the content of supported native horizontal batteries. */
 public final class BatteryControls {
+    public static final String HIDE_CHARGE = "battery_charge_icon_hidden";
     private final Handler handler;
     private final BatteryAppearance appearance;
     private final PuiBatteryStyle puiStyle;
@@ -35,7 +36,8 @@ public final class BatteryControls {
     private final Field chargeVisible, chargeId, percentIn, percentPaint;
     private final Map<View, Entry> owners = new WeakHashMap<>();
     private final Map<Drawable, Entry> drawables = new WeakHashMap<>();
-    private boolean enabled = true, interactive = true;
+    private boolean enabled = true, interactive = true, hideCharge;
+    private final ThreadLocal<ChargeDrawScope> chargeDraws = new ThreadLocal<>();
     private float hold = 3f, fade = 1f;
     private boolean scheduled;
     private long scheduledAt;
@@ -104,6 +106,7 @@ public final class BatteryControls {
         textStyle.configure(settings);
         appearance.configure(settings,colors,alpha);
         puiStyle.configure(settings);
+        hideCharge = FeatureOptions.from(settings).effective("battery", HIDE_CHARGE);
         configure(FeatureOptions.from(settings).effective("battery",StatusBarSettings.BATTERY_CHARGE_INSIDE),
                 setting(settings,StatusBarSettings.BATTERY_HOLD,3f),setting(settings,StatusBarSettings.BATTERY_FADE,1f));
     }
@@ -126,6 +129,33 @@ public final class BatteryControls {
 
     public void prepareDraw(Drawable drawable) throws Exception {
         if(horizontal.isInstance(drawable))puiStyle.prepare(drawable);
+    }
+
+    /** Only the bolt read during this exact owned draw is suppressed. Keep the native
+     * charging model intact for fill colors, accessibility and subsequent bindings. */
+    public ChargeDrawScope beginChargeDraw(Drawable drawable) {
+        ChargeDrawScope scope = new ChargeDrawScope(drawable, chargeDraws.get());
+        chargeDraws.set(scope); return scope;
+    }
+    public int chargeIconId(Drawable drawable, int nativeId) {
+        ChargeDrawScope scope = chargeDraws.get();
+        return hideCharge && !ModuleLifecycle.removed() && scope != null
+                && scope.drawable == drawable && drawables.containsKey(drawable) ? 0 : nativeId;
+    }
+    public final class ChargeDrawScope implements AutoCloseable {
+        private Drawable drawable;
+        private final ChargeDrawScope previous;
+        private boolean closed;
+        private ChargeDrawScope(Drawable drawable, ChargeDrawScope previous) {
+            this.drawable = drawable; this.previous = previous;
+        }
+        @Override public void close() {
+            if (closed) return; closed = true;
+            if (chargeDraws.get() == this) {
+                if (previous == null) chargeDraws.remove(); else chargeDraws.set(previous);
+            }
+            drawable = null;
+        }
     }
 
     public void attach(View owner) {
@@ -182,7 +212,7 @@ public final class BatteryControls {
             if(drawable!=null){puiStyle.prepare(drawable);puiStyle.updateView(owner,drawable);}
             appearance.updateView(owner);
             View outside = entry.external.get();
-            if (enabled && charging) {
+            if (hideCharge && entry.nativeCharging || enabled && charging) {
                 if (outside != null) {
                     if(outside.getVisibility()!=View.GONE)outside.setVisibility(View.GONE);
                     entry.hiddenByModule = true;
@@ -220,7 +250,7 @@ public final class BatteryControls {
 
     private boolean canAnimate(Entry entry) {
         View owner = entry.owner.get();
-        return enabled && interactive && entry.cycle.isCharging() && entry.drawable.get() != null
+        return enabled && !hideCharge && interactive && entry.cycle.isCharging() && entry.drawable.get() != null
                 && owner != null && owner.isAttachedToWindow() && owner.isShown()
                 && owner.getWindowVisibility() == View.VISIBLE;
     }
@@ -249,7 +279,7 @@ public final class BatteryControls {
     public boolean drawContent(Drawable drawable, Canvas canvas, RectF content) throws Exception {
         Entry entry = drawables.get(drawable);
         if (entry == null || !percentIn.getBoolean(drawable)) return false;
-        boolean animate=enabled&&entry.cycle.isCharging();
+        boolean animate=enabled&&!hideCharge&&entry.cycle.isCharging();
         boolean customText=appearance.hasCustom("battery_text");
         boolean customStyle=textStyle.enabled();
         if(!animate&&!customText&&!customStyle)return false;

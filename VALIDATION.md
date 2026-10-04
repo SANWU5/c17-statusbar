@@ -1,5 +1,17 @@
 # 验证记录
 
+## 1.8.2 / code75 · 2026-10-04
+
+- 按用户明确授权升级并发布正式更新，版本为 `1.8.2` / `75`。公开构建显式使用 `-Pc17LocalPuiAssets=false`，不包含用户提供的私人 PUI 图包。
+- 最终 Debug/Release、lintVitalRelease 与 101 组真实 Release 生产 classes 检查通过。1192 个 Debug/Release Java classes 均为 major52；v2 签名和 16KB 对齐通过，证书与上次正式版相同。
+- 重点检查：StatClockSizing 13558、TextControls 12014、NativeClockMeasurement 7、NativeClockBudget 385、CarrierPanels 254、壁纸层 1525、连续渐变 Renderer 85113、模糊几何 16182、设备材质 24097、网速位置 438、通知栏右侧竖向过渡 12263 项。断言含循环，不代表同等数量的独立实机场景。
+- APK 22262491 bytes，SHA256 `88b540ac4b01d93fcc3e3fdde2fd58afee33acd85d0928cd4402346dd3a76676`。实际 DEX 核对运行时标识 `c17-runtime-20261004-clock-wallpaper-fonts-code75-release`；私人素材路径与 APK 内容无交集。
+- 完整检查曾发现未开启字号调整时原生文字仍进入自定义字号守卫，已恢复原生值直通，保留原测试期望并新增关闭配置检查；最终 101 组全部重跑通过。
+- 本轮手机仅只读采集配置、布局和原生接口，未安装最终包、修改配置、重启或测试手势。锁屏连续过渡、AOD/唤醒、实际图标占位、GPU 时延和耗电仍需实机确认，不使用旧版观察代替本版验收。
+- 公开源码、安装包和更新说明不包含原始手机截图、私人配置、设备日志、签名私钥或授权令牌；本地宣传素材与测试包统一忽略。既有作者联系方式和捐赠图按用户授权保留。
+
+更新对比见 [1.8.2 发布说明](docs/RELEASE-1.8.2.zh-CN.md)。
+
 ## 1.8.1 / code69 · 2026-10-04
 
 - Debug、Release 和 lintVital 构建通过；真实 Release classes 的88组检查全部通过。

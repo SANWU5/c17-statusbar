@@ -3,6 +3,7 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
 public class View implements ViewParent, Drawable.Callback {
+    public static final int NO_ID=-1;
     public static final class MeasureSpec {
         public static final int EXACTLY=0x40000000, AT_MOST=0x80000000, UNSPECIFIED=0;
         public static int getSize(int spec){return spec&0x3fffffff;}
@@ -16,6 +17,7 @@ public class View implements ViewParent, Drawable.Callback {
     private int layoutLeft;
     private int layoutTop;
     public int layoutRequests, invalidations;
+    public int postedInvalidations;
     public boolean dirty;
     public ViewParent parent;
     public boolean attached=true,shown=true;
@@ -126,6 +128,7 @@ public class View implements ViewParent, Drawable.Callback {
     public android.os.IBinder getWindowToken() {return null;}
     public Display getDisplay() {return null;}
     public void draw(android.graphics.Canvas canvas) { }
+    public void postInvalidate() {postedInvalidations++;}
     public Resources getResources() { return resources; }
     public void requestLayout() { layoutRequests++;layoutRequested=true; }
     public void invalidate() { invalidations++; }

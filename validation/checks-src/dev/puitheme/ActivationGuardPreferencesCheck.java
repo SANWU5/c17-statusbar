@@ -56,7 +56,41 @@ public final class ActivationGuardPreferencesCheck {
         guarded.edit().putBoolean(NativeDataActivity.MASTER,true).clear().apply();equal(false,raw.values.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
         guarded.edit().clear().apply();equal(true,raw.values.get(StatusBarSettings.DATA_ACTIVITY_HIDDEN));
         bigClockConflicts();
+        clockScaleBasisTransactions();
         System.out.println("Activation preference guard checks passed: " + checks);
+    }
+
+    private static void clockScaleBasisTransactions() {
+        String scale=StatusBarSettings.CLOCK_SCALE,basis=NativeClockMeasurement.SCALE_BASIS_VERSION,factor=NativeClockMeasurement.LEGACY_SCALE_FACTOR;
+        MemoryPreferences raw=new MemoryPreferences();AtomicBoolean active=new AtomicBoolean(true);AtomicInteger denied=new AtomicInteger();
+        SharedPreferences guarded=new ActivationGuardPreferences(raw,active::get,denied::incrementAndGet);
+        raw.values.put(scale,650f);raw.values.put(basis,1f);raw.values.put(factor,.375f);
+        int writes=raw.writes;
+        equal(true,guarded.edit().putFloat(scale,175f).commit());
+        equal(writes+1,raw.writes);equal(175f,raw.values.get(scale));equal(2f,raw.values.get(basis));equal(0f,raw.values.get(factor));
+        raw.edit().putFloat(basis,1f).putFloat(factor,.375f).apply();writes=raw.writes;
+        guarded.edit().putFloat(scale,181f).apply();
+        equal(writes+1,raw.writes);equal(181f,raw.values.get(scale));equal(2f,raw.values.get(basis));equal(0f,raw.values.get(factor));
+        // Every bulk import order carries the old calibration in one transaction.
+        int[][] orders={{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}};
+        for(int[] order:orders)for(boolean apply:new boolean[]{false,true}){
+            SharedPreferences.Editor editor=guarded.edit();writes=raw.writes;
+            for(int item:order)editor.putFloat(item==0?scale:item==1?basis:factor,item==0?620.75f:item==1?1f:.375f);
+            if(apply)editor.apply();else equal(true,editor.commit());
+            equal(writes+1,raw.writes);equal(620.75f,raw.values.get(scale));equal(1f,raw.values.get(basis));equal(.375f,raw.values.get(factor));
+        }
+        // A partial metadata pair is not a bulk restore; an explicit scale edit starts a new basis.
+        guarded.edit().putFloat(scale,190f).putFloat(basis,1f).apply();equal(2f,raw.values.get(basis));equal(0f,raw.values.get(factor));
+        guarded.edit().putFloat(factor,.375f).putFloat(scale,191f).apply();equal(2f,raw.values.get(basis));equal(0f,raw.values.get(factor));
+        raw.edit().putFloat(basis,1f).putFloat(factor,.375f).apply();
+        guarded.edit().putFloat(StatusBarSettings.CLOCK_OFFSET_X,3f).apply();equal(1f,raw.values.get(basis));equal(.375f,raw.values.get(factor));
+        SharedPreferences.Editor revoked=guarded.edit().putFloat(scale,192f);active.set(false);writes=raw.writes;
+        equal(false,revoked.commit());equal(writes,raw.writes);equal(191f,raw.values.get(scale));equal(1f,raw.values.get(basis));equal(.375f,raw.values.get(factor));
+        active.set(true);revoked.apply();equal(writes,raw.writes);equal(2,denied.get());
+        SharedPreferences.Editor reused=guarded.edit().putFloat(scale,200f);reused.apply();
+        raw.edit().putFloat(basis,1f).putFloat(factor,.375f).apply();
+        reused.putBoolean("other",true).apply();equal(1f,raw.values.get(basis));equal(.375f,raw.values.get(factor));
+        guarded.edit().putFloat(scale,250f).clear().apply();equal(250f,raw.values.get(scale));equal(2f,raw.values.get(basis));equal(0f,raw.values.get(factor));
     }
 
     private static void bigClockConflicts() {

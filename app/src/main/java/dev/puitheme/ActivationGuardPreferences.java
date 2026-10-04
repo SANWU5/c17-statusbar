@@ -99,6 +99,18 @@ public final class ActivationGuardPreferences implements SharedPreferences {
                 edits.put(NotificationBigClockSettings.LANDSCAPE_MASTER,false);return;
             }
         }
+        private void resolveClockScaleBasis() {
+            if (!(edits.get(StatusBarSettings.CLOCK_SCALE) instanceof Float)) return;
+            // Full import/restore explicitly carries the pair. Resolve at submission
+            // rather than putFloat(), so map iteration order cannot change its basis.
+            if (edits.get(NativeClockMeasurement.SCALE_BASIS_VERSION) instanceof Float
+                    && edits.get(NativeClockMeasurement.LEGACY_SCALE_FACTOR) instanceof Float) return;
+            float version = NativeClockMeasurement.NATIVE_PIXEL_BASIS;
+            pending.putFloat(NativeClockMeasurement.SCALE_BASIS_VERSION, version);
+            pending.putFloat(NativeClockMeasurement.LEGACY_SCALE_FACTOR, 0f);
+            edits.put(NativeClockMeasurement.SCALE_BASIS_VERSION, version);
+            edits.put(NativeClockMeasurement.LEGACY_SCALE_FACTOR, 0f);
+        }
         private boolean mayWrite() {
             if (!discarded && allowed.getAsBoolean()) return true;
             // An editor rejected while inactive must never revive its pending changes later.
@@ -110,6 +122,7 @@ public final class ActivationGuardPreferences implements SharedPreferences {
         }
         @Override public synchronized boolean commit() {
             if(!mayWrite())return false;
+            resolveClockScaleBasis();
             resolveHeaderConflicts();
             try {
                 boolean saved=PreferenceWrites.commit(raw,pending,edits,clear);
@@ -120,6 +133,7 @@ public final class ActivationGuardPreferences implements SharedPreferences {
         }
         @Override public synchronized void apply() {
             if(!mayWrite())return;
+            resolveClockScaleBasis();
             resolveHeaderConflicts();
             try {
                 PreferenceWrites.apply(raw,pending,edits,clear);

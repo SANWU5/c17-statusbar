@@ -4,6 +4,7 @@ import android.view.ViewGroup;
 import dev.puitheme.NetworkIconOrder;
 /** getChildAt is intercepted only during the production helper's exact layout scope. */
 public class StatusIconContainer extends ViewGroup {
+    public int mIconSpacing;
     public final java.util.Set<String> mIgnoredSlots = new java.util.HashSet<>();
     public final java.util.List<View> mMeasureViews = new java.util.ArrayList<>();
     public NetworkIconOrder ordering;

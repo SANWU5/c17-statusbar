@@ -143,6 +143,10 @@ public final class SettingsSnapshot {
         Bundle result=new Bundle();
         for(Map.Entry<String,Float> entry:StatusBarSettings.NUMERIC_DEFAULTS.entrySet())
             result.putFloat(entry.getKey(),StatusBarSettings.settingNumber(values,entry.getKey(),entry.getValue()));
+        // Preserve an older saved percentage until a deliberate edit. Only confirmed native
+        // pixel evidence may convert it; percentage/density alone cannot establish intent.
+        if (!values.containsKey(NativeClockMeasurement.SCALE_BASIS_VERSION) && values.containsKey(StatusBarSettings.CLOCK_SCALE))
+            result.putFloat(NativeClockMeasurement.SCALE_BASIS_VERSION, 1f);
         for(String key:StatusBarSettings.COLOR_DEFAULTS.keySet()) {
             result.putInt(key,StatusBarSettings.color(values,key));
             result.putBoolean(StatusBarSettings.alphaKey(key),StatusBarSettings.customAlpha(values,key));

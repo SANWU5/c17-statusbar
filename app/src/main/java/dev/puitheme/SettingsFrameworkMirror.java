@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit;
 final class SettingsFrameworkMirror {
     static final String GROUP="c17_saved_settings_v1";
     static final String SCHEMA="_c17_saved_snapshot_schema", REVISION="_c17_saved_revision";
-    static final int VERSION=4;
+    static final int VERSION=5;
     private static final String MAINTENANCE_PREFS="c17_maintenance", RESET_PENDING="framework_defaults_pending";
     private static final Object LOCK=new Object();
     private static final Map<XposedService,Target> TARGETS=new IdentityHashMap<>();
@@ -218,10 +218,18 @@ final class SettingsFrameworkMirror {
     /** No defaults are synthesized for an absent, unknown-schema or partial framework copy. */
     static Bundle decode(Map<String,?> values) {
         if(values==null||!(Integer.valueOf(VERSION).equals(values.get(SCHEMA))
+                ||Integer.valueOf(4).equals(values.get(SCHEMA))
                 ||Integer.valueOf(3).equals(values.get(SCHEMA))||Integer.valueOf(2).equals(values.get(SCHEMA))
                 ||Integer.valueOf(1).equals(values.get(SCHEMA)))
                 ||!(values.get(REVISION) instanceof Long)||(Long)values.get(REVISION)<=0L)return null;
         if(!Integer.valueOf(VERSION).equals(values.get(SCHEMA))) {
+            for(String key:Upgrade70.DEFAULTS.keySet())if(values.containsKey(key))return null;
+            Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
+            upgraded.putAll(Upgrade70.DEFAULTS);
+            values=upgraded;
+        }
+        if(Integer.valueOf(1).equals(values.get(SCHEMA))||Integer.valueOf(2).equals(values.get(SCHEMA))
+                ||Integer.valueOf(3).equals(values.get(SCHEMA))) {
             // Schemas 1/2/3 predate this entire batch. A mixed old/new
             // batch is a partial write, even when the present value is a default.
             for(String key:Upgrade67.DEFAULTS.keySet())if(values.containsKey(key))return null;

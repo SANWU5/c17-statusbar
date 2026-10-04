@@ -118,6 +118,10 @@ public final class StatusBarSettings {
         booleans.putAll(ClassicTextSettings.BOOLEANS);
         booleans.putAll(ShadeWallpaperSettings.BOOLEANS);
         booleans.putAll(BatteryTextStyle.BOOLEANS);
+        booleans.put(BatteryControls.HIDE_CHARGE, false);
+        booleans.put(FluidCloudAccent.ENABLED, false);
+        booleans.put(LockscreenStatusBlur.ENABLED, false);
+        booleans.putAll(SpeedPosition.booleanDefaults());
         booleans.putAll(QsTileIconSize.BOOLEANS);
         booleans.putAll(StatusBarShadeIconSettings.BOOLEANS);
         BOOLEAN_DEFAULTS = Collections.unmodifiableMap(booleans);
@@ -142,6 +146,12 @@ public final class StatusBarSettings {
         numbers.put(SPEED_LINE_GAP, 0f);
         numbers.put(SPEED_WEIGHT, 600f);
         numbers.putAll(NetworkSpeedControls.NUMBERS);
+        numbers.put(LockscreenStatusBlur.RADIUS, LockscreenStatusBlur.DEFAULT_RADIUS);
+        numbers.put(LockscreenStatusBlur.RANGE, LockscreenStatusBlur.DEFAULT_RANGE);
+        numbers.put(LockscreenStatusBlur.TRANSITION, LockscreenStatusBlur.DEFAULT_TRANSITION);
+        numbers.putAll(SpeedPosition.numberDefaults());
+        numbers.put(NativeClockMeasurement.SCALE_BASIS_VERSION, 2f);
+        numbers.put(NativeClockMeasurement.LEGACY_SCALE_FACTOR, 0f);
         numbers.putAll(NativeStatusIcons.floatDefaults());
         numbers.putAll(NativeNetworkBadgeControls.floatDefaults());
         numbers.put(NativeDataActivity.X,0f);numbers.put(NativeDataActivity.Y,0f);numbers.put(NativeDataActivity.SCALE,100f);
@@ -194,6 +204,7 @@ public final class StatusBarSettings {
         colors.put(NativeDataActivity.COLOR_LIGHT,0xff000000);colors.put(NativeDataActivity.COLOR_DARK,0xffffffff);
         colors.putAll(NotificationIconArea.COLORS);
         colors.putAll(ClassicTextSettings.COLORS);
+        colors.put(LockscreenStatusBlur.MASK_COLOR, LockscreenStatusBlur.DEFAULT_MASK_COLOR);
         COLOR_DEFAULTS = Collections.unmodifiableMap(colors);
         Map<String, String> strings = new LinkedHashMap<>();
         strings.put(CLOCK_PATTERN, TimeFormat.CLOCK_DEFAULT);
@@ -272,6 +283,8 @@ public final class StatusBarSettings {
         Object mode = values == null ? null : values.get(alphaKey(colorKey));
         if (mode instanceof Boolean) return (Boolean) mode;
         Object color = values == null ? null : values.get(colorKey);
+        // This overlay's default is intentionally translucent, including on a fresh install.
+        if (!(color instanceof Number) && LockscreenStatusBlur.MASK_COLOR.equals(colorKey)) return true;
         // A newly selected panel color owns its alpha. Unedited panels inherit the old pair.
         if (!(color instanceof Number)) {
             String legacy = CarrierPanels.legacyKey(colorKey);

@@ -58,6 +58,15 @@ public final class TextControls {
     private static final class Entry {
         int kind, nativeTint;
         float nativeSize, nativeSpacing;
+        final boolean statClock, legacyNativeMeasureMissing;
+        final float initialNativeSize;
+        final NativeClockMeasurement.AutoSize autoSize = new NativeClockMeasurement.AutoSize();
+        final NativeClockMeasurement.Ellipsize ellipsize = new NativeClockMeasurement.Ellipsize();
+        float resourceNativeSize = Float.NaN, resourceDensity = Float.NaN, resourceScaledDensity = Float.NaN;
+        int measuredWidth = -1, availableWidth = -1, desiredWidth = -1;
+        int incomingWidthMode = -1, incomingWidth = -1, nativeMeasuredWidth = -1, nativeActualWidth = -1, outgoingWidth = -1;
+        boolean measureChanged;
+        boolean layoutCacheRebuilt;
         float diagnosticNativeSize = Float.NaN, diagnosticAppliedSize = Float.NaN, diagnosticDensity = Float.NaN;
         Typeface nativeFace;
         String nativeAxes;
@@ -67,11 +76,23 @@ public final class TextControls {
         boolean textApplied, appliedReplacement, managed;
         String group;
         Entry(TextView view, int kind) {
-            this.kind = kind; capture(view);
+            this.kind = kind; statClock = NativeClockMeasurement.statClock(view);
+            legacyNativeMeasureMissing = statClock && NativeClockMeasurement.widthField(view.getClass()) == null;
+            initialNativeSize = view.getTextSize(); capture(view); refreshClockBaseline(view, true);
+        }
+        void refreshClockBaseline(TextView view, boolean force) {
+            if (!statClock) return;
+            float density = view.getContext().getResources().getDisplayMetrics().density;
+            float scaled = view.getContext().getResources().getDisplayMetrics().scaledDensity;
+            if (!force && density == resourceDensity && scaled == resourceScaledDensity) return;
+            resourceDensity = density; resourceScaledDensity = scaled;
+            float source = NativeClockMeasurement.resourcePixels(view);
+            if (Float.isFinite(source) && source > 0f) { resourceNativeSize = source; nativeSize = source; }
         }
         void captureStyle(TextView view) {
             float size = view.getTextSize();
             if (size > 0f && !Float.isNaN(size) && !Float.isInfinite(size)) nativeSize = size;
+            refreshClockBaseline(view, true);
             nativeTint = view.getCurrentTextColor(); nativeFace = view.getTypeface();
             nativeAxes = view.getFontVariationSettings(); nativeSpacing = view.getLetterSpacing();
         }
@@ -118,6 +139,8 @@ public final class TextControls {
         final String pattern;
         final float x, y, scale, spacing;
         final int weight;
+        final int scaleBasisVersion;
+        final float legacyScaleFactor;
         ClockStyle(Bundle settings, String group, FeatureOptions features) {
             enabled = features.effective(group, group + "_enabled");
             pattern = validPattern(settings.getString(group + "_pattern"), TimeFormat.CLOCK_DEFAULT);
@@ -125,6 +148,8 @@ public final class TextControls {
             x = value(settings, group + "_offset_x", 0, -80, 80);
             y = value(settings, group + "_offset_y", 0, -24, 24);
             scale = value(settings, group + "_scale", 100, 25, 250);
+            scaleBasisVersion = "clock".equals(group) ? Math.round(NumericPolicy.finite(settings.get(NativeClockMeasurement.SCALE_BASIS_VERSION), 1f)) : 2;
+            legacyScaleFactor = "clock".equals(group) ? NumericPolicy.finite(settings.get(NativeClockMeasurement.LEGACY_SCALE_FACTOR), Float.NaN) : Float.NaN;
             weight = Math.round(value(settings, group + "_weight", 600, 1, 1000));
             spacing = value(settings, group + "_spacing", 0, -2, 8);
         }
@@ -328,7 +353,7 @@ public final class TextControls {
     private int resolveKind(View view, Classification classification) {
         String name = view.getClass().getName();
         if (namedClass(view.getClass(), "com.oplus.systemui.qs.widget.OplusQSCarrierText")) return NONE;
-        if (name.equals("com.oplus.systemui.statusbar.widget.StatClock")) return CLOCK;
+        if (view instanceof TextView && NativeClockMeasurement.statClock((TextView)view)) return CLOCK;
         // Real and animation shade clocks belong to one clock family; group() selects
         // status-following or independent shade settings. Carrier replacements stay separate.
         if (isShadeClock(view)) return CLOCK;
@@ -495,15 +520,115 @@ public final class TextControls {
     }
 
     private float textSize(Entry entry) {
+        // Inactive size controls pass native pixels through, including a native
+        // zero-size transition. Legacy compensation belongs only to user scaling.
         if (!features.size(group(entry))) return entry.nativeSize;
         double scale = (entry.kind == CLOCK ? clockStyle(entry.group).scale : carrierStyle(entry.group).scale) / 100d;
+        if (entry.statClock && "clock".equals(entry.group)) scale *= scaleFactor(entry);
         return NumericPolicy.textPixels(entry.nativeSize * scale);
+    }
+
+    private float scaleFactor(Entry entry) {
+        ClockStyle clock = clockStyle(entry.group);
+        return NativeClockMeasurement.legacyFactor(clock.scaleBasisVersion, clock.legacyScaleFactor,
+                entry.legacyNativeMeasureMissing, entry.initialNativeSize, entry.resourceNativeSize, clock.scale);
     }
 
     public void beforeMeasure(TextView view) {
         if (isInternal()) return;
         Entry entry = entry(view);
-        if (entry != null) applyStyle(view, entry);
+        if (entry != null) { entry.refreshClockBaseline(view, false); applyStyle(view, entry); }
+    }
+
+    /** Native onMeasure must run first, even on ROMs without the optional actualWidth field. */
+    public NativeStyleScope beginClockMeasure(TextView view) {
+        if (!NativeClockMeasurement.statClock(view)) return null;
+        return beginNativeStyle(view);
+    }
+
+    /** Called after native measure + scope.close(), before one real TextView super measure. */
+    public int prepareClockMeasure(TextView view, int originalWidthSpec) {
+        if (isInternal() || !clockControlsEnabled(view) || !NativeClockMeasurement.statClock(view)) return originalWidthSpec;
+        beforeMeasure(view);
+        Entry entry = entry(view);
+        int available = NativeClockMeasurement.availableWidth(view);
+        CharSequence text = view.getText();
+        double textWidth = clockTextWidth(view, text);
+        double horizontalPadding = view.getCompoundPaddingLeft() + view.getCompoundPaddingRight();
+        entry.availableWidth = available;
+        int desiredPixels = NumericPolicy.layoutPixels(Math.ceil(textWidth + horizontalPadding));
+        if (entry.desiredWidth != desiredPixels) entry.measureChanged = true;
+        entry.desiredWidth = desiredPixels;
+        if (entry.outgoingWidth != desiredPixels) entry.measureChanged = true;
+        entry.outgoingWidth = desiredPixels;
+        // OEM onMeasure writes Paint directly; a subsequent same-size setter leaves
+        // its old Layout/BoringLayout alive. Rebuild only on this measure path, never
+        // in draw or the visible-time scheduler. Parent width is diagnostic only:
+        // an enabled clock keeps its full requested size and complete time format.
+        entry.layoutCacheRebuilt = NativeClockMeasurement.clearTextLayout(view);
+        return View.MeasureSpec.makeMeasureSpec(desiredPixels, View.MeasureSpec.EXACTLY);
+    }
+
+    private static double clockTextWidth(TextView view, CharSequence text) {
+        if (text == null || text.length() == 0) return 0d;
+        // NativePaint already contains TextView's em letterSpacing. Adding it again
+        // double-counts positive spacing and subtracts negative spacing twice.
+        return Math.max(0d, view.getPaint().measureText(text, 0, text.length()));
+    }
+
+    /** Capture OEM measurement before the module's super measure overwrites actualWidth. */
+    public void onNativeClockMeasure(TextView view, int incomingWidthSpec, int nativeMeasuredWidth, int actualWidthOrNegative) {
+        if (!NativeClockMeasurement.statClock(view)) return;
+        Entry entry = entry(view); if (entry == null) return;
+        int mode = View.MeasureSpec.getMode(incomingWidthSpec), width = View.MeasureSpec.getSize(incomingWidthSpec);
+        if (entry.incomingWidthMode != mode || entry.incomingWidth != width
+                || entry.nativeMeasuredWidth != nativeMeasuredWidth || entry.nativeActualWidth != actualWidthOrNegative) entry.measureChanged = true;
+        entry.incomingWidthMode = mode; entry.incomingWidth = width;
+        entry.nativeMeasuredWidth = nativeMeasuredWidth; entry.nativeActualWidth = actualWidthOrNegative;
+    }
+
+    public void afterClockMeasure(TextView view) {
+        if (!NativeClockMeasurement.statClock(view)) return;
+        Entry entry = entry(view); if (entry == null) return;
+        int width = view.getMeasuredWidth();
+        if ((entry.measureChanged || entry.measuredWidth != width) && ModuleDiagnostics.enabled()) ModuleDiagnostics.info("font",
+                "StatClock nativePx=" + entry.nativeSize + "; appliedPx=" + view.getPaint().getTextSize()
+                        + "; measuredWidth=" + width + "; availableWidth=" + entry.availableWidth
+                        + "; incomingMode=" + entry.incomingWidthMode + "; incomingWidth=" + entry.incomingWidth
+                        + "; nativeMeasuredWidth=" + entry.nativeMeasuredWidth + "; nativeActualWidth=" + entry.nativeActualWidth
+                        + "; desiredWidth=" + entry.desiredWidth + "; outgoingWidth=" + entry.outgoingWidth
+                        + "; layoutCacheRebuilt=" + entry.layoutCacheRebuilt + "; widthPolicy=natural"
+                        + "; legacyFactor=" + scaleFactor(entry));
+        entry.measuredWidth = width; entry.measureChanged = false;
+    }
+
+    /** Evidence for a single guarded preference migration; 0 means no proved legacy conversion. */
+    public float clockLegacyScaleFactor(TextView view) {
+        Entry entry = entry(view);
+        if (entry == null || !entry.statClock || !"clock".equals(entry.group)) return 0f;
+        float factor = scaleFactor(entry);
+        return factor > 0f && factor < 1f ? factor : 0f;
+    }
+
+    public String summary() {
+        StringBuilder result = new StringBuilder();
+        synchronized (views) {
+            for (Map.Entry<TextView,Entry> item : views.entrySet()) {
+                Entry entry = item.getValue(); TextView view = item.getKey();
+                if (!entry.statClock || view == null) continue;
+                if (result.length() > 0) result.append(" | ");
+                result.append("StatClock nativePx=").append(entry.nativeSize).append(",resourcePx=").append(entry.resourceNativeSize)
+                        .append(",capturedPx=").append(entry.initialNativeSize).append(",appliedPx=").append(view.getPaint().getTextSize())
+                        .append(",measuredWidth=").append(view.getMeasuredWidth()).append(",availableWidth=").append(entry.availableWidth)
+                        .append(",desiredWidth=").append(entry.desiredWidth)
+                        .append(",layoutCacheRebuilt=").append(entry.layoutCacheRebuilt).append(",widthPolicy=natural")
+                        .append(",incomingMode=").append(entry.incomingWidthMode).append(",incomingWidth=").append(entry.incomingWidth)
+                        .append(",nativeMeasuredWidth=").append(entry.nativeMeasuredWidth).append(",nativeActualWidth=").append(entry.nativeActualWidth)
+                        .append(",outgoingWidth=").append(entry.outgoingWidth)
+                        .append(",legacyMeasureMissing=").append(entry.legacyNativeMeasureMissing).append(",legacyFactor=").append(scaleFactor(entry));
+            }
+        }
+        return result.toString();
     }
 
     /** Vendor width probes write the native clock size into Paint; restore style and width together. */
@@ -563,7 +688,11 @@ public final class TextControls {
     public void nativeSize(TextView view, float pixels) {
         if (isInternal()) return;
         Entry entry = entry(view);
-        if (entry != null && pixels >= 0 && !Float.isInfinite(pixels) && !Float.isNaN(pixels)) entry.nativeSize = pixels;
+        if (entry != null && pixels >= 0 && !Float.isInfinite(pixels) && !Float.isNaN(pixels)) {
+            entry.refreshClockBaseline(view, false);
+            // OEM StatClock defines its baseline in the actual SystemUI dimen, not early XML/default Paint.
+            entry.nativeSize = entry.statClock && Float.isFinite(entry.resourceNativeSize) ? entry.resourceNativeSize : pixels;
+        }
     }
 
     public void nativeTypeface(TextView view, Typeface typeface) {
@@ -667,7 +796,10 @@ public final class TextControls {
             CarrierStyle carrier = carrierStyle(group);
             ClockStyle clock = clockStyle(group);
             float size = textSize(entry);
-            if (Math.abs(view.getTextSize() - size) > .001f) view.setTextSize(TypedValue.COMPLEX_UNIT_PX, size);
+            entry.autoSize.configure(view, entry.statClock ? features.enabled(group) : features.size(group));
+            if (entry.statClock) entry.ellipsize.configure(view, features.enabled(group));
+            if (Math.abs(view.getTextSize() - size) > .001f || Math.abs(view.getPaint().getTextSize() - size) > .001f)
+                view.setTextSize(TypedValue.COMPLEX_UNIT_PX, size);
             int nativeWeight = entry.nativeFace == null ? 400 : Build.VERSION.SDK_INT >= 28
                     ? entry.nativeFace.getWeight() : entry.nativeFace.isBold() ? 700 : 400;
             boolean textStyle = features.textStyle(group);
@@ -688,8 +820,8 @@ public final class TextControls {
                         || entry.diagnosticDensity != density) {
                     entry.diagnosticNativeSize = entry.nativeSize; entry.diagnosticAppliedSize = size;
                     entry.diagnosticDensity = density;
-                    ModuleDiagnostics.info("font", "Text metrics " + group + "; native pixels " + entry.nativeSize
-                            + "; applied pixels " + size + "; density " + density
+                    ModuleDiagnostics.info("font", "Text metrics " + group + "; nativePx=" + entry.nativeSize
+                            + "; appliedPx=" + size + "; measuredWidth=" + view.getMeasuredWidth() + "; density " + density
                             + "; scaled density " + view.getResources().getDisplayMetrics().scaledDensity);
                 }
             }
