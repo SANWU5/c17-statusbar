@@ -9,12 +9,14 @@ import android.graphics.Path;
 import android.graphics.RectF;
 import android.text.style.ReplacementSpan;
 
-/** A small sketch of the weather, battery, signal and network icons, drawn only in the settings app's preview.
- * SystemUI never uses it: the real row draws the native images. The sketch follows the text colour. */
+/** Settings preview: weather shares the module artwork with the live row;
+ * battery, signal and network use lightweight representations of native images. */
 final class BigClockPreviewIcon extends ReplacementSpan {
     private static final int WEATHER = 0, BATTERY = 1, SIGNAL = 2, WIFI = 3, OFFLINE = 4, WIRED = 5;
     private final int shape, level;
     private final WeatherTextIcon.Kind kind;
+    private final ModuleWeatherIcon weatherArtwork;
+    private final WeatherTextIcon.IconMetrics weatherMetrics = new WeatherTextIcon.IconMetrics();
     private final boolean colours, charging;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
@@ -24,10 +26,11 @@ final class BigClockPreviewIcon extends ReplacementSpan {
     BigClockPreviewIcon(WeatherTextIcon.Kind kind, boolean nativeColours) {
         shape = WEATHER; this.kind = kind == null ? WeatherTextIcon.Kind.UNKNOWN : kind; colours = nativeColours;
         level = 0; charging = false;
+        weatherArtwork = this.kind == WeatherTextIcon.Kind.UNKNOWN ? null : new ModuleWeatherIcon(this.kind, nativeColours);
     }
 
     BigClockPreviewIcon(int token, BigClockSystemText.Snapshot state) {
-        kind = null; colours = false;
+        kind = null; colours = false; weatherArtwork = null;
         if (token == BigClockTextContent.BATTERY) {
             shape = BATTERY; level = state.batteryPercent;
             charging = state.charging == BigClockSystemText.Charging.CHARGING || state.charging == BigClockSystemText.Charging.FULL;
@@ -42,9 +45,10 @@ final class BigClockPreviewIcon extends ReplacementSpan {
     }
 
     private float height(Paint text) {
+        if(shape==WEATHER){weatherMetrics.update(text);return weatherMetrics.height;}
         float size = text.getTextSize();
         float base = Float.isFinite(size) && size > 0 ? size : 14f;
-        return Math.max(1f, base * (shape == WEATHER ? WeatherTextIcon.Span.ICON_SCALE : .94f));
+        return Math.max(1f, base * .94f);
     }
 
     private float width(Paint text) {
@@ -60,7 +64,7 @@ final class BigClockPreviewIcon extends ReplacementSpan {
     @Override public int getSize(Paint text, CharSequence value, int start, int end, Paint.FontMetricsInt output) {
         if (output != null) {
             text.getFontMetricsInt(output);
-            float centre = (output.ascent + output.descent) * .5f, half = height(text) * .5f;
+            float h=height(text),centre = shape==WEATHER?weatherMetrics.top+h*.5f:(output.ascent + output.descent) * .5f, half = h * .5f;
             int top = (int) Math.floor(centre - half), bottom = (int) Math.ceil(centre + half);
             if (top < output.ascent) output.ascent = top;
             if (bottom > output.descent) output.descent = bottom;
@@ -71,6 +75,7 @@ final class BigClockPreviewIcon extends ReplacementSpan {
     }
 
     @Override public void draw(Canvas canvas, CharSequence value, int start, int end, float x, int top, int baseline, int bottom, Paint text) {
+        if (shape == WEATHER) { if (weatherArtwork != null) weatherArtwork.draw(canvas, x, baseline, text); return; }
         Paint.FontMetricsInt metrics = new Paint.FontMetricsInt();
         text.getFontMetricsInt(metrics);
         float h = height(text), w = width(text), y = baseline + (metrics.ascent + metrics.descent - h) * .5f;
@@ -82,7 +87,7 @@ final class BigClockPreviewIcon extends ReplacementSpan {
             case WIFI: wifi(canvas); break;
             case OFFLINE: offline(canvas); break;
             case WIRED: wired(canvas); break;
-            default: weather(canvas); break;
+            default: break;
         }
     }
 
@@ -156,92 +161,4 @@ final class BigClockPreviewIcon extends ReplacementSpan {
 
     // ---- weather: a cloud, a sun or a moon, plus what falls from the cloud ----
 
-    private void weather(Canvas canvas) {
-        float h = box.height();
-        switch (kind) {
-            case SUNNY: case SUNRISE: case SUNSET: sun(canvas, box.centerX(), box.centerY(), h * .22f); break;
-            case CLEAR_NIGHT: moon(canvas, box.centerX(), box.centerY(), h * .3f); break;
-            case FOG: case HAZE: case SINK_FLOAT: case DUST_DEVIL: case WIND: case STORM: case TORNADO: lines(canvas); break;
-            default:
-                if (kind == WeatherTextIcon.Kind.PARTLY_CLOUDY) sun(canvas, box.left + box.width() * .34f, box.top + h * .34f, h * .17f);
-                else if (kind == WeatherTextIcon.Kind.CLOUDY_NIGHT) moon(canvas, box.left + box.width() * .34f, box.top + h * .34f, h * .2f);
-                cloud(canvas, kind == WeatherTextIcon.Kind.CLOUDY || kind == WeatherTextIcon.Kind.UNKNOWN ? box.top + h * .2f : box.top + h * .3f);
-                fall(canvas);
-        }
-    }
-
-    private void sun(Canvas canvas, float cx, float cy, float r) {
-        colour(0xffffc21a, true);
-        canvas.drawCircle(cx, cy, r, paint);
-        colour(0xffffc21a, false); paint.setStrokeWidth(Math.max(1f, r * .28f));
-        for (int i = 0; i < 8; i++) {
-            double a = Math.PI / 4 * i; float c = (float) Math.cos(a), s = (float) Math.sin(a);
-            path.reset(); path.moveTo(cx + c * r * 1.45f, cy + s * r * 1.45f); path.lineTo(cx + c * r * 1.9f, cy + s * r * 1.9f);
-            canvas.drawPath(path, paint);
-        }
-    }
-
-    private void moon(Canvas canvas, float cx, float cy, float r) {
-        colour(0xffe8e8ff, true);
-        path.reset();
-        path.moveTo(cx + r * .2f, cy - r); path.lineTo(cx - r * .9f, cy - r * .1f); path.lineTo(cx - r * .3f, cy + r * .9f);
-        path.lineTo(cx + r * .8f, cy + r * .6f); path.lineTo(cx + r * .1f, cy + r * .1f); path.close();
-        canvas.drawPath(path, paint);
-    }
-
-    private void cloud(Canvas canvas, float top) {
-        colour(0xffd7dde6, true);
-        float h = box.height() * .46f, left = box.left + box.width() * .06f, right = box.right - box.width() * .04f;
-        canvas.drawRoundRect(new RectF(left, top + h * .38f, right, top + h), h * .31f, h * .31f, paint);
-        canvas.drawCircle(left + (right - left) * .36f, top + h * .5f, h * .38f, paint);
-        canvas.drawCircle(left + (right - left) * .62f, top + h * .36f, h * .46f, paint);
-    }
-
-    private void fall(Canvas canvas) {
-        boolean rain = false, snow = false, bolt = false, hail = false;
-        switch (kind) {
-            case LIGHT_RAIN: case MODERATE_RAIN: case HEAVY_RAIN: case ICE_RAIN: rain = true; break;
-            case LIGHT_SNOW: case MODERATE_SNOW: case HEAVY_SNOW: snow = true; break;
-            case SLEET: rain = snow = true; break;
-            case HAILSTONE: hail = true; break;
-            case THUNDERSHOWERS: case THUNDERSTORM: rain = true; bolt = true; break;
-            case THUNDERSHOWERS_HAILSTONE: hail = bolt = true; break;
-            default: return;
-        }
-        float h = box.height(), y = box.top + h * .74f;
-        int count = kind == WeatherTextIcon.Kind.HEAVY_RAIN || kind == WeatherTextIcon.Kind.HEAVY_SNOW ? 4 : 3;
-        if (rain && !bolt) {
-            colour(0xff5aa9ff, false); paint.setStrokeWidth(Math.max(1f, h * .06f));
-            for (int i = 0; i < count; i++) {
-                float x = box.left + box.width() * (.22f + .56f * i / (count - 1));
-                path.reset(); path.moveTo(x + h * .05f, y); path.lineTo(x - h * .05f, y + h * .2f);
-                canvas.drawPath(path, paint);
-            }
-        }
-        if (snow) {
-            colour(0xffffffff, true);
-            for (int i = 0; i < count; i++) canvas.drawCircle(box.left + box.width() * (.24f + .52f * i / (count - 1)), y + h * (i % 2 == 0 ? .08f : .18f), h * .05f, paint);
-        }
-        if (hail) {
-            colour(0xffbfe7ff, true);
-            for (int i = 0; i < 3; i++) canvas.drawCircle(box.left + box.width() * (.28f + .22f * i), y + h * (i % 2 == 0 ? .08f : .18f), h * .06f, paint);
-        }
-        if (bolt) {
-            colour(0xffffc21a, true);
-            float cx = box.centerX(), s = h * .2f;
-            path.reset(); path.moveTo(cx + s * .3f, y - s * .2f); path.lineTo(cx - s * .5f, y + s * .7f); path.lineTo(cx, y + s * .7f);
-            path.lineTo(cx - s * .3f, y + s * 1.5f); path.lineTo(cx + s * .6f, y + s * .4f); path.lineTo(cx + s * .1f, y + s * .4f); path.close();
-            canvas.drawPath(path, paint);
-        }
-    }
-
-    private void lines(Canvas canvas) {
-        float h = box.height();
-        colour(0xffb8c2cf, false); paint.setStrokeWidth(Math.max(1f, h * .07f));
-        for (int i = 0; i < 3; i++) {
-            float y = box.top + h * (.32f + .18f * i), inset = i == 1 ? 0f : box.width() * .12f;
-            path.reset(); path.moveTo(box.left + inset, y); path.lineTo(box.right - inset, y);
-            canvas.drawPath(path, paint);
-        }
-    }
 }

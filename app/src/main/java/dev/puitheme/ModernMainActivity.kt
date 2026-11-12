@@ -33,9 +33,20 @@ import java.util.concurrent.Executors
 
 /** Settings app with selectable Miuix and COUI component systems. */
 class ModernMainActivity : ComponentActivity() {
+    val customPlugins = CustomPluginController(this)
     var page by mutableIntStateOf(0)
     var freeNoticeRequired by mutableStateOf(true)
         private set
+    /** First-launch overview and its read-only review from About. */
+    var welcomeRequired by mutableStateOf(false)
+        private set
+    private var welcomeReview by mutableStateOf(false)
+    var welcomeLanguageOpen by mutableStateOf(false)
+        private set
+    /** App285: the first launch opens on "welcome" in every offered language with the language list, before the overview. */
+    var welcomeGreeting by mutableStateOf(false)
+        private set
+    val welcomeOpen get() = welcomeRequired || welcomeReview || welcomeLanguageOpen
     var donationImage by mutableStateOf<String?>(null)
     /** 鸣谢墙: opened from the home card, free notice and 关于; the list is the last valid download or the APK's own. */
     var thanksOpen by mutableStateOf(false)
@@ -49,6 +60,7 @@ class ModernMainActivity : ComponentActivity() {
     var legacyName by mutableStateOf(false)
         private set
     var selectedGroup by mutableStateOf<String?>(null)
+    var networkDetailPage by mutableStateOf("common")
     var query by mutableStateOf("")
     var category by mutableStateOf("statusbar")
     var values by mutableStateOf<Map<String, *>>(emptyMap<String, Any>())
@@ -167,7 +179,7 @@ class ModernMainActivity : ComponentActivity() {
     var fontDownloadPercent by mutableIntStateOf(0)
         private set
     private var fontCancellation: FontDownloadRepository.Cancellation? = null
-    val canEdit get() = !freeNoticeRequired && !maintenanceRunning && (runtimeActive || rootGranted || lspEnabled)
+    val canEdit get() = !freeNoticeRequired && !welcomeRequired && !maintenanceRunning && (runtimeActive || rootGranted || lspEnabled)
     @Volatile private var resumed = false
     @Volatile private var destroyed = false
     private lateinit var raw: SharedPreferences
@@ -175,6 +187,10 @@ class ModernMainActivity : ComponentActivity() {
     private var probe: ModuleRuntimeStatus.ProbeHandle? = null
     private var frameworkSubscription: AppFrameworkStatus.Subscription? = null
     private var rootRequest: RootAccess.Request? = null
+    // A successful check may only open the first confirmation; it must never
+    // start the destructive operation or survive leaving the settings page.
+    private var pendingCleanupRoot = false
+    private var pendingCleanupDeadline = 0L
     private var restartRequest: SystemUiRestart.Request? = null
     private lateinit var navHost: ComposeView
     private var navigationInsets by mutableStateOf(PaddingValues())
@@ -184,6 +200,7 @@ class ModernMainActivity : ComponentActivity() {
     val ui: UiSettings by lazy(LazyThreadSafetyMode.NONE) { UiSettings(this) }
     /** 关于 → 界面设置 is a page of its own. */
     var uiSettingsOpen by mutableStateOf(false)
+    private var returnToCustomPlugin = false
     var diagnosticsOpen by mutableStateOf(false)
     var diagnostics by mutableStateOf<DiagnosticCenter.Result?>(null)
     var diagnosticsHooks by mutableStateOf<android.os.Bundle?>(null)
@@ -193,6 +210,9 @@ class ModernMainActivity : ComponentActivity() {
     /** Floating liquid glass navigation (界面设置). Settings-app UI only. */
     var glassNavigation by mutableStateOf(false)
         private set
+    /** Miuix and COUI share the floating glass bar; Material keeps its docked bar. */
+    val floatingGlassNavigation: Boolean
+        get() = glassNavigation && ui.style != C17UiStyle.MATERIAL && GlassNavigationPreference.supported()
     /** Same visibility rule for both navigation styles; the glass bar lives in the page composition. */
     var navigationShown by mutableStateOf(false)
         private set
@@ -252,20 +272,28 @@ class ModernMainActivity : ComponentActivity() {
     /** The album: the system photo picker (or, where there is none, the document picker) for the panel's picture. */
     private val pickWallpaperImage = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         val scene = wallpaperImportScene
-        if (uri != null && scene != null && ShadeWallpaperSettings.available() && ShadeWallpaperSettings.validScene(scene)) wallpaperEdit = WallpaperEdit(scene, uri)
+        if (uri != null && scene != null && ShadeWallpaperSettings.assetAvailable(scene) && ShadeWallpaperSettings.assetScene(scene)) wallpaperEdit = WallpaperEdit(scene, uri)
     }
     private val exportLog = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) work.execute {
             runCatching { ModuleDiagnostics.writeExport(this, uri) }
                 .onSuccess { runOnUiThread { toast("日志已保存") } }
-                .onFailure { runOnUiThread { toast("日志保存失败：${it.message}") } }
+                .onFailure { runOnUiThread { toast(trf("日志保存失败：%s", it.message)) } }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        C17LaunchAnimation.install(this, savedInstanceState != null)
         super.onCreate(savedInstanceState)
+        // Before any page composes: the interface text of the chosen language (a language change recreates us).
+        C17Text.use(this)
         enableEdgeToEdge()
         freeNoticeRequired = !FreeNotice.accepted(this)
+        welcomeRequired = !WelcomeState.completed(this)
+        welcomeReview = savedInstanceState?.getBoolean("welcome_review") == true
+        welcomeLanguageOpen = savedInstanceState?.getBoolean("welcome_language_open") == true
+        // A language change recreates the activity; the saved flag keeps the greeting page until "continue".
+        welcomeGreeting = welcomeRequired && (savedInstanceState?.getBoolean("welcome_greeting") ?: !C17Language.chosen(this))
         raw = StatusBarSettings.preferences(this)
         work.execute { RetiredClockWidgets.release(applicationContext) }
         AppFrameworkStatus.start(this)
@@ -278,7 +306,7 @@ class ModernMainActivity : ComponentActivity() {
         runCatching {
             contentResolver.registerContentObserver(Settings.System.getUriFor(BatteryNativeStyle.PERCENT_SETTING), false, batteryPercentObserver)
         }
-        wallpaperImportScene = savedInstanceState?.getString("wallpaper_scene")?.takeIf { ShadeWallpaperSettings.validScene(it) }
+        wallpaperImportScene = savedInstanceState?.getString("wallpaper_scene")?.takeIf { ShadeWallpaperSettings.assetScene(it) }
         preferences = ActivationGuardPreferences(raw, { resumed && canEdit && !destroyed }, {
             handler.post { toast("激活模块或授予 Root 后即可保存配置") }
         }).withPersistence(this) { handler.post { toast("设置保存失败，请稍后重新保存") } }
@@ -292,11 +320,16 @@ class ModernMainActivity : ComponentActivity() {
         }
         page = savedInstanceState?.getInt("page") ?: 0
         uiSettingsOpen = savedInstanceState?.getBoolean("ui_settings_open") ?: false
+        customPlugins.restore(savedInstanceState)
+        returnToCustomPlugin = savedInstanceState?.getBoolean("custom_plugins_return_from_settings") == true
         val restoredGroup = savedInstanceState?.getString("group")
-        selectedGroup = (if (restoredGroup == "network") "wifi" else restoredGroup)
+        selectedGroup = SettingsCatalog.canonicalGroupId(restoredGroup)
             ?.takeIf { SettingsCatalog.group(it) != null }
+        networkDetailPage = savedInstanceState?.getString("network_detail_page")
+            ?.takeIf { it in listOf("common", "wifi", "text", "badge") }
+            ?: SettingsCatalog.networkRoutePage(restoredGroup)
         performanceOpen = savedInstanceState?.getBoolean("performance_open") == true && page == 0 &&
-            selectedGroup == null && !freeNoticeRequired
+            selectedGroup == null && !freeNoticeRequired && !welcomeOpen
         query = savedInstanceState?.getString("query") ?: ""
         category = savedInstanceState?.getString("category") ?: "statusbar"
         savedInstanceState?.getString("file_uri")?.let {
@@ -357,6 +390,13 @@ class ModernMainActivity : ComponentActivity() {
             override fun handleOnBackPressed() {
                 when {
                     thanksOpen -> thanksOpen = false
+                    welcomeOpen -> when {
+                        welcomeLanguageOpen -> closeWelcome()
+                        welcomeRequired && welcomeGreeting -> finish()
+                        // From the first-launch overview, back returns to the greeting and its language list.
+                        welcomeRequired -> { welcomeGreeting = true; updateNavigation() }
+                        else -> closeWelcome()
+                    }
                     freeNoticeRequired -> finish()
                     donationImage != null -> donationImage = null
                     colorEditing != null -> colorEditing = null
@@ -375,6 +415,7 @@ class ModernMainActivity : ComponentActivity() {
                     editing != null -> editing = null
                     confirmation != null -> dismissConfirmation()
                     performanceOpen -> performanceOpen = false
+                    customPlugins.opened -> if (!customPlugins.back()) closeCustomPlugins()
                     diagnosticsOpen -> closeDiagnostics()
                     uiSettingsOpen -> closeUiSettings()
                     selectedGroup != null -> closeGroup()
@@ -404,8 +445,11 @@ class ModernMainActivity : ComponentActivity() {
         values = raw.all
         updateHomeStatusRefresh()
         checkActivation()
-        if (!freeNoticeRequired && getSharedPreferences("app_migrations", MODE_PRIVATE).getBoolean("root_requested", false) && !rootGranted) requestRoot()
+        val returningToCleanup = pendingCleanupRoot
+        resumePendingCleanupRoot()
+        if (!returningToCleanup && !freeNoticeRequired && !welcomeOpen && getSharedPreferences("app_migrations", MODE_PRIVATE).getBoolean("root_requested", false) && !rootGranted) requestRoot()
         replayFile()
+        customPlugins.resume()
     }
 
     override fun onPause() {
@@ -426,6 +470,7 @@ class ModernMainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        customPlugins.close()
         fontCancellation?.cancel()
         iconPackCancellation?.cancel()
         destroyed = true; raw.unregisterOnSharedPreferenceChangeListener(listener)
@@ -445,7 +490,13 @@ class ModernMainActivity : ComponentActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        customPlugins.save(outState)
+        outState.putBoolean("custom_plugins_return_from_settings", returnToCustomPlugin)
+        outState.putBoolean("welcome_review", welcomeReview)
+        outState.putBoolean("welcome_language_open", welcomeLanguageOpen)
+        outState.putBoolean("welcome_greeting", welcomeGreeting)
         outState.putInt("page", page); outState.putString("group", selectedGroup)
+        outState.putString("network_detail_page", networkDetailPage)
         outState.putBoolean("performance_open", performanceOpen)
         outState.putBoolean("ui_settings_open", uiSettingsOpen)
         outState.putString("query", query); outState.putString("category", category)
@@ -456,13 +507,16 @@ class ModernMainActivity : ComponentActivity() {
     }
 
     fun selectPage(index: Int) {
+        if (index != 2) pendingCleanupRoot = false
+        returnToCustomPlugin = false
         page = index; selectedGroup = null; updateNavigation()
-        setHomeStatusVisible(index == 0 && !freeNoticeRequired)
+        setHomeStatusVisible(index == 0 && !freeNoticeRequired && !welcomeOpen)
     }
     fun openGroup(id: String) {
         if (id == "status_icon_library") { openIconManagement(); return }
-        selectedGroup = (if (id == "network") "wifi" else id)
+        selectedGroup = SettingsCatalog.canonicalGroupId(id)
             .takeIf { SettingsCatalog.group(it) != null }
+        if (id in listOf("wifi", "label", "native_network_badge")) networkDetailPage = SettingsCatalog.networkRoutePage(id)
         if (id == "font") refreshFontLibrary(); updateNavigation()
         // First entry: the source declaration once. Confirming only records it; it never switches the feature on.
         if (id == MINI_STACK_GROUP && confirmation == null && !NotificationMiniStackSource.acknowledged(this)) showMiniStackSource(null)
@@ -472,7 +526,7 @@ class ModernMainActivity : ComponentActivity() {
      *  user's own switch (or import) triggered it, that one action then continues. Nothing restarts SystemUI. */
     fun showMiniStackSource(then: (() -> Unit)?, extra: String = "", cancel: (() -> Unit)? = null) {
         confirmation = UiConfirmation(NotificationMiniStackSource.TITLE, NotificationMiniStackSource.NOTICE + extra, "知道了",
-            linkLabel = "${NotificationMiniStackSource.LINK}（酷安 @${NotificationMiniStackSource.AUTHOR}）",
+            linkLabel = trf("%1\$s（酷安 @%2\$s）", NotificationMiniStackSource.LINK, NotificationMiniStackSource.AUTHOR),
             linkUrl = NotificationMiniStackSource.URL, cancelAction = cancel) {
             if (!NotificationMiniStackSource.acknowledge(this)) { toast("确认记录保存失败，请重试"); cancel?.invoke(); return@UiConfirmation }
             then?.invoke()
@@ -480,17 +534,29 @@ class ModernMainActivity : ComponentActivity() {
     }
     fun closeGroup() {
         if (selectedGroup == StatusBarLayoutSettings.GROUP) statusBarOrderCloseRequest?.let { it(); return }
-        selectedGroup = null; updateNavigation()
+        selectedGroup = null
+        if (returnToCustomPlugin) { returnToCustomPlugin = false; customPlugins.returnFromRelatedSettings() }
+        updateNavigation()
     }
     fun finishStatusBarOrder() {
         hintIconOrderRequested = false
         statusBarOrderChoice = null; statusBarOrderCloseRequest = null
-        selectedGroup = null; updateNavigation()
+        selectedGroup = null
+        if (returnToCustomPlugin) { returnToCustomPlugin = false; customPlugins.returnFromRelatedSettings() }
+        updateNavigation()
     }
-    fun openUiSettings() { uiSettingsOpen = true; updateNavigation() }
-    fun closeUiSettings() { uiSettingsOpen = false; updateNavigation() }
+    fun openUiSettings() { pendingCleanupRoot = false; uiSettingsOpen = true; updateNavigation() }
+    fun openCustomPlugins() { returnToCustomPlugin = false; customPlugins.open(); updateNavigation() }
+    fun closeCustomPlugins() { returnToCustomPlugin = false; customPlugins.leave(); updateNavigation() }
+    fun openCustomPluginSettings(id: String) {
+        if (SettingsCatalog.group(id) == null) return
+        returnToCustomPlugin = true; customPlugins.leave(); openGroup(id)
+    }
+    fun closeUiSettings() { pendingCleanupRoot = false; uiSettingsOpen = false; updateNavigation() }
+    fun cancelPendingHistoricalCleanup() { pendingCleanupRoot = false }
     /** 关于 → 问题诊断. Opening it re-reads the log and asks SystemUI which hooks really installed. */
     fun openDiagnostics() {
+        pendingCleanupRoot = false
         diagnosticsOpen = true; updateNavigation()
         refreshDiagnostics()
         if (resumed) checkActivation()
@@ -522,13 +588,17 @@ class ModernMainActivity : ComponentActivity() {
         if (::modalLayer.isInitialized) modalLayer.visibility = if (visible) View.VISIBLE else View.GONE
     }
     private fun updateNavigation() {
-        val shown = !freeNoticeRequired && selectedGroup == null && !uiSettingsOpen && !diagnosticsOpen && !keyboardOpen && !iconManagementOpen
+        val shown = !freeNoticeRequired && !welcomeOpen && selectedGroup == null && !uiSettingsOpen && !diagnosticsOpen && !keyboardOpen && !iconManagementOpen && !customPlugins.opened
         if (navigationShown != shown) navigationShown = shown
-        if (::navHost.isInitialized) navHost.visibility = if (shown && !glassNavigation) View.VISIBLE else View.GONE
+        if (::navHost.isInitialized) navHost.visibility = if (shown && !floatingGlassNavigation) View.VISIBLE else View.GONE
+    }
+    /** Height in dp of the COUI capsule and its bottom margin, so page lists end above it. */
+    fun reportCouiNavigationHeight(height: Float) {
+        if (ui.style == C17UiStyle.COUI && height > 0 && navigationHeight != height + 8f) navigationHeight = height + 8f
     }
     /** Height in dp reported by the floating glass bar, so page lists end above it. */
     fun reportNavigationHeight(height: Float) {
-        if (glassNavigation && height > 0 && navigationHeight != height) navigationHeight = height
+        if (floatingGlassNavigation && height > 0 && navigationHeight != height) navigationHeight = height
     }
     fun updateGlassNavigation(enabled: Boolean) {
         val target = enabled && GlassNavigationPreference.supported()
@@ -538,6 +608,50 @@ class ModernMainActivity : ComponentActivity() {
         // Classic mode re-measures its own height through the navHost layout listener.
         if (!target && ::navHost.isInitialized) navHost.requestLayout()
         updateNavigation()
+    }
+    override fun attachBaseContext(newBase: android.content.Context) { super.attachBaseContext(C17Language.wrap(newBase)) }
+    fun chooseWelcomeLanguage(tag: String): Boolean {
+        // The locale change may recreate the activity. Restore the page underneath the picker.
+        welcomeLanguageOpen = false
+        if (!C17Language.apply(this, tag)) {
+            welcomeLanguageOpen = true
+            return false
+        }
+        updateNavigation()
+        return true
+    }
+    /** Leaves the greeting for the overview in the language now shown. */
+    fun finishGreeting() {
+        welcomeGreeting = false
+        updateNavigation()
+    }
+    fun openWelcome(languageOnly: Boolean = false) {
+        if (languageOnly) welcomeLanguageOpen = true else welcomeReview = true
+        updateNavigation()
+    }
+    fun closeWelcome() {
+        if (welcomeLanguageOpen) welcomeLanguageOpen = false else welcomeReview = false
+        updateNavigation()
+    }
+    /** null: done; true: the typed phrase does not match; false: the record could not be saved. */
+    fun completeWelcome(typed: String?, phrase: String): Boolean? {
+        val needsNotice = !FreeNotice.accepted(this)
+        if (needsNotice) {
+            if (typed == null || !FreeNotice.matches(typed, phrase)) return true
+        }
+        val saveDefaultLanguage = !C17Language.chosen(this)
+        if (saveDefaultLanguage && !C17Language.apply(this, C17Language.current(this))) return false
+        if (needsNotice && !FreeNotice.acceptLocalized(this, typed, phrase)) return false
+        if (!WelcomeState.complete(this)) return false
+        welcomeRequired = false
+        freeNoticeRequired = false
+        updateNavigation()
+        // The recreated activity will resume pending work after a first-time locale change.
+        if (!saveDefaultLanguage) {
+            replayFile()
+            if (resumed && !rootGranted && !checkingRoot && getSharedPreferences("app_migrations", MODE_PRIVATE).getBoolean("root_requested", false)) requestRoot()
+        }
+        return null
     }
     fun acceptFreeNotice(input: String): String? {
         if (!FreeNotice.matches(input)) return "请完整输入上面的短句，包含标点。"
@@ -557,6 +671,15 @@ class ModernMainActivity : ComponentActivity() {
         if (key == StatusBarSettings.BATTERY_STYLE && option == "pui" && batteryPercentStyle !in 1..2)
             "系统已关闭电池百分比，使用系统原生样式；开启百分比后可选 PUI" else ""
     fun bool(key: String): Boolean = if (key.startsWith("shade_wallpaper_") && !ShadeWallpaperSettings.available()) false else StatusBarSettings.bool(values, key)
+    /** Display mode uses the two existing booleans; a switch never publishes half of a new mode. */
+    fun saveNetworkDisplayMode(mode: String): Boolean {
+        if (!resumed || !canEdit || busy) { toast("激活模块或授予 Root 后即可保存配置"); return false }
+        if (mode !in listOf(NetworkDisplaySettings.TEXT, NetworkDisplaySettings.BADGE, NetworkDisplaySettings.HIDDEN)) return false
+        val editor = preferences.edit().putBoolean("label_enabled", mode != NetworkDisplaySettings.BADGE)
+            .putBoolean(StatusBarSettings.LABEL_HIDDEN, mode == NetworkDisplaySettings.HIDDEN)
+        if (!editor.commit()) { toast("制式显示方式保存失败，请重试"); return false }
+        return true
+    }
     fun save(requestedKey: String, value: Any): Boolean {
         val key = StatusBarLayoutSettings.editingKey(requestedKey, raw.all)
         if (!resumed || !canEdit) { toast("激活模块或授予 Root 后即可保存配置"); return false }
@@ -573,6 +696,8 @@ class ModernMainActivity : ComponentActivity() {
         }
         if (value is String) {
             val invalid = when (key) {
+                QsWifiAlias.UNIFIED -> QsWifiAlias.aliasError(value)
+                QsWifiAlias.RULES -> runCatching { QsWifiAlias.parse(value); null }.getOrElse { it.message ?: "WiFi 名称配置无效" }
                 NotificationIconOverrides.RULES -> NotificationIconOverrides.validationError(value)
                 IconManagementSettings.KEY -> runCatching { IconManagementSettings.parse(value); null }.getOrElse { it.message ?: "图标管理配置无效" }
                 else -> null
@@ -610,6 +735,8 @@ class ModernMainActivity : ComponentActivity() {
         if (value == true) NetworkLabelFormats.turnsOff(key)?.let { editor.putBoolean(it, false) }
         // 关闭回弹效果与回弹时模糊二选一：开启前者，同一次保存里关闭后者。
         if (value == true) NotificationBigClockSettings.turnsOff(key)?.let { editor.putBoolean(it, false) }
+        // 打开隐私小点胶囊时一并去除原厂小点；之后可以单独再打开小点。
+        if (value == true && key == PrivacyIndicatorSettings.CAPSULE) editor.putBoolean(PrivacyIndicatorSettings.HIDE_DOT, true)
         editor.apply()
         return true
     }
@@ -672,7 +799,7 @@ class ModernMainActivity : ComponentActivity() {
             toast("无法开始试用，已保留原来的数值"); return
         }
         editing = null
-        confirmation = UiConfirmation("试用${item.title}",
+        confirmation = UiConfirmation(trf("试用%s", item.title),
             SettingEditor.trialSummary(item, confirmed, value, trialContext),
             "保存此数值", expiresAt = NumericTrial.deadline(), cancelAction = { NumericTrial.rollback() }) {
                 toast(if (NumericTrial.keep()) "数值已保存" else if (NumericTrial.active()) "保存失败，正在恢复原数值" else "试用已结束，原数值已恢复")
@@ -684,7 +811,7 @@ class ModernMainActivity : ComponentActivity() {
         updateHomeStatusRefresh()
     }
     private fun updateHomeStatusRefresh() {
-        val visible = homeStatusVisible && resumed && !destroyed && !freeNoticeRequired
+        val visible = homeStatusVisible && resumed && !destroyed && !freeNoticeRequired && !welcomeOpen
         val changed = homeStatus.setVisible(visible)
         handler.removeCallbacks(homeStatusPoll)
         if (!visible) {
@@ -754,6 +881,7 @@ class ModernMainActivity : ComponentActivity() {
             report?.error, report?.moduleVersion, report?.trigger, report?.time, report?.compiled,
             report?.packages, report?.moduleVersionCode, report?.recordVersionCode, report?.ready,
             report?.reused, report?.verified, report?.deferred, report?.verification, report?.priority,
+            report?.rescueAvailable, report?.rescueEnabled, report?.rescueState, report?.rescueError, report?.rescueTime,
             error, message, result.message)
         if (homeStatus.publish(HomeStatusRefreshPolicy.Kind.PERFORMANCE, state)) {
             if (reliable != null) performanceReport = reliable
@@ -779,29 +907,38 @@ class ModernMainActivity : ComponentActivity() {
         if (!canEdit || performanceBusy || RootPerformanceModule.busy()) return
         confirmation = UiConfirmation(title, summary, button) {
             if (!canEdit || RootPerformanceModule.busy()) return@UiConfirmation
-            performanceAction = action
-            performanceBusy = true; performanceWritePending = true
-            performanceRequest = RootPerformanceModule.submit(applicationContext, action) { result ->
-                performanceAction = null
-                performanceBusy = false
-                applyPerformanceResult(result)
-                performanceWritePending = false
-                homeStatus.afterAction(HomeStatusRefreshPolicy.Kind.PERFORMANCE, SystemClock.elapsedRealtime())
-                scheduleHomeStatus()
-                if (!destroyed) toast(result.message)
-            }
+            submitPerformanceAction(action)
         }
+    }
+    private fun submitPerformanceAction(action: RootPerformanceModule.Action) {
+        if (!canEdit || performanceBusy || RootPerformanceModule.busy()) return
+        performanceAction = action
+        performanceBusy = true; performanceWritePending = true
+        performanceRequest = RootPerformanceModule.submit(applicationContext, action) { result ->
+            performanceAction = null
+            performanceBusy = false
+            applyPerformanceResult(result)
+            performanceWritePending = false
+            homeStatus.afterAction(HomeStatusRefreshPolicy.Kind.PERFORMANCE, SystemClock.elapsedRealtime())
+            scheduleHomeStatus()
+            if (!destroyed) toast(result.message)
+        }
+    }
+    fun setPerformanceRecovery(enabled: Boolean) {
+        val report = performanceReport ?: return
+        if (performanceError || !report.root || !report.rescueAvailable || !report.installed || report.pending || report.remove) return
+        submitPerformanceAction(if (enabled) RootPerformanceModule.Action.RESCUE_ENABLE else RootPerformanceModule.Action.RESCUE_DISABLE)
     }
     fun installPerformance() {
         val updating = performanceReport?.outdated == true
-        confirmPerformance(RootPerformanceModule.Action.INSTALL, (if (updating) "更新 " else "安装 ") + RootPerformanceModule.DISPLAY_NAME,
-            "安装后按需检查。需要编译时等待息屏或连续 10 分钟无操作，电量高于 15%、电池温度低于 55℃；不支持输入时间时等待息屏。需 Root 授权。",
+        confirmPerformance(RootPerformanceModule.Action.INSTALL, if (updating) "更新附属模块" else "安装附属模块",
+            "需要 Root 权限，安装后重启生效。",
             if (updating) "更新" else "安装")
     }
-    fun removePerformance() { confirmPerformance(RootPerformanceModule.Action.REMOVE, "卸载 " + RootPerformanceModule.DISPLAY_NAME, "请求卸载，重启时尝试恢复本模块处理过的组件的编译策略；恢复失败保留记录。需 Root 授权。", "卸载") }
-    fun enablePerformance() { confirmPerformance(RootPerformanceModule.Action.ENABLE, "启用 " + RootPerformanceModule.DISPLAY_NAME, "启用按需检查，等待息屏或连续 10 分钟无操作。自动处理要求电量高于 15%、电池温度低于 55℃。需 Root 授权。", "启用") }
-    fun disablePerformance() { confirmPerformance(RootPerformanceModule.Action.DISABLE, "停用 " + RootPerformanceModule.DISPLAY_NAME, "停止自动任务，已有编译结果保留。需 Root 授权。", "停用") }
-    fun runPerformance() { confirmPerformance(RootPerformanceModule.Action.RUN, "立即优化", "立即检查并按需处理，不受屏幕、充电、电量、电池温度或 Thermal Service 限制。仍保留操作超时、可靠取消与防重叠，缺少必要 ART 能力时无法执行。新结果随系统自然加载使用，需 Root 授权。", "开始") }
+    fun removePerformance() { confirmPerformance(RootPerformanceModule.Action.REMOVE, "卸载附属模块", "重启后卸载，并尝试恢复编译策略。", "卸载") }
+    fun enablePerformance() { confirmPerformance(RootPerformanceModule.Action.ENABLE, "启用附属模块", "恢复模块的自动处理。", "启用") }
+    fun disablePerformance() { confirmPerformance(RootPerformanceModule.Action.DISABLE, "停用附属模块", "停止后续任务，正在执行的优化会继续。", "停用") }
+    fun runPerformance() { confirmPerformance(RootPerformanceModule.Action.RUN, "立即优化", "按需检查并优化，有效结果直接复用。", "开始") }
     fun checkActivation() {
         if (destroyed || !resumed || checkingRuntime) return
         if (homeStatus.visible()) {
@@ -844,8 +981,18 @@ class ModernMainActivity : ComponentActivity() {
                     replayFile()
                     if (result.granted && !freeNoticeRequired) { rememberResidentRootGrant(); refreshPerformance() }
                 }
+                resumePendingCleanupRoot()
             }
         }
+    }
+    private fun resumePendingCleanupRoot() {
+        if (!pendingCleanupRoot || checkingRoot || !resumed) return
+        pendingCleanupRoot = false
+        if (android.os.SystemClock.elapsedRealtime() > pendingCleanupDeadline || page != 2 || selectedGroup != null ||
+            uiSettingsOpen || diagnosticsOpen || customPlugins.opened || confirmation != null || busy ||
+            maintenanceRunning || freeNoticeRequired || welcomeOpen || thanksOpen || performanceOpen || donationImage != null ||
+            editing != null || colorEditing != null || configScope != null) return
+        if (rootGranted) clearHistoricalResiduals() else toast(rootMessage)
     }
     fun restartSystemUi() {
         if (busy) return
@@ -922,7 +1069,7 @@ class ModernMainActivity : ComponentActivity() {
                     send.clipData = ClipData.newRawUri(ConfigShare.FILE_NAME, uri)
                     runCatching { startActivity(Intent.createChooser(send, "分享配置")) }.onFailure { toast("无法打开分享面板") }
                 }
-            } catch (error: Exception) { runOnUiThread { busy = false; toast("分享失败：${error.message}") } }
+            } catch (error: Exception) { runOnUiThread { busy = false; toast(trf("分享失败：%s", error.message)) } }
         }
     }
     /** 最后一步确认：只提交用户选的页面，其余设置保持原样。 */
@@ -931,10 +1078,10 @@ class ModernMainActivity : ComponentActivity() {
         val legacyIcons = if (chosen.skippedLegacyIcons > 0) "\n旧版图标规则不会恢复，请在图标管理中重新选择 v3 套装。" else ""
         if (chosen.count == 0) {
             pendingFile = null
-            toast(if (chosen.skippedLegacyIcons > 0) "已跳过 ${chosen.skippedLegacyIcons} 项旧版图标设置，没有其他可导入设置。$legacyIcons" else "没有可导入的设置")
+            toast(if (chosen.skippedLegacyIcons > 0) trf("已跳过 %1\$s 项旧版图标设置，没有其他可导入设置。%2\$s", chosen.skippedLegacyIcons, legacyIcons) else "没有可导入的设置")
             return
         }
-        confirmation = UiConfirmation("导入配置", "将更新 ${chosen.count} 项设置。${chosen.warning}$legacyIcons\n现有字体文件和安全模式会保留。", "导入", cancelAction = { pendingFile = null }) {
+        confirmation = UiConfirmation("导入配置", trf("将更新 %1\$s 项设置。%2\$s%3\$s\n现有字体文件和安全模式会保留。", chosen.count, chosen.warning, legacyIcons), "导入", cancelAction = { pendingFile = null }) {
             pendingFile = null
             if (!resumed || !canEdit) { toast("权限状态已变化，请重新授权后导入"); return@UiConfirmation }
             // An imported "on" is not the user having seen the mini stack's source declaration.
@@ -948,10 +1095,21 @@ class ModernMainActivity : ComponentActivity() {
         }
     }
     private fun commitImport(chosen: ConfigTransfer.PreparedImport) {
+        if (busy || destroyed || maintenanceRunning) return
         if (!resumed || !canEdit) { toast("权限状态已变化，请重新授权后导入"); return }
         busy = true
-        val result = runCatching { ConfigTransfer.commit(preferences, chosen) }
-        busy = false; toast(if (result.getOrDefault(false)) "配置已导入" else "导入未完成，请重试")
+        work.execute {
+            val result = runCatching {
+                check(!destroyed && !maintenanceRunning && resumed && canEdit) { "权限或页面状态已变化，请重新导入" }
+                ConfigTransfer.commit(preferences, chosen)
+            }
+            handler.post {
+                if (!destroyed) {
+                    busy = false
+                    toast(if (result.getOrDefault(false)) "配置已导入" else "导入未完成，请重试")
+                }
+            }
+        }
     }
     fun chooseFont() { if (canEdit && !busy) { fontScopeSelection = null; fontCatalogOpen = false; importFont.launch(arrayOf("*/*")) } else toast("请先激活模块或授予 Root") }
     fun chooseOpenFont() { fontScopeSelection = null; refreshFontLibrary(); fontCatalogOpen = true }
@@ -974,7 +1132,7 @@ class ModernMainActivity : ComponentActivity() {
         val assignments = runCatching { FontScopes.parse(value(FontScopes.KEY)?.toString() ?: "{}") }.getOrDefault(emptyMap())
         val sources = assignments.values.distinct()
         if (sources.size == 1 && assignments.size == FontScopes.SCOPES.size) return fontSourceTitle(sources.first())
-        if (assignments.isNotEmpty()) return "已设置 ${assignments.size} 个范围"
+        if (assignments.isNotEmpty()) return trf("已设置 %s 个范围", assignments.size)
         return when (value(StatusBarSettings.FONT_MODE)?.toString()) {
             "pingfang" -> "苹方（原有选择）"
             "custom" -> (value(StatusBarSettings.FONT_NAME)?.toString()?.takeIf { it.isNotBlank() } ?: "导入字体") + "（原有选择）"
@@ -987,7 +1145,7 @@ class ModernMainActivity : ComponentActivity() {
         source.startsWith("custom:") -> {
             val revision = source.removePrefix("custom:")
             fontLibraryEntries.firstOrNull { it.revision == revision }?.name
-                ?: FontCatalog.forRevision(revision)?.displayName ?: "导入字体 · ${revision.take(8)}"
+                ?: FontCatalog.forRevision(revision)?.displayName ?: trf("导入字体 · %s", revision.take(8))
         }
         else -> "原有字体选择"
     }
@@ -1048,7 +1206,7 @@ class ModernMainActivity : ComponentActivity() {
                 }
                 if (result.isSuccess) {
                     fontScopeSelection = null
-                    toast("${selection.title} 已应用到 ${scopes.size} 个范围")
+                    toast(trf("%1\$s 已应用到 %2\$s 个范围", selection.title, scopes.size))
                 } else toast(result.exceptionOrNull()?.message ?: "字体设置未保存")
             }
         }
@@ -1065,7 +1223,7 @@ class ModernMainActivity : ComponentActivity() {
                     if (result.isSuccess && value(StatusBarSettings.FONT_REVISION) == entry.revision)
                         preferences.edit().putString(StatusBarSettings.FONT_NAME, name).apply()
                     busy = false; refreshFontLibrary()
-                    if (result.isFailure) toast("重命名失败：${result.exceptionOrNull()?.message}")
+                    if (result.isFailure) toast(trf("重命名失败：%s", result.exceptionOrNull()?.message))
                 }
             }
         }
@@ -1075,7 +1233,7 @@ class ModernMainActivity : ComponentActivity() {
         if (!canEdit || busy) return
         val active = value(StatusBarSettings.FONT_REVISION) == entry.revision ||
             FontScopes.references(value(FontScopes.KEY)?.toString() ?: "{}", entry.revision)
-        confirmation = UiConfirmation("删除 ${entry.name}", if (active) "这款字体正在使用。删除后改为跟随系统，其他导入字体会保留。" else "删除这款字体，其他已导入或下载的字体会保留。", "删除") {
+        confirmation = UiConfirmation(trf("删除 %s", entry.name), if (active) "这款字体正在使用。删除后改为跟随系统，其他导入字体会保留。" else "删除这款字体，其他已导入或下载的字体会保留。", "删除") {
             if (!resumed || !canEdit || busy) return@UiConfirmation
             val current = value(StatusBarSettings.FONT_REVISION) == entry.revision
             val previous = raw.all
@@ -1095,9 +1253,9 @@ class ModernMainActivity : ComponentActivity() {
                             })
                         } }
                         busy = false
-                        if (!destroyed) { refreshFontLibrary(); fontCatalogOpen = true; toast(if (result.isSuccess) "字体已删除" else "删除未完成：${result.exceptionOrNull()?.message}") }
+                        if (!destroyed) { refreshFontLibrary(); fontCatalogOpen = true; toast(if (result.isSuccess) "字体已删除" else trf("删除未完成：%s", result.exceptionOrNull()?.message)) }
                     }
-                } catch (error: Exception) { handler.post { busy = false; if (!destroyed) { refreshFontLibrary(); fontCatalogOpen = true; toast("字体未删除：${error.message}") } } }
+                } catch (error: Exception) { handler.post { busy = false; if (!destroyed) { refreshFontLibrary(); fontCatalogOpen = true; toast(trf("字体未删除：%s", error.message)) } } }
             }
         }
     }
@@ -1129,7 +1287,7 @@ class ModernMainActivity : ComponentActivity() {
                 runOnUiThread {
                     if (fontCancellation === token) {
                         fontCancellation = null; downloadingFont = null; busy = false
-                        toast("下载失败，原字体已保留：${error.message}")
+                        toast(trf("下载失败，原字体已保留：%s", error.message))
                     }
                 }
             }
@@ -1152,7 +1310,7 @@ class ModernMainActivity : ComponentActivity() {
     }
     fun deleteAllSettings() {
         if (busy || !canEdit || maintenanceRunning) return
-        confirmation = UiConfirmation("删除所有配置", "删除当前配置、恢复备份、导入字体和自定义图标，并恢复全部默认设置。免费声明确认、小堆叠来源声明确认与 Root 请求标识保留。此操作无法撤销，可先导出配置。", "删除并恢复默认") {
+        confirmation = UiConfirmation("删除所有配置", "删除当前配置、恢复备份、导入字体和自定义图标，并恢复全部默认设置。扩展插件会停用，插件文件和独立设置保留。免费声明确认、小堆叠来源声明确认与 Root 请求标识保留。此操作无法撤销。导出仅包含可迁移的设置值，不包含字体、图像、图标和插件独立布局，请另行保存这些内容。", "删除并恢复默认") {
             if (!resumed || !canEdit || busy) return@UiConfirmation
             pendingFile = null; editing = null; colorEditing = null; fontCatalogOpen = false; fontScopeSelection = null; marqueePickerOpen = false
             configScope = null; exportSections = null
@@ -1170,6 +1328,36 @@ class ModernMainActivity : ComponentActivity() {
                         toast(result.getOrNull()?.message ?: "删除未完成，请稍后重试；未确认的旧配置不会重新发布")
                         if (resumed) { notifySettings.run(); updateNavigation() }
                     }
+                }
+            }
+        }
+    }
+    fun clearHistoricalResiduals() {
+        if (!resumed || busy || freeNoticeRequired || maintenanceRunning) return
+        if (!rootGranted) {
+            pendingCleanupRoot = true
+            pendingCleanupDeadline = android.os.SystemClock.elapsedRealtime() + 60_000L
+            toast("正在检查 Root 权限…")
+            requestRoot()
+            return
+        }
+        if (!canEdit) return
+        confirmation = UiConfirmation("历史配置残留清除", "可能误伤。导出只保存可迁移的设置值，不能恢复字体、图像、图标、插件及独立布局，请另行保存所需内容。此功能会清除当前用户的全部应用私有数据，包括当前与历史配置、恢复副本、扩展插件及其声明的偏好、字体、图标、缓存和日志；清除系统界面中的本模块缓存与布局。附属模块会停用、恢复其管理的编译设置并清空记录。第三方插件声明了错误的归属时，可能误删同名数据。手动导出的文件、其他用户数据及无法确认归属的数据不自动删除。", "继续查看最终确认") {
+            if (!resumed || busy || maintenanceRunning) return@UiConfirmation
+            if (!canEdit || !rootGranted) { toast(if (checkingRoot) "正在检查 Root，请稍后重试" else "请先重新检查 Root 权限"); return@UiConfirmation }
+            confirmation = UiConfirmation("确定彻底清除？", "不可撤销，导出的设置文件不是完整备份。应用会退出，系统界面会短暂重载。重新打开后需要重新设置；附属模块保持停用。若框架未连接、归属异常或恢复失败，会停止后续清理并说明原因，已完成的步骤不会回滚。", "已了解范围，清除全部残留") finalConfirm@{
+                if (!resumed || busy || maintenanceRunning) return@finalConfirm
+                if (!canEdit || !rootGranted) { toast(if (checkingRoot) "正在检查 Root，请稍后重试" else "请先重新检查 Root 权限"); return@finalConfirm }
+                pendingFile = null; editing = null; colorEditing = null; fontCatalogOpen = false; fontScopeSelection = null; marqueePickerOpen = false
+                configScope = null; exportSections = null; iconManagementOpen = false; notificationOverridesOpen = false; clockLaunchEditing = null
+                cancelIconImport(); wallpaperEdit = null; cancelIconPackDownload(); cancelFontDownload(); handler.removeCallbacks(notifySettings)
+                maintenanceRunning = true; busy = true
+                work.execute {
+                    val result = runCatching { HistoricalResidualCleanup.clear(applicationContext) }
+                    handler.post { if (!destroyed) {
+                        maintenanceRunning = false; busy = false; values = raw.all; selectedGroup = null; iconPacks = emptyList()
+                        confirmation = UiConfirmation("清理结果", result.getOrNull() ?: result.exceptionOrNull()?.message ?: "清理未完成，请查看附属模块记录", "知道了") { }
+                    } }
                 }
             }
         }
@@ -1256,7 +1444,7 @@ class ModernMainActivity : ComponentActivity() {
                 !fontCatalogOpen && fontScopeSelection == null && downloadingFont == null && !busy) {
                 val details = buildString {
                     append(result.message)
-                    if (result.version.isNotEmpty()) append("\n发布版本：${result.version}")
+                    if (result.version.isNotEmpty()) append(trf("\n发布版本：%s", result.version))
                     if (result.body.isNotEmpty()) append("\n\n${result.body}")
                 }
                 val download = result.newer && GitHubUpdates.isApkUrl(result.apkUrl)
@@ -1302,7 +1490,7 @@ class ModernMainActivity : ComponentActivity() {
                     }
                 }
             } catch (error: Exception) {
-                runOnUiThread { pendingFile = null; exportSections = null; busy = false; toast("${if (action.first == "export") "导出" else "导入"}失败：${error.message}") }
+                runOnUiThread { pendingFile = null; exportSections = null; busy = false; toast(trf("%1\$s失败：%2\$s", if (action.first == "export") tr("导出") else tr("导入"), error.message)) }
             }
         }
     }
@@ -1327,7 +1515,7 @@ class ModernMainActivity : ComponentActivity() {
                         toast("字体已导入；选择作用范围并应用后生效")
                     }
                 }
-            } catch (error: Exception) { runOnUiThread { pendingFile = null; busy = false; toast("字体导入失败：${error.message}") } }
+            } catch (error: Exception) { runOnUiThread { pendingFile = null; busy = false; toast(trf("字体导入失败：%s", error.message)) } }
         }
     }
     private fun prepareNotificationIcon(uri: Uri) {
@@ -1353,40 +1541,40 @@ class ModernMainActivity : ComponentActivity() {
                             })
                             pendingFile = null; busy = false; toast("通知图标图片已导入")
                         }
-                    } catch (error: Exception) { pendingFile = null; busy = false; toast("图片导入失败：${error.message}") }
+                    } catch (error: Exception) { pendingFile = null; busy = false; toast(trf("图片导入失败：%s", error.message)) }
                 }
-            } catch (error: Exception) { runOnUiThread { pendingFile = null; busy = false; toast("图片导入失败：${error.message}") } }
+            } catch (error: Exception) { runOnUiThread { pendingFile = null; busy = false; toast(trf("图片导入失败：%s", error.message)) } }
         }
     }
     /** Open the album to choose this panel's picture; the editor opens on what was chosen. */
     fun pickShadeWallpaper(scene: String) {
-        if (!ShadeWallpaperSettings.available()) { toast(ShadeWallpaperSettings.unavailableReason()); return }
-        if (!canEdit || busy || !ShadeWallpaperSettings.validScene(scene)) return
+        if (!ShadeWallpaperSettings.assetAvailable(scene)) { toast(ShadeWallpaperSettings.unavailableReason()); return }
+        if (!canEdit || busy || !ShadeWallpaperSettings.assetScene(scene)) return
         wallpaperImportScene = scene
         pickWallpaperImage.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }
     /** Cut the panel's current picture again. */
     fun editShadeWallpaper(scene: String) {
-        if (!canEdit || busy || !ShadeWallpaperSettings.validScene(scene)) return
-        val revision = value(ShadeWallpaperSettings.revisionKey(scene))?.toString().orEmpty()
+        if (!canEdit || busy || !ShadeWallpaperSettings.assetScene(scene)) return
+        val revision = value(ShadeWallpaperSettings.assetRevisionKey(scene))?.toString().orEmpty()
         if (!ShadeWallpaperSettings.validRevision(revision)) return
         wallpaperEdit = WallpaperEdit(scene, ShadeWallpaperRepository.uri(scene, revision))
     }
     /** The same picture, as it is, for the other panel. */
     fun copyShadeWallpaper(from: String, to: String) {
-        if (!canEdit || busy || !ShadeWallpaperSettings.validScene(from) || !ShadeWallpaperSettings.validScene(to)) return
-        val revision = value(ShadeWallpaperSettings.revisionKey(from))?.toString().orEmpty()
+        if (!canEdit || busy || !ShadeWallpaperSettings.assetScene(from) || !ShadeWallpaperSettings.assetScene(to)) return
+        val revision = value(ShadeWallpaperSettings.assetRevisionKey(from))?.toString().orEmpty()
         if (!ShadeWallpaperSettings.validRevision(revision)) return
         applyShadeWallpaper(to, ShadeWallpaperRepository.uri(from, revision), null)
     }
     /** Make the (cut) picture this panel's: normalized off the UI thread, then published and switched on. */
     fun applyShadeWallpaper(scene: String, uri: Uri, crop: ShadeWallpaperRepository.Crop?) {
-        if (!resumed || !canEdit || busy || destroyed || !ShadeWallpaperSettings.validScene(scene)) return
+        if (!resumed || !canEdit || busy || destroyed || !ShadeWallpaperSettings.assetScene(scene)) return
         busy = true
         prepareShadeWallpaper(scene, uri, crop)
     }
     private fun prepareShadeWallpaper(scene: String, uri: Uri, crop: ShadeWallpaperRepository.Crop?) {
-        if (!ShadeWallpaperSettings.available()) { pendingFile = null; busy = false; return }
+        if (!ShadeWallpaperSettings.assetAvailable(scene)) { pendingFile = null; busy = false; return }
         work.execute {
             try {
                 val prepared = ShadeWallpaperRepository.prepare(applicationContext, uri, scene, crop)
@@ -1401,22 +1589,29 @@ class ModernMainActivity : ComponentActivity() {
                     }
                     try {
                         prepared.use {
-                            val key = ShadeWallpaperSettings.revisionKey(scene)
-                            val previous = raw.all[key]
+                            val key = ShadeWallpaperSettings.assetRevisionKey(scene)
+                            val enabledKey = ShadeWallpaperSettings.assetEnabledKey(scene)
+                            val pageKey = ShadeWallpaperSettings.assetMasterKey(scene)
+                            val touched = listOf(key, enabledKey) + listOfNotNull(pageKey)
+                            val previous = raw.all
                             prepared.commit({ resumed && canEdit && !destroyed }, {
-                                // A picture that was just chosen for this scene is meant to be used: the scene and its page go on with it.
-                                preferences.edit().putString(key, prepared.revision).putBoolean(ShadeWallpaperSettings.enabledKey(scene), true)
-                                    .putBoolean(ShadeWallpaperSettings.masterKey(scene), true).commit()
+                                val edit = preferences.edit().putString(key, prepared.revision).putBoolean(enabledKey, true)
+                                if (pageKey != null) edit.putBoolean(pageKey, true)
+                                edit.commit()
                             }, {
                                 val restore = raw.edit()
-                                if (previous is String) restore.putString(key, previous) else restore.remove(key)
+                                touched.forEach { target -> when (val old = previous[target]) {
+                                    is String -> restore.putString(target, old)
+                                    is Boolean -> restore.putBoolean(target, old)
+                                    else -> restore.remove(target)
+                                } }
                                 check(restore.commit()) { "壁纸配置恢复失败" }
                             })
                             pendingFile = null; busy = false; wallpaperEdit = null
                             work.execute { ShadeWallpaperRepository.prune(applicationContext, scene, prepared.revision) }
-                            toast("${ShadeWallpaperSettings.title(scene)}壁纸已导入")
+                            toast(trf("%s壁纸已导入", ShadeWallpaperSettings.assetTitle(scene)))
                         }
-                    } catch (error: Exception) { pendingFile = null; busy = false; toast("壁纸导入失败：${error.message}") }
+                    } catch (error: Exception) { pendingFile = null; busy = false; toast(trf("壁纸导入失败：%s", error.message)) }
                     finally { synchronized(wallpaperResourcesLock) { preparedWallpapers.remove(prepared) } }
                 }
                 if (!posted) {
@@ -1424,14 +1619,14 @@ class ModernMainActivity : ComponentActivity() {
                     prepared.close()
                 }
             } catch (error: Exception) {
-                handler.post { if (!destroyed) { pendingFile = null; busy = false; toast("壁纸导入失败：${error.message}") } }
+                handler.post { if (!destroyed) { pendingFile = null; busy = false; toast(trf("壁纸导入失败：%s", error.message)) } }
             }
         }
     }
     fun deleteShadeWallpaper(scene: String) {
-        if (!resumed || !canEdit || busy || !ShadeWallpaperSettings.validScene(scene)) return
-        val saved = preferences.edit().putBoolean(ShadeWallpaperSettings.enabledKey(scene), false)
-            .putString(ShadeWallpaperSettings.revisionKey(scene), "").commit()
+        if (!resumed || !canEdit || busy || !ShadeWallpaperSettings.assetScene(scene)) return
+        val saved = preferences.edit().putBoolean(ShadeWallpaperSettings.assetEnabledKey(scene), false)
+            .putString(ShadeWallpaperSettings.assetRevisionKey(scene), "").commit()
         if (!saved) { toast("壁纸配置保存失败，图片已保留"); return }
         busy = true
         work.execute {
@@ -1593,7 +1788,9 @@ class ModernMainActivity : ComponentActivity() {
     }
     fun closeIconManagement() {
         if (busy) return
-        cancelIconImport(); iconLibraryTarget = null; iconManagementOpen = false; iconManagementBackRequest = null; updateNavigation()
+        cancelIconImport(); iconLibraryTarget = null; iconManagementOpen = false; iconManagementBackRequest = null
+        if (returnToCustomPlugin && selectedGroup == null) { returnToCustomPlugin = false; customPlugins.returnFromRelatedSettings() }
+        updateNavigation()
     }
     fun refreshIconLibraries() {
         if (destroyed || maintenanceRunning) return
@@ -1612,7 +1809,7 @@ class ModernMainActivity : ComponentActivity() {
                     iconMigrationNotice = if (migration.noticePending) "图标管理已升级，旧图标库和替换设置已重置，请重新选择 v3 图标包。" +
                         migration.warning.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()
                         else migration.warning.takeIf { it.isNotBlank() }
-                }.onFailure { toast("图标库读取失败：${it.message}") }
+                }.onFailure { toast(trf("图标库读取失败：%s", it.message)) }
             } }
         }
     }
@@ -1686,14 +1883,14 @@ class ModernMainActivity : ComponentActivity() {
             handler.post { if (!destroyed) {
                 busy = false
                 result.onSuccess { pack -> iconPacks = iconPacks.map { if (it.id == id) pack else it }; toast("名称已保存") }
-                    .onFailure { toast("重命名失败：${it.message}") }
+                    .onFailure { toast(trf("重命名失败：%s", it.message)) }
             } }
         }
     }
     fun deleteIconPack(id: String, name: String) {
         if (busy || !canEdit) return
         val dependencies = runCatching { IconManagementSettings.dependencies(iconManagementRecords(), id) }.getOrDefault(0)
-        confirmation = UiConfirmation("删除图标库", "删除“$name”及其资源。${if (dependencies > 0) "引用它的 $dependencies 项套装或单项选择将恢复默认。" else ""}独立颜色和透明度保留。", "删除") {
+        confirmation = UiConfirmation("删除图标库", trf("删除“%1\$s”及其资源。%2\$s独立颜色和透明度保留。", name, if (dependencies > 0) trf("引用它的 %s 项套装或单项选择将恢复默认。", dependencies) else ""), "删除") {
             if (!resumed || !canEdit || busy) return@UiConfirmation
             val previous = raw.all
             val next = runCatching { IconManagementSettings.removePack(iconManagementRecords(), id) }
@@ -1720,12 +1917,12 @@ class ModernMainActivity : ComponentActivity() {
                                 iconPacks = iconPacks.filter { it.id != id }
                                 iconManagementDestination = IconManagementDestination("library")
                                 toast("图标库已删除")
-                            }.onFailure { toast("图标库未删除：${it.message}"); refreshIconLibraries() }
+                            }.onFailure { toast(trf("图标库未删除：%s", it.message)); refreshIconLibraries() }
                         }
                     }
                 } catch (error: Exception) { handler.post {
                     busy = false
-                    if (!destroyed) { toast("图标库未删除：${error.message}"); refreshIconLibraries() }
+                    if (!destroyed) { toast(trf("图标库未删除：%s", error.message)); refreshIconLibraries() }
                 } }
             }
         }
@@ -1738,7 +1935,7 @@ class ModernMainActivity : ComponentActivity() {
         work.execute {
             try { completeIconPack(IconManagementRepository.prepare(applicationContext, uri, ""), null) }
             catch (error: Exception) { handler.post { if (!destroyed) {
-                pendingFile = null; busy = false; toast("图标库导入失败：${error.message}")
+                pendingFile = null; busy = false; toast(trf("图标库导入失败：%s", error.message))
             } } }
         }
     }
@@ -1751,7 +1948,7 @@ class ModernMainActivity : ComponentActivity() {
             try { completeIconPack(IconManagementDownload.prepare(applicationContext, source, name, token), token) }
             catch (error: Exception) { handler.post { if (!destroyed && iconPackCancellation === token) {
                 iconPackCancellation = null; iconPackDownloading = false; busy = false
-                toast("图标库下载失败：${error.message}")
+                toast(trf("图标库下载失败：%s", error.message))
             } } }
         }
     }
@@ -1822,7 +2019,7 @@ class ModernMainActivity : ComponentActivity() {
                         }
                             .getOrElse { it.message ?: "图标设置未能保存" }
                         if (error.isEmpty()) finishIconPackApplication()
-                        else toast("图标库已保存，应用失败：$error")
+                        else toast(trf("图标库已保存，应用失败：%s", error))
                     } else if (iconLibraryTarget != null) {
                         finishIconLibraryForTarget(pack.id)
                         toast(if (existing != null) "使用已有图标库，请选择图案" else "请选择该图标使用的图案")
@@ -1847,7 +2044,7 @@ class ModernMainActivity : ComponentActivity() {
         busy = true
         work.execute {
             try { completeIconPack(IconManagementRepository.prepareBundled(applicationContext, kind), null, kind) }
-            catch (error: Exception) { handler.post { if (!destroyed) { busy = false; toast("套装预览失败：${error.message}") } } }
+            catch (error: Exception) { handler.post { if (!destroyed) { busy = false; toast(trf("套装预览失败：%s", error.message)) } } }
         }
     }
     fun cancelIconPackDownload() {
@@ -1865,7 +2062,7 @@ class ModernMainActivity : ComponentActivity() {
         }
     }
     fun resetGroup(group: SettingsCatalog.Group, items: List<SettingsCatalog.Item> = group.items, title: String = group.title) {
-        confirmation = UiConfirmation("恢复${title}默认设置", "只恢复当前页面的设置，其他配置会保留。", "恢复默认") {
+        confirmation = UiConfirmation(trf("恢复%s默认设置", title), "只恢复当前页面的设置，其他配置会保留。", "恢复默认") {
             if (!canEdit) { toast("请先激活模块或授予 Root"); return@UiConfirmation }
             val editor = preferences.edit()
             val before = raw.all
@@ -1881,7 +2078,7 @@ class ModernMainActivity : ComponentActivity() {
             editor.apply()
         }
     }
-    fun toast(message: String) { if (!destroyed) Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
+    fun toast(message: String) { if (!destroyed) Toast.makeText(this, tr(message), Toast.LENGTH_LONG).show() }
 }
 
 /** 一次分享、导出或导入在“是否自定义项”这一步的状态：kind 为 export、share 或 import；导入时带着已读好的文件内容。 */

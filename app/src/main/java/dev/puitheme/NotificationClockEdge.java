@@ -117,8 +117,9 @@ public final class NotificationClockEdge {
     }
 
     /**
-     * H is the visible header bottom, B is H plus the requested safe distance. Only notification
-     * pixels entering [max(H, B-range), B] soften. This is independent of scroll/gesture state;
+     * hardTop is the protected clip edge; safeTop is the real header bottom plus signed distance.
+     * Only notification pixels entering [max(hardTop, safeTop-range), safeTop] soften, including
+     * an overlap inside the header. This is independent of scroll/gesture state;
      * allowCapture is false during native horizontal paging, where the original Canvas fades.
      */
     public static Object draw(View stack, Canvas canvas, float hardTop, float safeTop, float edgeRange,

@@ -15,6 +15,9 @@ public class ViewGroup extends View {
     }
     private boolean clipChildren=true,clipPadding=true;
     private final java.util.List<View> children=new java.util.ArrayList<>();
+    // Framework child array, mirrored for read-only traversal contracts.
+    private View[] mChildren=new View[0];
+    private void syncChildrenForCheck(){mChildren=children.toArray(new View[0]);}
     private View touchTargetForCheck;
     private final ViewGroupOverlay groupOverlay=new ViewGroupOverlay(this);
     public ViewGroup(Context context) { super(context); }
@@ -25,11 +28,16 @@ public class ViewGroup extends View {
     public boolean getClipToPadding() {return clipPadding;}
     public void setClipChildren(boolean value) {clipChildren=value;}
     public void setClipToPadding(boolean value) {clipPadding=value;}
-    public void addView(View view) {children.add(view);view.parent=this;}
+    public void addView(View view) {children.add(view);view.parent=this;syncChildrenForCheck();}
     public void addView(View view,LayoutParams params) {view.setLayoutParams(params);addView(view);}
-    public void removeView(View view) {if(children.remove(view)&&view.parent==this)view.parent=null;}
+    public void addView(View view,int index,LayoutParams params) {view.setLayoutParams(params);children.add(index,view);view.parent=this;syncChildrenForCheck();}
+    public void removeView(View view) {if(children.remove(view)&&view.parent==this)view.parent=null;syncChildrenForCheck();}
+    public void removeAllViews(){for(View child:new java.util.ArrayList<>(children))removeView(child);}
+    public boolean onInterceptTouchEvent(MotionEvent event){return false;}
     public int getChildCount() {return children.size();}
     public View getChildAt(int position) {return children.get(position);}
+    @Override public View findViewById(int id){View own=super.findViewById(id);if(own!=null)return own;for(View child:children){View found=child.findViewById(id);if(found!=null)return found;}return null;}
+    public void requestDisallowInterceptTouchEvent(boolean disallow){if(getParent() instanceof ViewGroup)((ViewGroup)getParent()).requestDisallowInterceptTouchEvent(disallow);}
     public int indexOfChild(View child) {for(int i=0;i<children.size();i++)if(children.get(i)==child)return i;return -1;}
     /** Native hit testing enters a child only through its parent's rectangle;
      * clipChildren=false does not enlarge that touch rectangle. */

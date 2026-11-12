@@ -24,11 +24,39 @@ public final class SettingsProvider extends ContentProvider {
 
     @Override // android.content.ContentProvider
     public boolean onCreate() {
+        if (!ModuleVariant.DABING) {
+            AppFrameworkStatus.start(getContext());
+            CustomPluginVisibility.start(getContext());
+        }
         return true;
     }
 
     @Override // android.content.ContentProvider
     public Bundle call(String str, String str2, Bundle bundle) {
+        if (ModuleVariant.DABING && !METHOD_READ.equals(str) && !PanelMode.METHOD.equals(str)
+                && !ModuleRuntimeStatus.METHOD_BEGIN.equals(str) && !ModuleRuntimeStatus.METHOD_QUERY.equals(str)
+                && !ModuleRuntimeStatus.METHOD_REPORT.equals(str) && !ModuleDiagnostics.METHOD_RECORD.equals(str)
+                && !"read_framework_settings_status".equals(str))
+            throw new SecurityException("This function is not part of the customer edition");
+        if(CustomPluginAppProvider.handles(str))return CustomPluginAppProvider.call(getContext(),str,str2,bundle);
+        if(QsWifiAliasCatalog.REPORT.equals(str)) {
+            enforceAllowedReader();long identity=Binder.clearCallingIdentity();
+            try{return QsWifiAliasCatalog.record(getContext(),bundle);}
+            finally{Binder.restoreCallingIdentity(identity);}
+        }
+        if(CustomPluginAdmin.METHOD.equals(str)) {
+            if(Binder.getCallingUid()!=0)throw new SecurityException("Plugin deployment requires root");
+            long identity=Binder.clearCallingIdentity();
+            try{return CustomPluginAdmin.call(getContext(),str2);}
+            catch(Exception failure){Bundle answer=new Bundle();answer.putString("error",failure.toString());return answer;}
+            finally{Binder.restoreCallingIdentity(identity);}
+        }
+        if(CustomPluginAdmin.REPORT.equals(str)) {
+            enforceAllowedReader();long identity=Binder.clearCallingIdentity();
+            try{return CustomPluginAdmin.report(getContext(),bundle);}
+            catch(Exception failure){throw new IllegalStateException(failure);}
+            finally{Binder.restoreCallingIdentity(identity);}
+        }
         if (PerformanceScheduler.METHOD.equals(str)) {
             // A root-manager boot hook and SystemUI may suggest a time, never select a root action.
             boolean rootBoot = Binder.getCallingUid() == 0;
@@ -45,6 +73,15 @@ public final class SettingsProvider extends ContentProvider {
         if (ModuleRuntimeStatus.METHOD_REPORT.equals(str)) return ModuleRuntimeStatus.recordSystemUiReport(getContext(), bundle);
         if ("read_framework_settings_status".equals(str)) {
             enforceAllowedReader();return SettingsFrameworkMirror.status();
+        }
+        if (CustomPluginHooks.METHOD.equals(str)) {
+            enforceAllowedReader();
+            long identity = Binder.clearCallingIdentity();
+            try {
+                return CustomPluginAdmin.plan(getContext());
+            } catch(Exception failure) {
+                throw new IllegalStateException("Plugin plan unavailable",failure);
+            } finally { Binder.restoreCallingIdentity(identity); }
         }
         if (ModuleDiagnostics.METHOD_RECORD.equals(str)) {
             enforceAllowedReader();
@@ -88,6 +125,8 @@ public final class SettingsProvider extends ContentProvider {
     }
 
     @Override public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
+        if(uri.getPath()!=null&&uri.getPath().startsWith(CustomPluginAppProvider.ASSETS))
+            return CustomPluginAppProvider.open(getContext(),uri,mode);
         enforceAllowedReader();
         if (!"r".equals(mode)) throw new FileNotFoundException("Read-only endpoint");
         File file;
@@ -108,6 +147,10 @@ public final class SettingsProvider extends ContentProvider {
         else if (uri.getPath() != null && uri.getPath().startsWith("/icon-pack/")) {
             try { file = IconPackRepository.providerFile(getContext(), uri); }
             catch (java.io.IOException invalid) { throw new java.io.FileNotFoundException(invalid.getMessage()); }
+        }
+        else if(uri.getPath()!=null&&uri.getPath().startsWith("/custom-plugins/assets/")) {
+            try{file=CustomPluginRepository.providerFile(getContext(),uri);}
+            catch(Exception invalid){throw new FileNotFoundException(invalid.getMessage());}
         }
         else throw new FileNotFoundException("Unknown private asset");
         if (!file.isFile()) throw new FileNotFoundException("No imported asset");

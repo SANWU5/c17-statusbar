@@ -3,6 +3,8 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
 public class View implements ViewParent, Drawable.Callback {
+    /** OEM background display-list recording has its own Canvas, separate from the View content node. */
+    public android.graphics.RenderNode mBackgroundRenderNode;
     public static final android.util.Property<View,Float> TRANSLATION_X=new android.util.Property<View,Float>(Float.class,"translationX"){
         public Float get(View view){return view.getTranslationX();}
         public void set(View view,Float value){view.setTranslationX(value);}
@@ -26,8 +28,9 @@ public class View implements ViewParent, Drawable.Callback {
     public android.graphics.Paint getLayerPaintForCheck(){return layerPaintForCheck;}
     public boolean isHardwareAccelerated(){return hardwareAcceleratedForCheck;}
     public static final int LAYOUT_DIRECTION_LTR=0,LAYOUT_DIRECTION_RTL=1;
-    private int minimumWidth, visibility;
-    private float alpha=1f,translationAlpha=1f,translationX,translationY,scaleX=1f,scaleY=1f;
+    private int minimumWidth, minimumHeight, visibility;
+    private boolean enabled=true,selected;
+    private float alpha=1f,translationAlpha=1f,translationX,translationY,scaleX=1f,scaleY=1f,rotation;
     private int layoutLeft;
     private int layoutTop;
     private int layoutRightForCheck,layoutBottomForCheck;
@@ -36,6 +39,8 @@ public class View implements ViewParent, Drawable.Callback {
     public boolean useLayoutBoundsForCheck;
     private boolean touchDownForCheck;
     public int layoutRequests, invalidations;
+    /** Real field name: NotificationMiniStack writes only its visibility bits during a rear card draw. */
+    public int mViewFlags;
     public int postedInvalidations;
     public boolean dirty;
     public ViewParent parent;
@@ -44,18 +49,22 @@ public class View implements ViewParent, Drawable.Callback {
     private Context context;
     private CharSequence description;
     private android.graphics.Rect clipBounds;
-    private Object outlineProvider;
+    private ViewOutlineProvider outlineProvider;
     private boolean clipToOutline;
     private ViewGroup.LayoutParams layoutParams;
     private boolean measured,layoutRequested=true;
-    private boolean clickable,focusable;
+    private boolean clickable,focusable,longClickable;
     private OnClickListener clickListener;
+    private OnLongClickListener longClickListener;
+    private OnTouchListener touchListener;
     private int measuredWidth,measuredHeight;
     private final Resources resources = Resources.getSystem();
     public interface OnLayoutChangeListener {
         void onLayoutChange(View view,int l,int t,int r,int b,int oldL,int oldT,int oldR,int oldB);
     }
     public interface OnClickListener { void onClick(View view); }
+    public interface OnLongClickListener { boolean onLongClick(View view); }
+    public interface OnTouchListener { boolean onTouch(View view, MotionEvent event); }
     public interface OnAttachStateChangeListener {
         void onViewAttachedToWindow(View view);
         void onViewDetachedFromWindow(View view);
@@ -75,12 +84,16 @@ public class View implements ViewParent, Drawable.Callback {
             listener.onLayoutChange(this,0,0,width,height,0,0,oldWidth,oldHeight);
     }
     public View(Context context) { this.context=context; }
+    private boolean pressedForCheck;
+    public void setPressed(boolean value){pressedForCheck=value;}
+    public boolean isPressed(){return pressedForCheck;}
     public int backgroundColorForCheck;
     public void setBackgroundColor(int value){backgroundColorForCheck=value;}
     public void setWillNotDraw(boolean value) { }
     protected void onAttachedToWindow() { }
     protected void onDetachedFromWindow() { }
     protected void onSizeChanged(int width,int height,int oldWidth,int oldHeight) { }
+    protected void onLayout(boolean changed,int left,int top,int right,int bottom) { }
     public void onVisibilityAggregated(boolean visible) { }
     protected void onVisibilityChanged(View changedView,int visibility) { }
     protected void onWindowVisibilityChanged(int visibility) { }
@@ -88,6 +101,8 @@ public class View implements ViewParent, Drawable.Callback {
     public ViewRootImpl nativeRootForCheck=new ViewRootImpl();
     private android.graphics.RenderNode backgroundNodeForCheck;
     public ViewRootImpl getViewRootImpl(){return nativeRootForCheck;}
+    public android.window.OnBackInvokedDispatcher backDispatcherForCheck;
+    public final android.window.OnBackInvokedDispatcher findOnBackInvokedDispatcher(){return backDispatcherForCheck;}
     public IViewWrapper getViewWrapper(){return () -> {
         if(backgroundNodeForCheck==null)backgroundNodeForCheck=new android.graphics.RenderNode("fixture owned backdrop view");
         return backgroundNodeForCheck;
@@ -101,13 +116,23 @@ public class View implements ViewParent, Drawable.Callback {
     public int getTop() {return layoutTop;}
     public void offsetTopAndBottom(int value) {layoutTop+=value;}
     public int layoutCalls;
-    public void layout(int left,int top,int right,int bottom){layoutLeft=left;layoutTop=top;layoutRightForCheck=right;layoutBottomForCheck=bottom;layoutCalls++;}
+    public void layout(int left,int top,int right,int bottom){setFrame(left,top,right,bottom);layoutCalls++;}
+    protected boolean setFrame(int left,int top,int right,int bottom){boolean changed=layoutLeft!=left||layoutTop!=top||layoutRightForCheck!=right||layoutBottomForCheck!=bottom;layoutLeft=left;layoutTop=top;layoutRightForCheck=right;layoutBottomForCheck=bottom;return changed;}
+    private boolean horizontalFadingEdgeEnabled;
+    private int fadingEdgeLength;
+    public boolean isHorizontalFadingEdgeEnabled(){return horizontalFadingEdgeEnabled;}
+    public void setHorizontalFadingEdgeEnabled(boolean enabled){horizontalFadingEdgeEnabled=enabled;}
+    public int getHorizontalFadingEdgeLength(){return fadingEdgeLength;}
+    public void setFadingEdgeLength(int length){fadingEdgeLength=length;}
     public void getLocationOnScreen(int[] output) {output[0]=getLeft();output[1]=getTop();}
     public void getLocationInWindow(int[] output) {getLocationOnScreen(output);}
     public int getLeft() {return layoutLeft;}
     public int getRight() {return getLeft()+getWidth();}
     public int getBottom() {return getTop()+getHeight();}
     public boolean hasOnClickListeners() {return clickListener!=null;}
+    public void setOnLongClickListener(OnLongClickListener listener){longClickListener=listener;if(listener!=null)longClickable=true;}
+    public boolean performLongClick(){return longClickListener!=null&&longClickListener.onLongClick(this);}
+    public void setOnTouchListener(OnTouchListener listener){touchListener=listener;}
     public void offsetLeftAndRight(int value) {layoutLeft+=value;}
     public float getTranslationX() {return translationX;}
     public void setTranslationX(float value) {translationX=value;}
@@ -122,11 +147,17 @@ public class View implements ViewParent, Drawable.Callback {
     public void setScaleY(float value) {scaleY=value;}
     public float getScaleX() {return scaleX;}
     public void setScaleX(float value) {scaleX=value;}
-    public float getPivotY() {return getHeight()*.5f;}
+    public float getRotation(){return rotation;}
+    public void setRotation(float value){rotation=value;}
+    private Float explicitPivotX,explicitPivotY;
+    public float getPivotX() {return explicitPivotX==null?getWidth()*.5f:explicitPivotX;}
+    public float getPivotY() {return explicitPivotY==null?getHeight()*.5f:explicitPivotY;}
     public int getMeasuredWidth() {return measured?measuredWidth:getWidth();}
     public int getMeasuredHeight() {return measured?measuredHeight:getHeight();}
     public int getMeasuredWidthAndState(){return getMeasuredWidth();}
     public boolean isLayoutRequested(){return layoutRequested;}
+    public boolean transientStateForCheck;
+    public boolean hasTransientState(){return transientStateForCheck;}
     public void measure(int width,int height){onMeasure(width,height);measured=true;layoutRequested=false;}
     protected void onMeasure(int width,int height){setMeasuredDimension(getWidth(),getHeight());}
     protected void setMeasuredDimension(int width,int height){measuredWidth=width;measuredHeight=height;measured=true;}
@@ -135,15 +166,18 @@ public class View implements ViewParent, Drawable.Callback {
         int mode=MeasureSpec.getMode(spec),limit=MeasureSpec.getSize(spec);
         return mode==MeasureSpec.EXACTLY?limit:mode==MeasureSpec.AT_MOST?Math.min(size,limit):size;
     }
-    public void setPivotX(float value) { }
-    public void setPivotY(float value) { }
+    public void setPivotX(float value) {explicitPivotX=value;}
+    public void setPivotY(float value) {explicitPivotY=value;}
     public void setClickable(boolean value) {clickable=value;}
     public boolean isClickable(){return clickable;}
+    public boolean isLongClickable(){return longClickable;}
+    public void setLongClickable(boolean value){longClickable=value;}
     public void setFocusable(boolean value) {focusable=value;}
     public boolean isFocusable(){return focusable;}
     public void setOnClickListener(OnClickListener listener){clickListener=listener;if(listener!=null)clickable=true;}
     public boolean performClick(){if(clickListener==null)return false;clickListener.onClick(this);return true;}
-    public boolean dispatchTouchEvent(MotionEvent event){return onTouchEvent(event);}
+    public boolean performAccessibilityAction(int action,android.os.Bundle arguments){return action==16&&performClick();}
+    public boolean dispatchTouchEvent(MotionEvent event){return touchListener!=null&&touchListener.onTouch(this,event)||onTouchEvent(event);}
     public boolean onTouchEvent(MotionEvent event) {
         if(!isClickable()){touchDownForCheck=false;return false;}
         int action=event.getActionMasked();
@@ -166,9 +200,11 @@ public class View implements ViewParent, Drawable.Callback {
     public void setPadding(int left,int top,int right,int bottom) {
         if(keepPaddingForCheck){checkPaddingLeft=left;checkPaddingTop=top;checkPaddingRight=right;checkPaddingBottom=bottom;}
     }
-    public Object getTag(int key) {return null;}
+    private final java.util.Map<Integer,Object> keyedTags=new java.util.HashMap<>();
+    public Object getTag(int key) {return keyedTags.get(key);}
     public Object getTag() {return null;}
-    public void setTag(int key,Object value) { }
+    public void setTag(int key,Object value) {if(value==null)keyedTags.remove(key);else keyedTags.put(key,value);}
+    private void drawBackground(android.graphics.Canvas canvas) { if (getBackground()!=null) getBackground().draw(canvas); }
     public int getScrollX() {return 0;}
     public int getScrollY() {return 0;}
     public int getPaddingLeft() {return checkPaddingLeft;}
@@ -183,11 +219,11 @@ public class View implements ViewParent, Drawable.Callback {
     public void setClipBounds(android.graphics.Rect value) {clipBounds=value;}
     public android.graphics.Rect getClipBounds() {return clipBounds;}
     public boolean getClipBounds(android.graphics.Rect result) {if(clipBounds==null)return false;result.left=clipBounds.left;result.top=clipBounds.top;result.right=clipBounds.right;result.bottom=clipBounds.bottom;return true;}
-    public Object getOutlineProvider(){return outlineProvider;}
-    public void setOutlineProvider(Object value){outlineProvider=value;}
+    public ViewOutlineProvider getOutlineProvider(){return outlineProvider;}
+    public void setOutlineProvider(ViewOutlineProvider value){outlineProvider=value;}
     public boolean getClipToOutline(){return clipToOutline;}
     public void setClipToOutline(boolean value){clipToOutline=value;}
-    public View findViewById(int id) { return null; }
+    public View findViewById(int id) { return id>=0&&getId()==id?this:null; }
     private int viewId=-1;
     public int getId() { return viewId; }
     public void setId(int value) {viewId=value;}
@@ -195,12 +231,26 @@ public class View implements ViewParent, Drawable.Callback {
     public void setContentDescription(CharSequence value) { description=value; }
     public int getMinimumWidth() { return minimumWidth; }
     public void setMinimumWidth(int value) { minimumWidth = value; requestLayout(); }
+    public int getMinimumHeight() { return minimumHeight; }
+    public void setMinimumHeight(int value) { minimumHeight=value;requestLayout(); }
+    public boolean isEnabled(){return enabled;}
+    public void setEnabled(boolean value){enabled=value;}
+    public boolean isSelected(){return selected;}
+    public void setSelected(boolean value){selected=value;}
+    private boolean activatedForCheck;
+    public boolean isActivated(){return activatedForCheck;}
+    public void setActivated(boolean value){activatedForCheck=value;}
+    public void setLayoutDirection(int value) { }
     public int getVisibility() { return visibility; }
     public int[] getDrawableState(){return new int[0];}
     public void setVisibility(int value) { visibility = value; }
     public ViewParent getParent() { return parent; }
     public View getRootView() {return parent instanceof View?((View)parent).getRootView():this;}
-    public WindowInsets getRootWindowInsets() {return null;}
+    private android.graphics.Matrix animationMatrix;
+    public void setAnimationMatrix(android.graphics.Matrix value){animationMatrix=null;if(value!=null){animationMatrix=new android.graphics.Matrix();animationMatrix.set(value);}}
+    public android.graphics.Matrix getAnimationMatrix(){return animationMatrix;}
+    public WindowInsets windowInsetsForCheck;
+    public WindowInsets getRootWindowInsets() {return windowInsetsForCheck;}
     public android.os.IBinder getWindowToken() {return null;}
     public Display getDisplay() {return null;}
     public void draw(android.graphics.Canvas canvas) { }

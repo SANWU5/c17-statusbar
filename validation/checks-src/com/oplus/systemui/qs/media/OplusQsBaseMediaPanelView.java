@@ -19,11 +19,16 @@ public class OplusQsBaseMediaPanelView extends View {
     public OplusQsBaseMediaPanelView(){super(new Context());transition=new OplusQsMediaBackgroundDrawable(new CornerOutlineProvider(56f,.8f));
         preBtn.parent=this;nextBtn.parent=this;playOrPauseBtn.parent=this;mediaOutputBtn.parent=this;}
     public View getBg(){return body;}
+    public void onFinishInflate(){}
     public OplusQsMediaBackgroundDrawable getTransitionDrawable(){return transition;}
     private int getPreBtnRes(){return 0x7f080e5a;}private int getNextBtnRes(){return 0x7f080e54;}private int getDeviceSwitchRes(){return 0x7f0818f6;}
     public void setSemanticButton(OplusLottieButton button,int resource,com.android.systemui.media.controls.shared.model.MediaAction action,com.android.systemui.media.controls.shared.model.MediaData data){}
     public void bindViewWithAction(OplusLottieButton button,com.android.systemui.media.controls.shared.model.MediaAction action,com.android.systemui.media.controls.shared.model.MediaData data){}
     public void updateMediaOutputBtn(int route){}
     public void bindMediaDataInner(com.android.systemui.media.controls.shared.model.MediaData data,String key){}
+    public void bindCoverImg(com.android.systemui.media.controls.shared.model.MediaData data){}
+    public void updateMultiLightForCurrentTrack(com.android.systemui.media.controls.shared.model.MediaData data){}
+    public void resetCoverImg(){}
+    public void onDrawableUpdate(boolean theme){}
     public void unBindMediaData(){}
 }

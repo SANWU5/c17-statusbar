@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/c17_launch_background" />
+    <item android:width="96dp" android:height="96dp" android:gravity="center"
+        android:drawable="@mipmap/ic_c17_launcher" />
+</layer-list>

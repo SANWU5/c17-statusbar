@@ -44,21 +44,21 @@ public final class Upgrade168Check {
                 Upgrade101.DEFAULTS,Upgrade103.DEFAULTS,Upgrade105.DEFAULTS,Upgrade106.DEFAULTS,Upgrade107.DEFAULTS,
                 Upgrade108.DEFAULTS,Upgrade117.DEFAULTS,Upgrade118.DEFAULTS,Upgrade135.DEFAULTS,Upgrade136.DEFAULTS,
                 Upgrade144.DEFAULTS,Upgrade146.DEFAULTS,Upgrade154.DEFAULTS,Upgrade157.DEFAULTS,Upgrade160.DEFAULTS,
-                Upgrade166.DEFAULTS,Upgrade168.DEFAULTS,Upgrade169.DEFAULTS,Upgrade171.DEFAULTS,Upgrade172.DEFAULTS,Upgrade173.DEFAULTS,Upgrade174.DEFAULTS,Upgrade175.DEFAULTS,Upgrade177.DEFAULTS,Upgrade184.DEFAULTS,Upgrade185.DEFAULTS,Upgrade186.DEFAULTS,Upgrade187.DEFAULTS,Upgrade188.DEFAULTS);
+                Upgrade166.DEFAULTS,Upgrade168.DEFAULTS,Upgrade169.DEFAULTS,Upgrade171.DEFAULTS,Upgrade172.DEFAULTS,Upgrade173.DEFAULTS,Upgrade174.DEFAULTS,Upgrade175.DEFAULTS,Upgrade177.DEFAULTS,Upgrade184.DEFAULTS,Upgrade185.DEFAULTS,Upgrade186.DEFAULTS,Upgrade187.DEFAULTS,Upgrade188.DEFAULTS,Upgrade195.DEFAULTS,Upgrade196.DEFAULTS,Upgrade209.DEFAULTS,Upgrade279.DEFAULTS);
         for(int index=0;index<batches.size();index++)if(schema<index+2)
             for(String key:batches.get(index).keySet())result.remove(key);
         if(schema<12)result.remove(FluidCloudStyle.BACKGROUND_COLOR_CUSTOMIZED);
         result.put(SettingsFrameworkMirror.SCHEMA,schema);result.put(SettingsFrameworkMirror.REVISION,168L);return result;
     }
     private static void registration(Bundle full) throws Exception {
-        equal(48,SettingsFrameworkMirror.VERSION,"current schema");
+        equal(52,SettingsFrameworkMirror.VERSION,"current schema");
         equal(14,Upgrade168.DEFAULTS.size(),"two orientation batches plus six portable widget choices");
         equal(additions(),Upgrade168.DEFAULTS,"exact frozen defaults and types");
-        equal(979,full.keySet().size(),"current snapshot includes the frozen appearance and new text batches");
+        equal(1000,full.keySet().size(),"current snapshot includes the frozen appearance and new text batches");
         System.out.println("Upgrade168 registry: portable="+ConfigTransfer.types().size()+", leftProvider="
                 +ConfigTransfer.types().containsKey(BigClockWidgetsSettings.LEFT_PROVIDER)+", rightProvider="
                 +ConfigTransfer.types().containsKey(BigClockWidgetsSettings.RIGHT_PROVIDER));
-        equal(966,ConfigTransfer.types().size(),"portable registry includes both provider choices");
+        equal(987,ConfigTransfer.types().size(),"portable registry includes both provider choices");
         for(Map.Entry<String,Object> item:additions().entrySet()) {
             equal(item.getValue(),full.get(item.getKey()),"snapshot default "+item.getKey());
             equal(true,ConfigTransfer.types().containsKey(item.getKey()),"portable addition "+item.getKey());
@@ -173,7 +173,7 @@ public final class Upgrade168Check {
         }
         String complete=ConfigTransfer.exportJson(choices);
         equal(false,complete.contains("PRIVATE_WIDGET_GRANT_SENTINEL"),"private IDs and pending journal never export");
-        equal(966,ConfigTransfer.prepare(complete,true).count,"complete portable document count");
+        equal(987,ConfigTransfer.prepare(complete,true).count,"complete portable document count");
         for(String field:new String[]{NotificationBigClockSettings.FOLLOW_STYLE,NotificationBigClockSettings.landscapeKey(NotificationBigClockSettings.FOLLOW_STYLE)})
             for(String wrong:new String[]{"null","0","\"true\""})invalid("\""+field+"\":"+wrong,"follow remains strictly Boolean");
     }

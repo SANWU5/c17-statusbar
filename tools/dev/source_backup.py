@@ -18,14 +18,17 @@ with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as archive:
                 'build.gradle', 'gradle.properties', 'settings.gradle', 'validation/checks-src', 'validation/test-libs',
                 'validation/native-canvas', 'validation/README.md', 'validation/run-checks.ps1', 'validation/check-runtime-dependencies.ps1', 'validation/SettingsCheck.java',
                 'validation/verify_font_reference.py', 'validation/performance-module-check.py', 'validation/performance-webui-check.cjs',
-                'validation/CouiSurfaceMathCheck.kt', 'validation/coui-surface-check.py', 'tools'):
+                 'validation/CouiSurfaceMathCheck.kt', 'validation/coui-surface-check.py', 'tools', 'plugins'):
         path = os.path.join(root, top)
         if os.path.isfile(path):
             archive.write(path, top)
             count += 1
         elif os.path.isdir(path):
             for folder, dirs, files in os.walk(path):
+                dirs[:] = [name for name in dirs if name not in ('build', '__pycache__', '.git', '.gradle', '.local-private', '.local-toolchain')]
                 for name in files:
+                    if name.endswith(('.pyc', '.pyo')):
+                        continue
                     full = os.path.join(folder, name)
                     archive.write(full, os.path.relpath(full, root).replace('\\', '/'))
                     count += 1

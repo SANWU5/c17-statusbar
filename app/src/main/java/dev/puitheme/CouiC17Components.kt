@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,16 +26,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.DpSize
-import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import io.github.suqi8.coui.kmp.basic.BasicComponent as CouiBasicComponent
@@ -45,7 +40,7 @@ import io.github.suqi8.coui.kmp.icon.COUIIcons
 import io.github.suqi8.coui.kmp.icon.basic.ArrowRight
 import io.github.suqi8.coui.kmp.theme.COUITheme
 
-/** COUI's real row/press surface, with measured trailing values that cannot squeeze away the title. */
+/** COUI's real row and press surface around the shared measured label/value layout. */
 @Composable
 internal fun C17CouiPreferenceRow(
     modifier: Modifier = Modifier,
@@ -66,38 +61,7 @@ internal fun C17CouiPreferenceRow(
         enabled = enabled,
         bottomAction = bottomAction,
     ) {
-        Layout(content = {
-            if (startAction != null) Box(Modifier.layoutId("start"), contentAlignment = Alignment.Center) { startAction() }
-            Column(Modifier.layoutId("label"), content = content)
-            if (endActions != null) Row(Modifier.layoutId("value"), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End, content = endActions)
-        }) { measurables, constraints ->
-            val width = constraints.maxWidth
-            val gap = 10.dp.roundToPx()
-            val loose = constraints.copy(minWidth = 0, minHeight = 0)
-            val start = measurables.firstOrNull { it.layoutId == "start" }
-                ?.measure(loose.copy(maxWidth = width / 4))
-            val inset = (start?.width ?: 0) + if (start == null) 0 else gap
-            val remaining = (width - inset).coerceAtLeast(0)
-            val label = measurables.first { it.layoutId == "label" }
-            val value = measurables.firstOrNull { it.layoutId == "value" }
-            val naturalValue = value?.maxIntrinsicWidth(Constraints.Infinity) ?: 0
-            // Larger fonts get a second value line instead of an ever-narrower title column.
-            val needsSecondLine = naturalValue > maxOf(48.dp.roundToPx(),
-                ((remaining - gap).coerceAtLeast(0) * .44f).toInt())
-            val valueCap = if (needsSecondLine) remaining else ((remaining - gap).coerceAtLeast(0) * .44f).toInt()
-            val end = value?.measure(loose.copy(maxWidth = valueCap))
-            val labelWidth = if (needsSecondLine || end == null || end.width == 0) remaining else
-                (remaining - end.width - gap).coerceAtLeast(0)
-            val center = label.measure(loose.copy(maxWidth = labelWidth))
-            val firstHeight = maxOf(start?.height ?: 0, center.height, if (needsSecondLine) 0 else end?.height ?: 0)
-            val height = firstHeight + if (needsSecondLine && end != null) gap + end.height else 0
-            layout(width, constraints.constrainHeight(height)) {
-                start?.placeRelative(0, (firstHeight - start.height) / 2)
-                center.placeRelative(inset, (firstHeight - center.height) / 2)
-                end?.placeRelative(width - end.width, if (needsSecondLine) firstHeight + gap else (firstHeight - end.height) / 2)
-            }
-        }
+        C17MeasuredRow(startAction, endActions, content)
     }
 }
 

@@ -38,7 +38,8 @@ function C17-WithSdk([scriptblock]$body) {
     $backup = $null
     if (Test-Path -LiteralPath $props) { $backup = [System.IO.File]::ReadAllText($props) }
     try {
-        [System.IO.File]::WriteAllText($props, "sdk.dir=$C17Sdk`n")
+        $sdkProperty = $C17Sdk.Replace(':', '\:')
+        [System.IO.File]::WriteAllText($props, "sdk.dir=$sdkProperty`n")
         & $body
     } finally {
         if ($null -ne $backup) { [System.IO.File]::WriteAllText($props, $backup) }

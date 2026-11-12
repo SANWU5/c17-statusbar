@@ -77,7 +77,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class StatusBarModule extends XposedModule {
     private static final String MOBILE_VM = "com.oplus.systemui.statusbar.pipeline.mobile.ui.viewmodel.OplusMobileIconViewModel";
     private static final String MODERN_VIEW = "com.android.systemui.statusbar.pipeline.shared.ui.view.ModernStatusBarView";
-    private static final String MODULE_PACKAGE = "dev.puitheme.iosstatusbar";
+    private static final String MODULE_PACKAGE = ModuleVariant.PACKAGE;
     private static final float NETWORK_GLYPH_CENTER_Y_DP = 6.625f;
     private static final float NETWORK_GLYPH_HEIGHT_DP = 11.5f;
     private static final String NETWORK_TYPE = "com.android.systemui.statusbar.pipeline.mobile.data.OplusNetworkTypeText";
@@ -133,7 +133,6 @@ public final class StatusBarModule extends XposedModule {
     private static volatile float labelOffsetXdp = 0;
     private static volatile float labelOffsetYdp = 0;
     private static volatile float labelScalePercent = 100;
-    private static volatile float slotWidthDp = 22;
     private static volatile boolean roamingHiddenLogged;
     private static volatile float speedOffsetXdp, speedOffsetYdp, speedLineGapDp;
     private static volatile float speedScalePercent = 100, speedNumberScalePercent = 100, speedUnitScalePercent = 100;
@@ -166,6 +165,7 @@ public final class StatusBarModule extends XposedModule {
     private static TelephonyManager observedTelephony;
     private static DataRadioCallback dataRadioCallback;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static final CustomPluginHooks CUSTOM_PLUGINS = new CustomPluginHooks(MAIN);
     private static final TextControls TEXT = new TextControls(MAIN);
     private static final StatusBarLeftCopySpacing LEFT_COPY_SPACING = new StatusBarLeftCopySpacing(TEXT::clockDrawOffsetX);
     private static final ShadeWallpaper SHADE_WALLPAPER = new ShadeWallpaper();
@@ -190,6 +190,9 @@ public final class StatusBarModule extends XposedModule {
     private static final FluidCloudStyle FLUID_STYLE = new FluidCloudStyle();
     private static final AodNotificationBackground AOD_NOTIFICATION_BACKGROUND = new AodNotificationBackground();
     private static final FluidCloudCapsule FLUID_CAPSULE = new FluidCloudCapsule(FLUID_ACCENT);
+    private static final PrivacyDotHider PRIVACY_DOT = new PrivacyDotHider();
+    private static final PrivacyCapsule PRIVACY_CAPSULE = new PrivacyCapsule();
+    private static volatile PrivacyIndicatorSettings privacySettings = PrivacyIndicatorSettings.from(null);
     private static final CapsuleEffects CAPSULE_EFFECTS = new CapsuleEffects();
     private static final CapsulePersistence CAPSULE_PERSISTENCE = new CapsulePersistence();
     private static final CapsuleMediaPersistence CAPSULE_MEDIA_PERSISTENCE = new CapsuleMediaPersistence();
@@ -250,6 +253,7 @@ public final class StatusBarModule extends XposedModule {
     private static final NativeNetworkBadgeControls NATIVE_BADGE = new NativeNetworkBadgeControls();
     private static final NativeDataActivity DATA_ACTIVITY = new NativeDataActivity();
     private static final NetworkLabelFormats LABEL_FORMATS = new NetworkLabelFormats();
+    private static final QsWifiAlias WIFI_ALIAS = new QsWifiAlias();
     private static final SingleNetworkLabelControls SINGLE_LABEL = new SingleNetworkLabelControls();
     private static final SingleMobileIconControls SINGLE_SIGNAL = new SingleMobileIconControls();
     private static final NativeNetworkBadgeBindings NATIVE_BADGE_BINDINGS = new NativeNetworkBadgeBindings(NATIVE_BADGE, SINGLE_SIGNAL);
@@ -297,6 +301,9 @@ public final class StatusBarModule extends XposedModule {
         installLazyHooks();
     }
 
+    /** Fixed structural counters of the same-app mini stack, for the on-demand hook cost report. */
+    static String miniStackSummary() { return MINI_STACK.diagnosticSummary(); }
+
     /** What really got installed, for the runtime probe answer: fixed ids and counts only. */
     static Bundle hookHealth() {
         Bundle report = new Bundle();
@@ -311,6 +318,7 @@ public final class StatusBarModule extends XposedModule {
         report.putStringArrayList(HookHealth.GROUPS, groups);
         report.putStringArrayList(HookHealth.COMPLETE, complete);
         report.putStringArrayList(HookHealth.LAZY, lazy);
+        CUSTOM_PLUGINS.health(report);
         return report;
     }
 
@@ -357,7 +365,8 @@ public final class StatusBarModule extends XposedModule {
         }
     }
     private enum HookGroup {
-        CONTEXT, PANEL_MODE, SHADE_WALLPAPER, MODEL, DRAWABLE, BADGE, WIFI, SPEED, COMPOSE, NETWORK_ORDER, STATUS_FLOW, STATUS_HINTS, TEXT, BATTERY, DATA_SPACING, TILES, QS_APPEARANCE, QS_FULL_FILL, QS_CORNERS, QS_ICON_SIZE, ICON_MANAGEMENT, QS_PANEL_CORNERS, QS_MEDIA, BIG_CLOCK, NOTIFICATION_CLEAR, NOTIFICATION_ICONS, NOTIFICATION_ROW_ICONS, C17_HIGHLIGHTS, LOCKSCREEN_BLUR, FLUID_ACCENT, FLUID_MEDIA, FLUID_NOTIFICATION, MINI_STACK
+        WIFI_ALIAS,
+        CONTEXT, PANEL_MODE, SHADE_WALLPAPER, MODEL, DRAWABLE, BADGE, WIFI, SPEED, COMPOSE, NETWORK_ORDER, STATUS_FLOW, STATUS_HINTS, TEXT, BATTERY, DATA_SPACING, TILES, QS_APPEARANCE, QS_FULL_FILL, QS_CORNERS, QS_ICON_SIZE, ICON_MANAGEMENT, QS_PANEL_CORNERS, QS_MEDIA, BIG_CLOCK, NOTIFICATION_CLEAR, NOTIFICATION_ICONS, NOTIFICATION_ROW_ICONS, C17_HIGHLIGHTS, LOCKSCREEN_BLUR, FLUID_ACCENT, FLUID_MEDIA, FLUID_NOTIFICATION, MINI_STACK, PRIVACY
     }
     private static final Set<HookGroup> COMPLETED_HOOK_GROUPS = Collections.newSetFromMap(new ConcurrentHashMap<HookGroup, Boolean>());
     /** Lock-free copies of the installation state, read by the runtime probe answer without waiting for an installer. */
@@ -378,17 +387,17 @@ public final class StatusBarModule extends XposedModule {
         boolean appliedCellularMode;
         String appliedLabel;
         final int originalMinimumWidth;
-        int requestedVisibility;
-        boolean settingVisibility;
+        final WifiVisibilityPolicy visibility;
         int visibleState = 2;
         int tint = -855638017;
         float appearAmount = 1.0f;
         final Paint paint = new Paint(129);
         final Rect textBounds = new Rect();
+        NetworkLabelGeometry.Plan labelGeometry;
 
         Slot(View view) {
             this.originalMinimumWidth = view.getMinimumWidth();
-            this.requestedVisibility = view.getVisibility();
+            this.visibility = new WifiVisibilityPolicy(view.getVisibility());
             this.paint.setTypeface(Typeface.create("sans-serif-medium", 0));
             this.paint.setFakeBoldText(true);
             this.paint.setTextAlign(Paint.Align.LEFT);
@@ -400,6 +409,8 @@ public final class StatusBarModule extends XposedModule {
         private Drawable styled;
         private final Drawable nativeDrawable;
         private String sourceName, assetName;
+        private String roleSourceName, signalRole;
+        private boolean roleSingleSignal;
         private Resources baseResources;
         private int nativeAlpha = 255;
         private ColorFilter nativeFilter;
@@ -414,6 +425,10 @@ public final class StatusBarModule extends XposedModule {
         private int nativeTint = Color.BLACK;
         private int appliedTint;
         private boolean tintApplied;
+        private Boolean mirrored;
+        private boolean hasHotspot;
+        private float hotspotX,hotspotY;
+        private Rect hotspotBounds;
 
         ScaledDrawable(Drawable drawable, Resources resources, boolean z) {
             this(drawable, resources, z, null);
@@ -427,6 +442,12 @@ public final class StatusBarModule extends XposedModule {
             this.wifiIcon = z;
             this.originalWidth = Math.max(1, drawable.getIntrinsicWidth());
             this.originalHeight = Math.max(1, drawable.getIntrinsicHeight());
+            Drawable initial=nativeDrawable!=null?nativeDrawable:drawable;
+            nativeAlpha=initial.getAlpha();nativeFilter=initial.getColorFilter();
+            nativeTint=nativeFilterColor(nativeFilter,nativeTint);
+            delegate.setAlpha(nativeAlpha);delegate.setColorFilter(nativeFilter);
+            setState(initial.getState());setLevel(initial.getLevel());
+            setVisible(initial.isVisible(),false);setLayoutDirection(initial.getLayoutDirection());
             this.delegate.setCallback(this);
             onBoundsChange(getBounds());
             reportNetworkWidth();
@@ -442,12 +463,32 @@ public final class StatusBarModule extends XposedModule {
             chooseDelegate(); tintApplied = false;
         }
 
+        private String sourceRole() {
+            if(!java.util.Objects.equals(roleSourceName,sourceName)||roleSingleSignal!=singleSignal){
+                roleSourceName=sourceName;roleSingleSignal=singleSignal;
+                signalRole=IconPackDrawing.signalRole(sourceName,singleSignal);
+            }
+            return signalRole;
+        }
+        /** Both size controls belong outside Compose Image's native clip, exactly once. */
+        private float composeScale(float dimension) {
+            String group=wifiIcon?"wifi":"data";
+            float legacy=FEATURES.enabled(group)?(wifiIcon?wifiIconScalePercent:dataIconScalePercent)/100f:1f;
+            return NumericPolicy.scale(legacy*IconManagementRuntime.sizeForRole(sourceRole()),dimension);
+        }
         private void chooseDelegate() {
             String group=wifiIcon?"wifi":"data";
-            Drawable wanted=FEATURES.effective(group,group+"_icon_enabled")||nativeDrawable==null?styled:nativeDrawable;
+            boolean systemSource=IconManagementRuntime.systemSource(sourceRole());
+            Drawable wanted=nativeDrawable!=null&&(systemSource||!FEATURES.effective(group,group+"_icon_enabled"))?nativeDrawable:styled;
             if(delegate==wanted)return;
+            nativeAlpha=delegate.getAlpha();
+            if(!tintApplied){nativeFilter=delegate.getColorFilter();nativeTint=nativeFilterColor(nativeFilter,nativeTint);}
             delegate.setCallback(null);delegate=wanted;delegate.setCallback(this);
             delegate.setState(getState());delegate.setLevel(getLevel());delegate.setAlpha(nativeAlpha);
+            delegate.setVisible(isVisible(),false);delegate.setLayoutDirection(getLayoutDirection());
+            if(mirrored!=null)delegate.setAutoMirrored(mirrored);
+            if(hasHotspot)delegate.setHotspot(hotspotX,hotspotY);
+            if(hotspotBounds!=null)delegate.setHotspotBounds(hotspotBounds.left,hotspotBounds.top,hotspotBounds.right,hotspotBounds.bottom);
             restoreNativeFilter();setDelegateBounds(getBounds());tintApplied=false;
             reportNetworkWidth();
         }
@@ -478,23 +519,29 @@ public final class StatusBarModule extends XposedModule {
             if (!this.composePlacement && FEATURES.color(wifiIcon ? "wifi" : "data")) {
                 int tint = styleColor(this.wifiIcon ? "wifi" : "data", this.nativeTint);
                 if (!this.tintApplied || this.appliedTint != tint) {
+                    if(!tintApplied)nativeFilter=delegate.getColorFilter();
                     this.tintApplied = true;
                     this.appliedTint = tint;
                     this.delegate.setColorFilter(tint, PorterDuff.Mode.SRC_IN);
                 }
             } else if(tintApplied) { restoreNativeFilter(); tintApplied=false; }
             int iSave = canvas.save();
-            float scale = NumericPolicy.scale(scalePercent / 100.0f,Math.max(bounds.width(),bounds.height()));
-            canvas.translate(NumericPolicy.pixels((double)centerX+NumericPolicy.pixels(offsetX,this.density)),NumericPolicy.pixels((double)centerY+NumericPolicy.pixels(offsetY,this.density)));
-            canvas.scale(scale, scale);
-            canvas.translate(-centerX, -centerY);
-            setDelegateBounds(bounds);
-            int maskTint = tintApplied ? appliedTint : nativeTintList!=null
-                    ? nativeTintList.getColorForState(getState(),nativeTintList.getDefaultColor()) : nativeTintSet ? nativeTint : Color.WHITE;
-            if (!ICON_PACK_DRAWING.drawSignal(sourceName,delegate,canvas,maskTint,nativeAlpha,
-                    delegate.getColorFilter(),singleSignal&&sourceName!=null&&sourceName.contains("_stacked_secondary_"),singleSignal))
-                this.delegate.draw(canvas);
-            canvas.restoreToCount(iSave);
+            try {
+                float scale = NumericPolicy.scale(scalePercent / 100.0f,Math.max(bounds.width(),bounds.height()));
+                canvas.translate(NumericPolicy.pixels((double)centerX+NumericPolicy.pixels(offsetX,this.density)),NumericPolicy.pixels((double)centerY+NumericPolicy.pixels(offsetY,this.density)));
+                canvas.scale(scale, scale);
+                canvas.translate(-centerX, -centerY);
+                setDelegateBounds(bounds);
+                // Drawable bounds are integers. Keep their exact half-pixel correction
+                // inside this same transform for both native and replacement graphics.
+                Rect graphicBounds=delegate.getBounds();
+                canvas.translate(centerX-graphicBounds.exactCenterX(),centerY-graphicBounds.exactCenterY());
+                int maskTint = tintApplied ? appliedTint : nativeTintList!=null
+                        ? nativeTintList.getColorForState(getState(),nativeTintList.getDefaultColor()) : nativeTintSet ? nativeTint : Color.WHITE;
+                if (!ICON_PACK_DRAWING.drawSignal(sourceName,delegate,canvas,maskTint,delegate.getAlpha(),
+                        delegate.getColorFilter(),singleSignal&&sourceName!=null&&sourceName.contains("_stacked_secondary_"),singleSignal,composePlacement))
+                    this.delegate.draw(canvas);
+            } finally { canvas.restoreToCount(iSave); }
         }
 
         @Override // android.graphics.drawable.Drawable
@@ -562,6 +609,16 @@ public final class StatusBarModule extends XposedModule {
             this.delegate.setAlpha(i);
             invalidateSelf();
         }
+        @Override public int getAlpha(){return delegate.getAlpha();}
+        @Override public ColorFilter getColorFilter(){return delegate.getColorFilter();}
+        @Override public boolean setVisible(boolean visible,boolean restart){return super.setVisible(visible,restart)|delegate.setVisible(visible,restart);}
+        @Override public boolean onLayoutDirectionChanged(int direction){return delegate.setLayoutDirection(direction);}
+        @Override public void setAutoMirrored(boolean value){mirrored=value;delegate.setAutoMirrored(value);}
+        @Override public boolean isAutoMirrored(){return delegate.isAutoMirrored();}
+        @Override public void setHotspot(float x,float y){hasHotspot=true;hotspotX=x;hotspotY=y;delegate.setHotspot(x,y);}
+        @Override public void setHotspotBounds(int left,int top,int right,int bottom){if(hotspotBounds==null)hotspotBounds=new Rect();hotspotBounds.set(left,top,right,bottom);delegate.setHotspotBounds(left,top,right,bottom);}
+        @Override public void getHotspotBounds(Rect result){delegate.getHotspotBounds(result);}
+        @Override public void jumpToCurrentState(){delegate.jumpToCurrentState();}
 
         @Override // android.graphics.drawable.Drawable
         public void setColorFilter(ColorFilter colorFilter) {
@@ -652,6 +709,8 @@ public final class StatusBarModule extends XposedModule {
             moduleLog(Log.WARN, TAG, "SystemUI callback had no class loader at " + phase);
             return;
         }
+        if (!ModuleVariant.DABING) CUSTOM_PLUGINS.rememberLoader(classLoader);
+        if (!ModuleVariant.DABING && "package-ready".equals(phase)) CUSTOM_PLUGINS.retryReadyLoader();
         synchronized (SYSTEMUI_HOOK_LOCK) {
             if ("package-ready".equals(phase)) refreshPendingSystemUiHooks(classLoader);
             // A real readiness event retries pending sites before the completed-group fast path.
@@ -679,6 +738,15 @@ public final class StatusBarModule extends XposedModule {
                         if (!installShadeWallpaperHooks(shadeLoader)) throw new IllegalStateException("shade wallpaper hosts unavailable");
                     });
                 }
+                if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.PRIVACY)) {
+                    // The privacy hooks exist only while the dot is hidden or the capsule is on.
+                    COMPLETED_HOOK_GROUPS.add(HookGroup.PRIVACY);
+                    final ClassLoader privacyLoader = classLoader;
+                    final List<XposedInterface.HookHandle> privacyHooks = new ArrayList<>();
+                    lazyHook("privacy_indicator", () -> privacySettings.wanted(),
+                            () -> installPrivacyHooks(privacyLoader, privacyHooks),
+                            () -> { for (XposedInterface.HookHandle handle : privacyHooks) handle.unhook(); privacyHooks.clear(); });
+                }
                 if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.MODEL) && installNetworkModelHooks(classLoader)) {
                     COMPLETED_HOOK_GROUPS.add(HookGroup.MODEL);
                 }
@@ -690,6 +758,9 @@ public final class StatusBarModule extends XposedModule {
                 }
                 if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.WIFI) && installWifiSlot(classLoader)) {
                     COMPLETED_HOOK_GROUPS.add(HookGroup.WIFI);
+                }
+                if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.WIFI_ALIAS) && installWifiAlias(classLoader)) {
+                    COMPLETED_HOOK_GROUPS.add(HookGroup.WIFI_ALIAS);
                 }
                 if (!COMPLETED_HOOK_GROUPS.contains(HookGroup.SPEED) && installSpeedControls(classLoader)) {
                     COMPLETED_HOOK_GROUPS.add(HookGroup.SPEED);
@@ -767,7 +838,8 @@ public final class StatusBarModule extends XposedModule {
                 List<HookGroup> missing = new ArrayList<>();
                 for (HookGroup group : HookGroup.values())
                     if (group != HookGroup.TILES && group != HookGroup.FLUID_MEDIA
-                            && !COMPLETED_HOOK_GROUPS.contains(group) && !HOOK_COUNTS.containsKey(group)) missing.add(group);
+                            && !COMPLETED_HOOK_GROUPS.contains(group)
+                            && !HOOK_COUNTS.containsKey(group)) missing.add(group);
                 moduleLog(missing.isEmpty() ? Log.INFO : Log.WARN, TAG, missing.isEmpty()
                         ? "SystemUI hook groups after " + phase + ": all installed"
                         : "SystemUI hook groups after " + phase + ": not installed " + missing);
@@ -817,9 +889,10 @@ public final class StatusBarModule extends XposedModule {
     }
     private XposedInterface.HookHandle createHook(HookGroup group, Executable method, XposedInterface.Hooker hooker) {
         final boolean safeObserver = observesInSafeMode(group, method);
+        final HookTrace.Site site = HookTrace.site(group.name(), method);
         return hook(method).setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain ->
-                ModuleLifecycle.removed() || FEATURES.safeMode() && !safeObserver
-                        ? chain.proceed() : hooker.intercept(chain));
+                (ModuleLifecycle.removed() || FEATURES.safeMode() && !safeObserver) ? chain.proceed()
+                        : HookTrace.on() ? HookTrace.run(site, hooker, chain) : hooker.intercept(chain));
     }
 
     /** Keep native bindings/current values alive; drawing and resource replacement remain bypassed. */
@@ -1039,6 +1112,59 @@ public final class StatusBarModule extends XposedModule {
         return true;
     }
 
+    /** Hide the privacy dot and feed the capsule. Items come from the controller's per-callback notification; the dot is
+     *  handled on whichever controller this ROM uses (AOSP and/or ColorOS), at least one must be present. */
+    private void installPrivacyHooks(ClassLoader loader, List<XposedInterface.HookHandle> handles) throws Throwable {
+        // The list setter is never called (Kotlin writes the field) and R8 inlines NotifyChangesToCallback.run() into the
+        // controller's notify lambda. A registered callback is an interface dispatch that cannot be inlined:
+        // PhoneStatusBarPolicy is registered from startup and receives every change on the main thread.
+        Method changed = loader.loadClass("com.android.systemui.statusbar.phone.PhoneStatusBarPolicy")
+                .getDeclaredMethod("onPrivacyItemsChanged", List.class);
+        deoptimize(changed);
+        handles.add(createHook(HookGroup.PRIVACY, changed, chain -> {
+            Object result = chain.proceed();
+            Object list = chain.getArg(0);
+            if (list instanceof List) PRIVACY_CAPSULE.itemsChanged(context, (List<?>) list);
+            return result;
+        }));
+        int controllers = 0;
+        try {
+            // AOSP controller: showing animates the corner container itself, so while hidden it is simply not shown.
+            Class<?> aosp = loader.loadClass("com.android.systemui.statusbar.events.PrivacyDotViewControllerImpl");
+            Method show = aosp.getDeclaredMethod("showDotView", View.class, Boolean.TYPE);
+            deoptimize(show);
+            handles.add(createHook(HookGroup.PRIVACY, show, chain -> PRIVACY_DOT.hidden() ? null : chain.proceed()));
+            controllers++;
+        } catch (ReflectiveOperationException absent) { /* not on this ROM */ }
+        try {
+            // ColorOS controller: keeps its own corner windows; their containers stay transparent while hidden.
+            Class<?> oem = loader.loadClass(PrivacyDotHider.CONTROLLER);
+            Method create = oem.getDeclaredMethod("createDotView", Integer.TYPE, Context.class);
+            Method next = oem.getDeclaredMethod("setNextViewState", loader.loadClass("com.oplus.systemui.privacy.ViewState"));
+            deoptimize(create); deoptimize(next);
+            handles.add(createHook(HookGroup.PRIVACY, create, chain -> {
+                Object view = chain.proceed(); PRIVACY_DOT.created(view); return view;
+            }));
+            handles.add(createHook(HookGroup.PRIVACY, next, chain -> {
+                Object result = chain.proceed();
+                PRIVACY_DOT.observed(chain.getThisObject());
+                return result;
+            }));
+            controllers++;
+        } catch (ReflectiveOperationException absent) { /* not on this ROM */ }
+        try {
+            // The status bar's privacy event: hides both sides, shows an orange camera/microphone chip, then shrinks it
+            // into the corner dot. While the dot is hidden the whole event is dropped; battery and other events still run.
+            Class<?> scheduler = loader.loadClass("com.android.systemui.statusbar.events.SystemStatusAnimationSchedulerImpl");
+            Class<?> privacyEvent = loader.loadClass("com.android.systemui.statusbar.events.PrivacyEvent");
+            Method onEvent = scheduler.getDeclaredMethod("onStatusEvent", loader.loadClass("com.android.systemui.statusbar.events.StatusEvent"));
+            deoptimize(onEvent);
+            handles.add(createHook(HookGroup.PRIVACY, onEvent, chain ->
+                    PRIVACY_DOT.hidden() && privacyEvent.isInstance(chain.getArg(0)) ? null : chain.proceed()));
+        } catch (ReflectiveOperationException absent) { /* not on this ROM */ }
+        if (controllers == 0) throw new ClassNotFoundException("No privacy dot controller");
+    }
+
     private void installMiniStackHooks(ClassLoader loader) throws Throwable {
         if (!NotificationMiniStack.supports(loader)) {
             MINI_STACK.unsupported("contract");
@@ -1064,12 +1190,22 @@ public final class StatusBarModule extends XposedModule {
                 return effective==requested?chain.proceed():chain.proceed(new Object[]{effective});
             });
             deoptMiniBadgeAlphaCallers(loader,targets);
+            installMiniHierarchyHooks();
+            MINI_STACK.visualHooksReady(false);
+            try {
+                for(Method contentMutation:new Method[]{targets.setGrouped,targets.selectLayout}){
+                    deoptimize(contentMutation);
+                    installHook(HookGroup.MINI_STACK,contentMutation,chain->{
+                        try{return chain.proceed();}finally{MINI_STACK.contentUpdated(chain.getThisObject());}
+                    });
+                }
+                MINI_STACK.visualHooksReady(true);
+            }catch(Throwable optionalVisualCallbacks){MINI_STACK.visualHooksReady(false);}
             installHook(HookGroup.MINI_STACK, targets.collapsedHeight, chain -> MINI_STACK.height(chain.getThisObject(), false, chain::proceed));
             installHook(HookGroup.MINI_STACK, targets.containerMinimum, chain -> MINI_STACK.height(chain.getThisObject(), false, chain::proceed));
             installHook(HookGroup.MINI_STACK, targets.intrinsic, chain -> MINI_STACK.height(chain.getThisObject(), true, chain::proceed));
-            installHook(HookGroup.MINI_STACK, targets.updateChildren, chain -> {
-                Object result = chain.proceed(); MINI_STACK.childrenUpdated(chain.getThisObject()); return result;
-            });
+            installHook(HookGroup.MINI_STACK, targets.updateChildren,
+                    chain -> MINI_STACK.updateChildren(chain.getThisObject(),chain::proceed));
             installHook(HookGroup.MINI_STACK, targets.rowDraw, chain -> MINI_STACK.rowDraw(chain.getThisObject(), chain::proceed));
             installHook(HookGroup.MINI_STACK, targets.visibleType, chain -> MINI_STACK.contentType(chain.getThisObject(), chain::proceed));
             installHook(HookGroup.MINI_STACK, targets.heightType, chain -> MINI_STACK.contentType(chain.getThisObject(), chain::proceed));
@@ -1119,6 +1255,39 @@ public final class StatusBarModule extends XposedModule {
         for(Class<?> caller:new Class<?>[]{targets.groupExtension,targets.containerExtension})try {
             deoptimize(caller.getDeclaredMethod("updatePillBgAndNumberColor"));
         }catch(ReflectiveOperationException|LinkageError unavailable) { }
+    }
+
+    /** Observe the actual child arrays, including attach/detach and transient RemoteViews. */
+    private void installMiniHierarchyHooks(){
+        MINI_STACK.hierarchyHooksReady(false);
+        try {
+            Class<?> group=ViewGroup.class;
+            Method[] mutations={group.getDeclaredMethod("addInArray",View.class,Integer.TYPE),
+                    group.getDeclaredMethod("removeFromArray",Integer.TYPE),
+                    group.getDeclaredMethod("removeFromArray",Integer.TYPE,Integer.TYPE),
+                    group.getDeclaredMethod("detachAllViewsFromParent"),
+                    group.getDeclaredMethod("removeAllViewsInLayout"),
+                    group.getDeclaredMethod("addTransientView",View.class,Integer.TYPE),
+                    group.getDeclaredMethod("removeTransientView",View.class)};
+            // The verified framework callers can inline the private array operations.
+            // These are structural entry points, never per-frame getChildAt/draw calls.
+            for(Method caller:group.getDeclaredMethods())if(caller.getName().matches(
+                    "addViewInner|removeViewInternal|removeViewsInternal|attachViewToParent|detachViewFromParent|detachViewsFromParent|bringChildToFront|removeAllViews"))
+                deoptimize(caller);
+            for(Method mutation:mutations){
+                if(mutation.getReturnType()!=Void.TYPE)throw new NoSuchMethodException(mutation.toString());
+                mutation.setAccessible(true);deoptimize(mutation);
+                installHook(HookGroup.MINI_STACK,mutation,chain->{
+                    ViewGroup owner=(ViewGroup)chain.getThisObject();
+                    MINI_STACK.hierarchyChanged(owner);
+                    try{return chain.proceed();}finally{MINI_STACK.hierarchyChanged(owner);}
+                });
+            }
+            MINI_STACK.hierarchyHooksReady(true);
+        }catch(Throwable unavailable){
+            MINI_STACK.hierarchyHooksReady(false);
+            ModuleDiagnostics.info("mini-stack","Hierarchy mutation contract unavailable; retaining structural checks");
+        }
     }
 
     private boolean installNotificationRowIcons(ClassLoader loader) {
@@ -2806,6 +2975,7 @@ public final class StatusBarModule extends XposedModule {
 
     /** Exact optical shader/draw contracts from the connected ColorOS 17 build. */
     private void installC17HighlightRemoval(ClassLoader loader) {
+        CUSTOM_PLUGINS.rememberLoader(loader);
         installAodNotificationMedia(loader);
         synchronized (SYSTEMUI_HOOK_LOCK) { if (!HIGHLIGHT_LOADERS.add(loader)) return; }
         try {
@@ -2908,6 +3078,7 @@ public final class StatusBarModule extends XposedModule {
             }
         } catch (ClassNotFoundException unavailable) { }
         for (String caller : new String[]{"com.oplus.systemui.statusbar.notification.row.OplusActivatableNotificationViewExImpl",
+                "com.oplus.systemui.statusbar.notification.customcard.OplusCustomRow",
                 "com.oplus.systemui.plugins.qs.customize.view.tile.OplusQSResizeableTileView",
                 "com.oplus.systemui.qs.base.tile.OplusQSTileBaseView$SpotLightIconFrame",
                 "com.oplus.systemui.qs.base.spotlight.SpotLightFrameLayout",
@@ -3178,7 +3349,10 @@ public final class StatusBarModule extends XposedModule {
         return found;
     }
     private boolean installFluidAccent(ClassLoader loader) {
+        CUSTOM_PLUGINS.rememberLoader(loader);
         synchronized (SYSTEMUI_HOOK_LOCK) {
+            // Both initial and cached QS plugin loaders must bind their own display entries.
+            if (installWifiAlias(loader)) COMPLETED_HOOK_GROUPS.add(HookGroup.WIFI_ALIAS);
             installCapsuleMediaPersistence(loader);
             if (FLUID_LOADERS.contains(loader)) return true;
             installCapsulePersistence(loader);
@@ -3731,6 +3905,48 @@ public final class StatusBarModule extends XposedModule {
         }
     }
 
+    private boolean installWifiAlias(ClassLoader loader) {
+        int bound=0;
+        try {
+            Class<?> state=loader.loadClass("com.android.systemui.plugins.qs.QSTile$State");
+            for(String name:new String[]{"com.android.systemui.plugins.qs.QSTile$State","com.android.systemui.plugins.qs.QSTile$BooleanState"})try{
+                Method copy=loader.loadClass(name).getMethod("copy");deoptimize(copy);
+                installHook(HookGroup.WIFI_ALIAS,copy,chain->{Object result=chain.proceed();WIFI_ALIAS.copiedState(chain.getThisObject(),result);return result;});
+            }catch(ClassNotFoundException|NoSuchMethodException absent){}catch(RuntimeException|XposedFrameworkError unavailable){
+                moduleLog(Log.WARN,TAG,"Optional WiFi display copy tracking unavailable",unavailable);
+            }
+            for(String name:new String[]{"com.oplus.systemui.plugins.qs.customize.view.tile.OplusQSResizeableTileView",
+                    "com.oplus.systemui.qs.base.tile.OplusQSHighlightTileView"})try{
+                Class<?> type=loader.loadClass(name);
+                for(String event:new String[]{"onStateChanged","setStateImmediately"})try{
+                    Method method=type.getDeclaredMethod(event,state);deoptimize(method);
+                    installHook(HookGroup.WIFI_ALIAS,method,chain->{Object original=chain.getArg(0);
+                        Object display=WIFI_ALIAS.displayState((View)chain.getThisObject(),original,method);
+                        return display==original?chain.proceed():chain.proceed(new Object[]{display});});bound++;
+                }catch(NoSuchMethodException absent){}
+                try{Method detach=type.getDeclaredMethod("onDetachedFromWindow");deoptimize(detach);
+                    installHook(HookGroup.WIFI_ALIAS,detach,chain->{WIFI_ALIAS.detached((View)chain.getThisObject());return chain.proceed();});
+                }catch(NoSuchMethodException absent){}
+            }catch(ClassNotFoundException absent){}
+            for(String name:new String[]{"com.oplus.systemui.qs.tiles.WifiTile","com.oplus.systemui.qs.tiles.OplusWifiTile"})try{
+                Class<?> type=loader.loadClass(name);
+                for(Method method:type.getDeclaredMethods())if(method.getName().equals("handleUpdateState")&&method.getParameterTypes().length==2
+                        &&method.getParameterTypes()[0].getName().equals("com.android.systemui.plugins.qs.QSTile$BooleanState")){
+                    deoptimize(method);installHook(HookGroup.WIFI_ALIAS,method,chain->{Object result=chain.proceed();String ssid=null;boolean connected=false;
+                        try{Object nativeState=chain.getArg(0);connected=Boolean.TRUE.equals(QsWifiAlias.value(nativeState,"value"))
+                                &&Integer.valueOf(2).equals(QsWifiAlias.value(nativeState,"state"));if(connected){
+                            Object value=QsWifiAlias.value(chain.getThisObject(),"mCurConnectedSSID");if(value instanceof String)ssid=QsWifiAlias.networkKey((String)value);
+                        }}catch(ReflectiveOperationException|RuntimeException unavailable){}
+                        if(connected&&ssid==null&&context!=null)ssid=QsWifiAliasCatalog.connected(context);
+                        WIFI_ALIAS.currentNetwork(ssid);QsWifiAliasCatalog.report(context,ssid);return result;});
+                }
+            }catch(ClassNotFoundException absent){}
+            // The editable views can arrive through the later QS plugin loader.
+            // Keep retrying until both the normal and editable native display paths are bound.
+            return bound>=3;
+        }catch(ReflectiveOperationException|RuntimeException unavailable){moduleLog(Log.WARN,TAG,"WiFi display names unavailable",unavailable);return false;}
+    }
+
     private boolean installQsAppearance(ClassLoader loader) {
         boolean found=false;
         try {
@@ -3924,7 +4140,13 @@ public final class StatusBarModule extends XposedModule {
         boolean tiles=false;
         try{
             IconNativeQsHooks.install(loader,ICON_NATIVE_QS,(method,hooker)->{
-                deoptimize(method);installHook(HookGroup.ICON_MANAGEMENT,method,hooker);
+                Class<?> owner=method.getDeclaringClass();
+                // View and ImageView callbacks run for every view in SystemUI (about 41,000 calls in three
+                // notification-shade cycles on the PJZ110). They exist only while icon management is on.
+                if(owner==View.class||owner==ImageView.class)lazyHook("icon_management_"+method.getName(),IconManagementRuntime::active,()->{
+                    deoptimize(method);installHook(HookGroup.ICON_MANAGEMENT,method,hooker);
+                });
+                else{deoptimize(method);installHook(HookGroup.ICON_MANAGEMENT,method,hooker);}
             });tiles=true;
         }catch(ReflectiveOperationException unavailable){
             moduleLog(Log.WARN,TAG,"Native QS glyph binding unavailable",unavailable);
@@ -5452,7 +5674,7 @@ public final class StatusBarModule extends XposedModule {
             if (number.getCurrentTextColor() != tint) number.setTextColor(tint);
             if (unit.getCurrentTextColor() != tint) unit.setTextColor(tint);
             allowDrawableOverflow(view);
-            NETWORK_SPEED.nativeSizes(view,style.numberSize,style.unitSize);
+            NETWORK_SPEED.nativeSizes(view,style.numberSize,style.unitSize,typeStyle||useFont);
             NETWORK_SPEED.apply(view,number,unit);
         } catch (Throwable error) {
             logFrameworkStage(Log.WARN, "Could not apply throughput style", error);
@@ -5510,14 +5732,19 @@ public final class StatusBarModule extends XposedModule {
     }
     private interface FunctionBody { Object call(Object value) throws Throwable; }
 
-    /** The shared glyph is a real child of the original native Wi-Fi slot. Native
-     * dispatchDraw, IconState, touches and seeding-card allocation remain its owner's. */
+    /** AndroidView content in the native mobile Compose slot. Optional shared
+     * Wi-Fi positioning is managed by the outer flow, not by hosting this text in Wi-Fi. */
     private static final class NetworkLabelView extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint measuredPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Rect glyph = new Rect();
         private String label = "";
         private int nativeTint = Color.BLACK;
         private int weight;
+        private int measuredNaturalWidth=-1, measuredNaturalHeight=-1;
+        private NetworkLabelGeometry.Plan geometry;
+        private NetworkLabelGeometry.Plan measuredGeometry;
+        private String measuredLabel="";
         NetworkLabelView(Context context) {
             super(context);
             setLayoutParams(new ViewGroup.LayoutParams(-2, -2));
@@ -5531,25 +5758,43 @@ public final class StatusBarModule extends XposedModule {
             paint.setFakeBoldText(false);
             paint.setTextSize(13f * getResources().getDisplayMetrics().density);
             paint.setColor(styleColor("label", nativeTint));
+            geometry=NetworkLabelGeometry.measure(paint,label,getResources().getDisplayMetrics().density,
+                    labelScalePercent,geometry,glyph);
         }
         void update(String label, int nativeTint) {
             boolean changed = !this.label.equals(label);
             this.label = label; this.nativeTint = nativeTint;
             setContentDescription(label.isEmpty() ? "" : "移动数据网络 " + label);
-            if (changed) requestLayout();
+            prepare();
+            if (!isLayoutRequested()&&(changed || pendingGeometry())) requestLayout();
             invalidate();
         }
+        private int naturalWidth(){return geometry.width;}
+        private int naturalHeight(){return geometry.height;}
+        private boolean pendingGeometry(){return measuredGeometry==null||naturalWidth()!=measuredNaturalWidth
+                ||naturalHeight()!=measuredNaturalHeight||geometry.scale!=measuredGeometry.scale;}
         @Override protected void onMeasure(int width, int height) {
             prepare();
-            float density = getResources().getDisplayMetrics().density;
-            setMeasuredDimension(resolveSize((int) Math.ceil(paint.measureText(label) + 2 * density), width),
-                    resolveSize(Math.round(ICON_SLOT_DP * density), height));
+            measuredNaturalWidth=naturalWidth();measuredNaturalHeight=naturalHeight();
+            measuredGeometry=geometry;measuredPaint.set(paint);measuredLabel=label;
+            // Keep the native content clip at its original 20dp before the View's
+            // Y transform. Only horizontal glyph size belongs inside this budget.
+            if(getScaleY()!=geometry.scale)setScaleY(geometry.scale);
+            setMeasuredDimension(resolveSize(measuredNaturalWidth,width),resolveSize(measuredNaturalHeight,height));
         }
         @Override protected void onDraw(Canvas canvas) {
             if (label.isEmpty()) return;
             prepare();
-            paint.getTextBounds(label, 0, label.length(), glyph);
-            canvas.drawText(label, getWidth() / 2f - glyph.exactCenterX(), getHeight() / 2f - glyph.exactCenterY(), paint);
+            // A font retry may resolve here after the Compose update. Invalidate the
+            // old allocation once; a constrained measure still settles these metrics.
+            boolean pending=pendingGeometry();
+            if(!isLayoutRequested()&&pending)requestLayout();
+            if(pending&&measuredGeometry!=null){
+                // Keep the previous measured font/text until the native traversal
+                // publishes its new allocation. Theme tint can still update immediately.
+                measuredPaint.setColor(paint.getColor());
+                measuredGeometry.drawHorizontal(canvas,measuredLabel,measuredPaint,getWidth()/2f,getHeight()/2f);
+            }else geometry.drawHorizontal(canvas,label,paint,getWidth()/2f,getHeight()/2f);
         }
     }
 
@@ -5646,9 +5891,9 @@ public final class StatusBarModule extends XposedModule {
                 } catch (ClassNotFoundException sceneAbsent) { }
             }
             lazyHook("statusbar_flow_layout", STATUS_FLOW::wanted, () -> {
-                // Deoptimize boot-image dispatchers too, while hooking only the real native callbacks.
-                deoptimize(View.class.getDeclaredMethod("measure", Integer.TYPE, Integer.TYPE));
-                deoptimize(View.class.getDeclaredMethod("layout", Integer.TYPE, Integer.TYPE, Integer.TYPE, Integer.TYPE));
+                // View.measure and View.layout reach onMeasure/onLayout through a virtual call, which always
+                // enters the hooked method. Interpreting the two dispatchers for every view in SystemUI cost
+                // about 5 microseconds per layout call on the PJZ110 and bought nothing.
                 StatusBarFlowCallbacks callbacks = new StatusBarFlowCallbacks(STATUS_FLOW);
                 Set<Method> geometry = new HashSet<>();
                 for (String root : new String[]{"com.android.systemui.statusbar.phone.PhoneStatusBarView",
@@ -5693,6 +5938,7 @@ public final class StatusBarModule extends XposedModule {
                     deoptimize(coordinate);
                     installHook(HookGroup.STATUS_FLOW, coordinate, chain -> {
                         ViewGroup row = (ViewGroup) chain.getArg(1);
+                        if(STATUS_FLOW.deferCoordinator(row,chain.getThisObject(),coordinate,chain.getArg(0),(Boolean)chain.getArg(2)))return null;
                         STATUS_FLOW.capsule(row, StatusBarFlowLayout.capsuleAreas(chain.getThisObject(), chain.getArg(0)));
                         STATUS_FLOW.prepareTargets(row); return chain.proceed();
                     });
@@ -5956,12 +6202,13 @@ public final class StatusBarModule extends XposedModule {
                 if(filter!=null&&nativeFilters.containsKey(filter))filter=nativeFilters.get(filter);
                 String item=icon.wifiIcon?"wifi":"data";
                 args[0]=base;args[5]=filter;
-                if(FEATURES.enabled(item)){
+                boolean legacyPlacement=FEATURES.enabled(item);
+                if(legacyPlacement||IconManagementRuntime.sizeForRole(icon.sourceRole())!=1f){
                     float d=context==null?icon.density:context.getResources().getDisplayMetrics().density;
-                    Object frame=bridge.height.invoke(null,bridge.empty,ICON_SLOT_DP);
-                    Object layer=bridge.place(frame,NumericPolicy.pixels(icon.wifiIcon?wifiOffsetXdp:dataOffsetXdp,d),
-                            NumericPolicy.pixels(icon.wifiIcon?wifiOffsetYdp:dataOffsetYdp,d),
-                            NumericPolicy.scale((icon.wifiIcon?wifiIconScalePercent:dataIconScalePercent)/100f,ICON_SLOT_DP*d));
+                    Object frame=legacyPlacement?bridge.height.invoke(null,bridge.empty,ICON_SLOT_DP):bridge.empty;
+                    Object layer=bridge.place(frame,legacyPlacement?NumericPolicy.pixels(icon.wifiIcon?wifiOffsetXdp:dataOffsetXdp,d):0,
+                            legacyPlacement?NumericPolicy.pixels(icon.wifiIcon?wifiOffsetYdp:dataOffsetYdp,d):0,
+                            icon.composeScale(legacyPlacement?ICON_SLOT_DP*d:Math.max(icon.getIntrinsicWidth(),icon.getIntrinsicHeight())));
                     // Image already appended clipToBounds. Put placement outside the entire
                     // original chain so the native slot clip moves with the visible glyph.
                     args[0]=modifierThen.invoke(layer,base);bases.put(args[0],base);
@@ -6000,11 +6247,11 @@ public final class StatusBarModule extends XposedModule {
                     Object base = shown.isEmpty() || chain.getArg(3) == null ? bridge.empty : chain.getArg(3);
                     float d = context == null ? 1f : context.getResources().getDisplayMetrics().density;
                     Object sized = shown.isEmpty() ? bridge.width.invoke(null, base, 0f)
-                            : bridge.widthIn.invoke(null, base, NumericPolicy.layoutDp(slotWidthDp,d),
-                                    Math.max(NumericPolicy.layoutDp(slotWidthDp,d),NumericPolicy.MAX_LAYOUT_PIXELS/(d>0&&Float.isFinite(d)?d:1f)));
+                            : bridge.widthIn.invoke(null, base, 0f,
+                                    NumericPolicy.MAX_LAYOUT_PIXELS/(d>0&&Float.isFinite(d)?d:1f));
                     Object frame = bridge.height.invoke(null, sized, ICON_SLOT_DP);
                     Object placed = bridge.place(frame,NumericPolicy.pixels(labelOffsetXdp,d),NumericPolicy.pixels(labelOffsetYdp,d),
-                            NumericPolicy.scale(labelScalePercent / 100f,Math.max(ICON_SLOT_DP*d,NumericPolicy.layoutPixels(slotWidthDp,d))));
+                            1f); // X is budgeted inside the glyph; Y stays on the real Android View.
                     if (!shown.isEmpty()) placed = NETWORK_ORDER.textModifier(placed);
                     Object create = bridge.function(ctx -> new NetworkLabelView((Context) ctx));
                     Object update = bridge.function(view -> { ((NetworkLabelView) view).update(shown, nativeTint); return bridge.unit; });
@@ -6536,6 +6783,9 @@ public final class StatusBarModule extends XposedModule {
 
     private static Drawable replacementDrawable(Resources resources, int i, Drawable nativeDrawable) {
         if(BigClockSystemIcon.nativeLookupActive())return null;
+        // DrawablePainter owns Animatable start/stop by runtime type. Do not hide
+        // an unaudited animated native signal behind a static resource wrapper.
+        if(nativeDrawable instanceof android.graphics.drawable.Animatable)return null;
         Drawable arrow=DATA_ACTIVITY.wrap(resources,i,nativeDrawable);if(arrow!=nativeDrawable)return arrow;
         if(nativeDrawable instanceof ScaledDrawable)return nativeDrawable;
         if (i == 0 || moduleResources == null) return null;
@@ -6915,7 +7165,7 @@ public final class StatusBarModule extends XposedModule {
     static /* synthetic */ Object lambda$installWifiSlot$10(XposedInterface.Chain chain) throws Throwable {
         Object objProceed = chain.proceed();
         final View view = (View) chain.getThisObject();
-        if (!composeStatusBar) slotFor(view);
+        slotFor(view);
         MAIN.post(new Runnable() { // from class: dev.puitheme.StatusBarModule$$ExternalSyntheticLambda2
             @Override // java.lang.Runnable
             public final void run() {
@@ -6928,6 +7178,7 @@ public final class StatusBarModule extends XposedModule {
     static /* synthetic */ void lambda$installWifiSlot$9(View view) {
         allowDrawableOverflow(view);
         initializeContext(view.getContext());
+        applyWifiVisibility(view, slotFor(view));
         scheduleRefresh();
     }
 
@@ -6974,31 +7225,26 @@ public final class StatusBarModule extends XposedModule {
     }
 
     static /* synthetic */ Object lambda$installWifiSlot$11(XposedInterface.Chain chain) throws Throwable {
-        if (isWifi(chain.getThisObject()) && cellularMode()) {
-            return true;
-        }
-        return chain.proceed();
+        if (!isWifi(chain.getThisObject())) return chain.proceed();
+        return WifiVisibilityPolicy.iconVisible((Boolean)chain.proceed(), FEATURES.hideWifiIcon(), cellularMode());
     }
 
     static /* synthetic */ Object lambda$installWifiSlot$12(XposedInterface.Chain chain) throws Throwable {
-        if (composeStatusBar || !isWifi(chain.getThisObject())) {
+        if (!isWifi(chain.getThisObject())) {
             return chain.proceed();
         }
         Slot slotSlotFor = slotFor((View) chain.getThisObject());
-        if (!slotSlotFor.settingVisibility) {
-            slotSlotFor.requestedVisibility = ((Integer) chain.getArg(0)).intValue();
-        }
-        if (cellularMode() && ((Integer) chain.getArg(0)).intValue() == 8) {
-            return chain.proceed(new Object[]{0});
-        }
-        return chain.proceed();
+        int requested = (Integer)chain.getArg(0);
+        int target = slotSlotFor.visibility.requested(requested, FEATURES.hideWifiIcon(), cellularMode());
+        return target == requested ? chain.proceed() : chain.proceed(new Object[]{target});
     }
 
     static /* synthetic */ Object lambda$installWifiSlot$13(XposedInterface.Chain chain) throws Throwable {
         Object objProceed = chain.proceed();
-        if (!composeStatusBar && isWifi(chain.getThisObject())) {
+        if (isWifi(chain.getThisObject())) {
             View view = (View) chain.getThisObject();
             slotFor(view).visibleState = ((Integer) chain.getArg(0)).intValue();
+            applyWifiVisibility(view, slotFor(view));
             view.invalidate();
         }
         return objProceed;
@@ -7006,8 +7252,10 @@ public final class StatusBarModule extends XposedModule {
 
     static /* synthetic */ Object lambda$installWifiSlot$14(XposedInterface.Chain chain) throws Throwable {
         Object objProceed = chain.proceed();
-        if (!composeStatusBar && isWifi(chain.getThisObject())) {
-            slotFor((View) chain.getThisObject()).appearAmount = ((Float) chain.getArg(0)).floatValue();
+        if (isWifi(chain.getThisObject())) {
+            View view = (View) chain.getThisObject();
+            slotFor(view).appearAmount = ((Float) chain.getArg(0)).floatValue();
+            applyWifiVisibility(view, slotFor(view));
         }
         return objProceed;
     }
@@ -7023,6 +7271,9 @@ public final class StatusBarModule extends XposedModule {
     }
 
     static /* synthetic */ Object lambda$installWifiSlot$17(XposedInterface.Chain chain) throws Throwable {
+        // The legacy renderer borrows this host for cellular text. Hiding only
+        // Wi-Fi must not remove that independently configured text output.
+        if (FEATURES.hideWifiIcon() && !cellularMode()) return null;
         if (composeStatusBar) return chain.proceed();
         ViewGroup viewGroup = (ViewGroup) chain.getThisObject();
         Slot slotSlotFor = slotFor(viewGroup);
@@ -7103,7 +7354,15 @@ public final class StatusBarModule extends XposedModule {
 
     private static void refreshRadio() {
         if(Looper.myLooper()!=Looper.getMainLooper()){MAIN.post(StatusBarModule::refreshRadio);return;}
-        updateRadioState();scheduleRefresh();
+        boolean previouslyAllowed=RadioState.cellularLabelAllowed(true,wifiConnected,airplaneMode,mobileDataSwitchEnabled);
+        updateRadioState();
+        if(previouslyAllowed!=RadioState.cellularLabelAllowed(true,wifiConnected,airplaneMode,mobileDataSwitchEnabled)) {
+            // A transport/switch boundary must retire or restore both native
+            // text and the legacy slot before returning to the frame. Ordinary
+            // RAT events still share the queued refresh below.
+            synchronized(REFRESH_LOCK){refreshPending=false;}
+            refreshLabel();
+        } else scheduleRefresh();
     }
 
     private static Slot slotFor(View view) {
@@ -7124,10 +7383,17 @@ public final class StatusBarModule extends XposedModule {
         return slot;
     }
 
+    private static void applyWifiVisibility(View view, Slot slot) {
+        int target = slot.visibility.target(FEATURES.hideWifiIcon(), cellularMode());
+        if (view.getVisibility() == target) return;
+        slot.visibility.beginModuleWrite();
+        try { view.setVisibility(target); }
+        finally { slot.visibility.endModuleWrite(); }
+    }
+
     private static boolean cellularMode() {
-        return FEATURES.enabled("label") && !FEATURES.hideNetworkLabel() && !composeStatusBar
-                && !wifiConnected && !airplaneMode && !networkLabel.isEmpty()
-                && !NetworkLabel.radiosDisabled(wifiSwitchEnabled,mobileDataSwitchEnabled);
+        return !composeStatusBar && !FEATURES.hideNetworkLabel() && !networkLabel.isEmpty()
+                && RadioState.cellularLabelAllowed(FEATURES.enabled("label"), wifiConnected, airplaneMode, mobileDataSwitchEnabled);
     }
 
     private static void initializeContext(Context context2) {
@@ -7147,6 +7413,7 @@ public final class StatusBarModule extends XposedModule {
             catch(RuntimeException unavailable) { Log.w(TAG,"Resident cache unavailable",unavailable); }
         }
         ModuleLifecycle.bind(context, () -> MAIN.post(() -> {
+            CUSTOM_PLUGINS.stop();
             if(settingsStartup!=null)settingsStartup.stop();
             if(frameworkSettings!=null)frameworkSettings.stop();
             MAIN.removeCallbacks(FRAMEWORK_SETTINGS_CHANGED);
@@ -7160,6 +7427,7 @@ public final class StatusBarModule extends XposedModule {
             IconManagementRuntime.releaseRuntime();ICON_PACK_DRAWING.releaseRuntime();BigClockSystemIcon.releaseRuntime();
             FontRepository.releaseRuntime();
             QS_MEDIA.releaseRuntime();
+            WIFI_ALIAS.release();
             QS_FULL_FILL.release();
             SHADE_WALLPAPER.reset();
             WALLPAPER_PANEL.reset();
@@ -7202,6 +7470,27 @@ public final class StatusBarModule extends XposedModule {
             invalidateLiveDrawables();
             refreshLabel();
         }));
+        if (!ModuleVariant.DABING && instance != null && !ModuleLifecycle.removed()) CUSTOM_PLUGINS.configure(context,
+                (method,hooker) -> {
+                    instance.deoptimize(method);
+                    return instance.hook(method).setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(hooker);
+                },() -> {
+                    Bundle base = SettingsSnapshot.lastApplied(context);
+                    if (base != null) applyStyleSnapshot(base,true);
+                },new CustomPluginRuntime.Install() {
+                    @Override public XposedInterface.HookHandle hook(java.lang.reflect.Executable executable,XposedInterface.Hooker hooker) throws Throwable {
+                        instance.deoptimize(executable);
+                        // Runtime owns a single-proceed chain and explicit failure handling.
+                        return instance.hook(executable).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(hooker);
+                    }
+                    @Override public void deoptimize(java.lang.reflect.Executable executable) { instance.deoptimize(executable); }
+                    @Override public android.content.SharedPreferences frameworkPreferences() {
+                        return instance.getRemotePreferences(SettingsFrameworkMirror.GROUP);
+                    }
+                    @Override public android.os.ParcelFileDescriptor openFrameworkFile(String name) throws java.io.FileNotFoundException {
+                        return instance.openRemoteFile(name);
+                    }
+                });
         if (frameworkLogger != null) try {
             ModuleRuntimeStatus.setVerifiedProbeListener(nonce -> MAIN.post(() -> {
                 if (ModuleLifecycle.removed() || nonce.equals(lastIconTraceProbe)) return;
@@ -7291,10 +7580,10 @@ public final class StatusBarModule extends XposedModule {
                         || Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(intent.getAction())
                         || Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction()))) {
                     WEATHER_SOURCE.refresh();
+                    if (!ModuleVariant.DABING) CUSTOM_PLUGINS.bootReady();
                     if(settingsStartup!=null)settingsStartup.signal(false);
                 }
-                StatusBarModule.updateRadioState();
-                StatusBarModule.scheduleRefresh();
+                StatusBarModule.refreshRadio();
             }
         };
         boolean registered = false;
@@ -7312,9 +7601,8 @@ public final class StatusBarModule extends XposedModule {
             }
         }
         receiverRegistered = registered;
-        updateRadioState();
         registerNetworkObserver();
-        scheduleRefresh();
+        refreshRadio();
     }
 
     /** A user switch must never reuse another user's located-city weather cache. */
@@ -7360,6 +7648,7 @@ public final class StatusBarModule extends XposedModule {
             context.getContentResolver().registerContentObserver(uri, false, new ContentObserver(MAIN) { // from class: dev.puitheme.StatusBarModule.2
                 @Override // android.database.ContentObserver
                 public void onChange(boolean z, Uri uri2) {
+                    CUSTOM_PLUGINS.refresh();
                     // Real edits/20-second trials may precede their confirmed framework mirror.
                     preferSettingsProvider=true;
                     if(settingsStartup!=null)settingsStartup.signal(false);
@@ -7421,6 +7710,8 @@ public final class StatusBarModule extends XposedModule {
 
     private static boolean applyStyleSnapshot(Bundle bundleCall,boolean force) {
         if(context==null||ModuleLifecycle.removed()||!SettingsSnapshot.complete(bundleCall))return false;
+        if (ModuleVariant.DABING) bundleCall = DabingCustomerPolicy.runtime(bundleCall);
+        else CUSTOM_PLUGINS.setSafeMode(bundleCall.getBoolean(StatusBarSettings.SAFE_MODE,false));
         Bundle previous=SettingsSnapshot.lastApplied(context);
         try {
             boolean resourcesRecovered=false;
@@ -7433,14 +7724,15 @@ public final class StatusBarModule extends XposedModule {
                 if(resourcesRecovered){invalidateLiveDrawables();refreshLabel();}
                 return true;
             }
-            applyStyleSettings(bundleCall);
+            applyStyleSettings(ModuleVariant.DABING ? bundleCall : CUSTOM_PLUGINS.runtimeSettings(CustomPluginSettings.overlay(bundleCall,CUSTOM_PLUGINS.settings())));
+            // Remember only the user's base snapshot; plugin removal must not leave an overlaid value behind.
             SettingsSnapshot.rememberApplied(context,bundleCall);
             invalidateLiveDrawables();
             refreshLabel();
             return true;
         } catch (Throwable failed) {
             boolean restored=false;
-            if(previous!=null)try { applyStyleSettings(previous);restored=true; }
+            if(previous!=null)try { applyStyleSettings(ModuleVariant.DABING ? previous : CUSTOM_PLUGINS.runtimeSettings(CustomPluginSettings.overlay(previous,CUSTOM_PLUGINS.settings())));restored=true; }
             catch(Throwable rollbackFailed) { ModuleDiagnostics.error("settings","Could not restore previous runtime configuration",rollbackFailed); }
             ModuleDiagnostics.error("settings",restored?"Settings application failed; previous configuration restored"
                     :"Settings application incomplete; no successful configuration could be restored",failed);
@@ -7450,12 +7742,15 @@ public final class StatusBarModule extends XposedModule {
     }
 
     private static void applyStyleSettings(Bundle bundleCall) {
+            if (ModuleVariant.DABING) bundleCall = DabingCustomerPolicy.runtime(bundleCall);
             bundleCall = PanelMode.runtimeSettings(SafetyMode.runtimeSettings(bundleCall));
+            bundleCall = NetworkDisplaySettings.runtime(bundleCall);
             bundleCall = new Bundle(bundleCall);
             bundleCall.putBoolean(StatusBarShadeIconSettings.MASTER, false);
             ModuleDiagnostics.configure(context, bundleCall);
             TEXT.observeLayoutAnchors(STATUS_FLOW::observedAnchor);
-            NETWORK_SHARED_SLOT.configure(StatusBarLayoutSettings.Snapshot.parse(bundleCall).wifiLabelShared);
+            NETWORK_SHARED_SLOT.configure(StatusBarLayoutSettings.Snapshot.parse(bundleCall).wifiLabelShared
+                    && NetworkDisplaySettings.TEXT.equals(NetworkDisplaySettings.mode(bundleCall)));
             STATUS_FLOW.configure(bundleCall);
             SINGLE_LABEL.configureLayout(bundleCall);
             // Preserve the stored snapshot. The new flow owns outer X/allocation;
@@ -7477,6 +7772,10 @@ public final class StatusBarModule extends XposedModule {
             optionalConfigure("capsule persistence", () -> CAPSULE_PERSISTENCE.configure(applied));
             optionalConfigure("capsule media persistence", () -> CAPSULE_MEDIA_PERSISTENCE.configure(applied));
             optionalConfigure("capsule spectrum", () -> CAPSULE_SPECTRUM.configure(applied));
+            optionalConfigure("privacy indicator", () -> {
+                PrivacyIndicatorSettings privacy = PrivacyIndicatorSettings.from(applied);
+                privacySettings = privacy; PRIVACY_DOT.configure(privacy.hideDot); PRIVACY_CAPSULE.configure(privacy);
+            });
             SHADE_WALLPAPER.configure(context, bundleCall);
             NOTIFICATION_ICONS.configure(context,bundleCall);
             NOTIFICATION_ROW_ICONS.configure(context,bundleCall);
@@ -7494,6 +7793,9 @@ public final class StatusBarModule extends XposedModule {
                     bundleCall.getString(StatusBarSettings.FONT_REVISION, ""));
             FontRepository.configureScopes(bundleCall);
             LABEL_FORMATS.configure(bundleCall);
+            WIFI_ALIAS.configure(bundleCall);
+            String currentWifiName=QsWifiAliasCatalog.connected(context);
+            WIFI_ALIAS.seedNetwork(currentWifiName);QsWifiAliasCatalog.report(context,currentWifiName);
             LEFT_COPY_SPACING.configure(!FEATURES.safeMode()
                     && !StatusBarLayoutSettings.enabled(bundleCall));
             DATA_BATTERY_SPACING.configure(bundleCall);
@@ -7515,7 +7817,8 @@ public final class StatusBarModule extends XposedModule {
             CLEAR_MOTION.configure(bundleCall);
             BIG_CLOCK.configure(bundleCall);
             weatherNeeded = SystemWeatherProvider.needed(bundleCall);
-            NATIVE_STACK.configure(bundleCall);
+            if (ModuleVariant.DABING) NATIVE_STACK.configureIndependent(bundleCall);
+            else NATIVE_STACK.configure(bundleCall);
             optionalConfigure("mini stack", () -> MINI_STACK.configure(applied));
             bigClockEnabled = bundleCall.getBoolean(NotificationBigClockSettings.MASTER, false)
                     || bundleCall.getBoolean(NotificationBigClockSettings.LANDSCAPE_MASTER, false)
@@ -7536,7 +7839,6 @@ public final class StatusBarModule extends XposedModule {
             labelOffsetXdp = FEATURES.position("label")?settingValue(bundleCall, StatusBarSettings.LABEL_OFFSET_X, 0):0;
             labelOffsetYdp = FEATURES.position("label")?settingValue(bundleCall, StatusBarSettings.LABEL_OFFSET_Y, 0):0;
             labelScalePercent = FEATURES.size("label")?settingValue(bundleCall, StatusBarSettings.LABEL_SCALE, 100):100;
-            slotWidthDp = FEATURES.size("label")?settingValue(bundleCall, StatusBarSettings.SLOT_WIDTH, 22):22;
             fontWeight = Math.round(settingValue(bundleCall, StatusBarSettings.FONT_WEIGHT, 600));
             speedOffsetXdp = FEATURES.position("speed") && !bundleCall.getBoolean(SpeedPosition.SAFE_GAP_ENABLED, false)
                     ? settingValue(bundleCall, StatusBarSettings.SPEED_OFFSET_X, 0) : 0;
@@ -7796,6 +8098,7 @@ public final class StatusBarModule extends XposedModule {
 
     static /* synthetic */ void lambda$scheduleRefresh$18() {
         synchronized (REFRESH_LOCK) {
+            if (!refreshPending) return;
             refreshPending = false;
         }
         refreshLabel();
@@ -7849,7 +8152,7 @@ public final class StatusBarModule extends XposedModule {
         strNormalize = LABEL_FORMATS.display(strNormalize,FEATURES.effective("label","label_normalize_enabled"),
                 FEATURES.effective("label",NetworkLabelFormats.ENABLED));
         SINGLE_LABEL.update(FEATURES,strNormalize,activeSub,labelOffsetXdp,labelOffsetYdp,labelScalePercent,
-                slotWidthDp,fontWeight,styleColors,customColorAlpha);
+                0f,fontWeight,styleColors,customColorAlpha);
         SINGLE_SIGNAL.activeSubscription(activeSub);
         NATIVE_BADGE_BINDINGS.activeSubscription(activeSub);
         if (!networkLabel.equals(strNormalize)) {
@@ -7858,33 +8161,24 @@ public final class StatusBarModule extends XposedModule {
             logFrameworkStage(Log.INFO,"Active data label updated: "+NetworkLabel.normalize(strNormalize));
             invalidateComposeStyle();
         }
-        // Compose owns its icon widths and visibility; legacy slots must not remeasure them.
-        if (composeStatusBar) return;
         synchronized (SLOTS) {
             try {
                 for (Map.Entry<View, Slot> entry : SLOTS.entrySet()) {
                     View key = entry.getKey();
                     Slot value = entry.getValue();
+                    // Compose retains all native geometry and animation. Only
+                    // the explicit hiding policy owns its root visibility.
+                    if (composeStatusBar) { applyWifiVisibility(key, value); continue; }
                     boolean zCellularMode = cellularMode();
                     boolean z = (value.appliedCellularMode == zCellularMode && strNormalize.equals(value.appliedLabel)) ? false : true;
                     value.appliedCellularMode = zCellularMode;
                     value.appliedLabel = strNormalize;
-                    int iRound = zCellularMode ? NumericPolicy.layoutPixels(((double)slotWidthDp+4)*key.getResources().getDisplayMetrics().density) : value.originalMinimumWidth;
+                    int iRound = zCellularMode ? legacyLabelGeometry(key,value).width : value.originalMinimumWidth;
                     boolean z2 = key.getMinimumWidth() != iRound;
                     if (z2) {
                         key.setMinimumWidth(iRound);
                     }
-                    int i = (zCellularMode && value.requestedVisibility == 8) ? 0 : value.requestedVisibility;
-                    if (key.getVisibility() != i) {
-                        value.settingVisibility = true;
-                        try {
-                            key.setVisibility(i);
-                            value.settingVisibility = false;
-                        } catch (Throwable th2) {
-                            value.settingVisibility = false;
-                            throw th2;
-                        }
-                    }
+                    applyWifiVisibility(key, value);
                     key.invalidate();
                     if (z2 || z) {
                         key.requestLayout();
@@ -8027,12 +8321,9 @@ public final class StatusBarModule extends XposedModule {
         ModuleDiagnostics.fact("clock",topic,"大时钟背景刷新状态",pairs);
     }
 
-    private static void drawLabel(ViewGroup viewGroup, Slot slot, Canvas canvas) {
-        float f = viewGroup.getResources().getDisplayMetrics().density;
-        float centerX = viewGroup.getWidth() / 2.0f;
-        float centerY = viewGroup.getHeight() / 2.0f;
-        float f2 = NumericPolicy.pixels((double)centerX+NumericPolicy.pixels(labelOffsetXdp,f));
-        float f3 = NumericPolicy.pixels((double)centerY+NumericPolicy.pixels((double)(labelOffsetYdp - 0.375f)*f));
+    /** Pre-Compose ROMs keep their original glyph-height normalization, with automatic width. */
+    private static NetworkLabelGeometry.Plan legacyLabelGeometry(View view,Slot slot) {
+        float f = view.getResources().getDisplayMetrics().density;
         try {
             if(FEATURES.textStyle("label") || FEATURES.enabled("font")&&!FontRepository.systemMode(FontScopes.NETWORK_TYPE))
                 FontRepository.apply(slot.paint,TEXT.nativeFamily(),FEATURES.textStyle("label")?fontWeight:nativeWeight(TEXT.nativeFamily()),null,FontScopes.NETWORK_TYPE);
@@ -8048,11 +8339,21 @@ public final class StatusBarModule extends XposedModule {
         slot.paint.getTextBounds(networkLabel, 0, networkLabel.length(), slot.textBounds);
         float glyphScale = NumericPolicy.scale(labelScalePercent / 100f,
                 (NETWORK_GLYPH_HEIGHT_DP*f)/Math.max(1,slot.textBounds.height()),Math.max(slot.textBounds.width(),slot.textBounds.height()));
+        slot.labelGeometry=NetworkLabelGeometry.measure(slot.paint,networkLabel,f,glyphScale*100f,slot.labelGeometry,slot.textBounds);
+        return slot.labelGeometry;
+    }
+
+    private static void drawLabel(ViewGroup viewGroup, Slot slot, Canvas canvas) {
+        float f = viewGroup.getResources().getDisplayMetrics().density;
+        float centerX = viewGroup.getWidth() / 2.0f;
+        float centerY = viewGroup.getHeight() / 2.0f;
+        float f2 = NumericPolicy.pixels((double)centerX+NumericPolicy.pixels(labelOffsetXdp,f));
+        float f3 = NumericPolicy.pixels((double)centerY+NumericPolicy.pixels((double)(labelOffsetYdp - 0.375f)*f));
+        NetworkLabelGeometry.Plan geometry=legacyLabelGeometry(viewGroup,slot);
         int iSave = canvas.save();
-        canvas.scale(slot.appearAmount, slot.appearAmount, centerX, centerY);
-        canvas.translate(f2, f3);
-        canvas.scale(glyphScale, glyphScale);
-        canvas.drawText(networkLabel, -slot.textBounds.exactCenterX(), -slot.textBounds.exactCenterY(), slot.paint);
-        canvas.restoreToCount(iSave);
+        try {
+            canvas.scale(slot.appearAmount, slot.appearAmount, centerX, centerY);
+            geometry.draw(canvas,networkLabel,slot.paint,f2,f3);
+        } finally { canvas.restoreToCount(iSave); }
     }
 }

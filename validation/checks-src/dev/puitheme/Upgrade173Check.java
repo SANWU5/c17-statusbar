@@ -25,15 +25,15 @@ public final class Upgrade173Check {
                 Upgrade101.DEFAULTS,Upgrade103.DEFAULTS,Upgrade105.DEFAULTS,Upgrade106.DEFAULTS,Upgrade107.DEFAULTS,
                 Upgrade108.DEFAULTS,Upgrade117.DEFAULTS,Upgrade118.DEFAULTS,Upgrade135.DEFAULTS,Upgrade136.DEFAULTS,
                 Upgrade144.DEFAULTS,Upgrade146.DEFAULTS,Upgrade154.DEFAULTS,Upgrade157.DEFAULTS,Upgrade160.DEFAULTS,
-                Upgrade166.DEFAULTS,Upgrade168.DEFAULTS,Upgrade169.DEFAULTS,Upgrade171.DEFAULTS,Upgrade172.DEFAULTS,Upgrade173.DEFAULTS,Upgrade174.DEFAULTS,Upgrade175.DEFAULTS,Upgrade177.DEFAULTS,Upgrade184.DEFAULTS,Upgrade185.DEFAULTS,Upgrade186.DEFAULTS,Upgrade187.DEFAULTS,Upgrade188.DEFAULTS);
+                Upgrade166.DEFAULTS,Upgrade168.DEFAULTS,Upgrade169.DEFAULTS,Upgrade171.DEFAULTS,Upgrade172.DEFAULTS,Upgrade173.DEFAULTS,Upgrade174.DEFAULTS,Upgrade175.DEFAULTS,Upgrade177.DEFAULTS,Upgrade184.DEFAULTS,Upgrade185.DEFAULTS,Upgrade186.DEFAULTS,Upgrade187.DEFAULTS,Upgrade188.DEFAULTS,Upgrade195.DEFAULTS,Upgrade196.DEFAULTS,Upgrade209.DEFAULTS,Upgrade279.DEFAULTS);
         for(int index=0;index<batches.size();index++)if(schema<index+2)for(String key:batches.get(index).keySet())result.remove(key);
         if(schema<12)result.remove(FluidCloudStyle.BACKGROUND_COLOR_CUSTOMIZED);
         result.put(SettingsFrameworkMirror.SCHEMA,schema);result.put(SettingsFrameworkMirror.REVISION,173L);return result;
     }
     private static String document(String key,String value){return "{\"package\":\""+ConfigTransfer.PACKAGE_NAME+"\",\"schema\":1,\"settings\":{\""+key+"\":"+value+"}}";}
     private static void registration(Bundle full){
-        equal(additions(),Upgrade173.DEFAULTS,"six exact published numeric keys");equal(48,SettingsFrameworkMirror.VERSION,"mirror version");equal(1,ConfigTransfer.SCHEMA_VERSION,"JSON format unchanged");
-        equal(979,full.keySet().size(),"full snapshot count");equal(966,ConfigTransfer.types().size(),"portable count");equal(946,wire(full,39).size()-2,"published schema39 unchanged");equal(945,wire(full,38).size()-2,"published schema38 unchanged");equal(23,Upgrade171.DEFAULTS.size(),"schema38 additions frozen");equal(1,Upgrade172.DEFAULTS.size(),"schema39 additions frozen");
+        equal(additions(),Upgrade173.DEFAULTS,"six exact published numeric keys");equal(52,SettingsFrameworkMirror.VERSION,"mirror version");equal(1,ConfigTransfer.SCHEMA_VERSION,"JSON format unchanged");
+        equal(1000,full.keySet().size(),"full snapshot count");equal(987,ConfigTransfer.types().size(),"portable count");equal(946,wire(full,39).size()-2,"published schema39 unchanged");equal(945,wire(full,38).size()-2,"published schema38 unchanged");equal(23,Upgrade171.DEFAULTS.size(),"schema38 additions frozen");equal(1,Upgrade172.DEFAULTS.size(),"schema39 additions frozen");
         Bundle fresh=SettingsSnapshot.fromPreferences(Collections.emptyMap());
         for(String key:additions().keySet()){
             equal(20f,StatusBarSettings.NUMERIC_DEFAULTS.get(key),"fresh default");equal(20f,fresh.get(key),"fresh effective default");equal(ConfigTransfer.Type.NUMBER,ConfigTransfer.types().get(key),"portable numeric type");
@@ -79,7 +79,7 @@ public final class Upgrade173Check {
                 String base=NotificationBigClockSettings.portraitKey(key);boolean landscape=!key.equals(base);String follow=direction(NotificationBigClockSettings.FOLLOW_STYLE,landscape);values.put(follow,false);equal(true,SettingsCatalog.unavailableReason(key,values).contains("跟随"),"own follow gate");values.put(follow,true);equal("",SettingsCatalog.unavailableReason(key,values),"own follow enabled");values.put(direction(NotificationBigClockSettings.DIGIT_REVEAL_ENABLED,landscape),false);equal("请先开启字内背景透出",SettingsCatalog.unavailableReason(key,values),"own direction source required");
             }
         }
-        Map<String,Object> source=saved(),unchanged=new LinkedHashMap<>(source);Map<String,Object> exported=ConfigTransfer.prepare(ConfigTransfer.exportJson(source),true).values();equal(966,exported.size(),"complete portable snapshot");equal(unchanged,source,"legacy export never mutates saved configuration");
+        Map<String,Object> source=saved(),unchanged=new LinkedHashMap<>(source);Map<String,Object> exported=ConfigTransfer.prepare(ConfigTransfer.exportJson(source),true).values();equal(987,exported.size(),"complete portable snapshot");equal(unchanged,source,"legacy export never mutates saved configuration");
         for(String key:additions().keySet()){equal(inherited(key),exported.get(key),"export missing independent field inherits main strength");equal(inherited(key),ConfigTransfer.prepare(ConfigTransfer.exportJson(source,Collections.singleton(key)),true).values().get(key),"partial export also inherits");}
         ActivationGuardPreferencesCheck.MemoryPreferences store=new ActivationGuardPreferencesCheck.MemoryPreferences();store.values.putAll(source);int index=0;for(String key:additions().keySet())store.values.put(key,(float)index++);
         Map<String,Object> independent=new LinkedHashMap<>(store.values);ConfigTransfer.PreparedImport oldImport=ConfigTransfer.prepare(document(NotificationBigClockSettings.REVEAL_MASK_OPACITY,"65"),true);equal(1,oldImport.count,"JSON1 preparation does not invent missing fields");equal(true,ConfigTransfer.commit(store,oldImport),"existing merge import commits");equal(65f,store.values.get(NotificationBigClockSettings.REVEAL_MASK_OPACITY),"imported main strength applies");

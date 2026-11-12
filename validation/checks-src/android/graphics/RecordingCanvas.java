@@ -1,5 +1,6 @@
 package android.graphics;
 public class RecordingCanvas extends Canvas {
+    public RenderNode mNode;
     public interface Command {void replay(Canvas canvas,int base);}
     public final java.util.List<Command> commandsForCheck=new java.util.ArrayList<>();
     public RecordingCanvas(int width,int height) {hardware=true;clipBounds=new Rect(0,0,width,height);}

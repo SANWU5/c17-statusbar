@@ -101,9 +101,11 @@ public final class SettingsCatalogCheck {
         equal(ConfigTransfer.Type.BOOLEAN,ConfigTransfer.types().get(FluidCloudAccent.LOCKSCREEN_ENABLED),"historical Boolean type retained");
         equal(true,style.description.contains("锁屏")&&style.description.contains("AOD"));
         equal(true,SettingsCatalog.item(FluidCloudStyle.FOLLOW_NOTIFICATION).description.contains("悬浮通知材质"));
-        equal(true,accent.description.contains("总开关")&&accent.description.contains("不受影响"));
+        equal(true,accent.description.contains("总开关")&&accent.description.contains("锁屏")&&accent.description.contains("AOD")
+                &&accent.description.contains("停止")&&accent.description.contains("保留"),"media master description covers lock/AOD colour revocation and saved appearance");
         equal(true,SettingsCatalog.conflictDescription(accent.id,accent.category).contains("优先级 1")
-                &&SettingsCatalog.conflictDescription(accent.id,accent.category).contains("锁屏自定义"));
+                &&SettingsCatalog.conflictDescription(accent.id,accent.category).contains("关闭总开关")
+                &&SettingsCatalog.conflictDescription(accent.id,accent.category).contains("媒体取色一起停止"));
         equal(null,SettingsCatalog.group("fluid_cloud_media_follow"),"following lives on the media-accent page now");
         // Where the colour comes from stays on the media-accent page; how lock screen and AOD show it has its own pages (lock screen -> fluid cloud and notifications).
         for(String key:new String[]{FluidCloudStyle.FOLLOW_MEDIA,FluidCloudStyle.FOLLOW_ONLY_PLAYING,FluidCloudAccent.OPACITY,
@@ -221,8 +223,43 @@ public final class SettingsCatalogCheck {
         equal("",SettingsCatalog.unavailableReason(FluidCloudStyle.MEDIA_KEEP_HIGHLIGHT,keep));
     }
     private static void publicNetworkSettings() {
-        equal(null,SettingsCatalog.group("network"),"the newer merged page is retired");
-        for(String group:new String[]{"speed","data","wifi","label"}) {
+        SettingsCatalog.Group network=SettingsCatalog.group("network");
+        equal("网络组合",network.title);equal(null,network.masterKey);equal(true,network.independentSwitches);
+        for(String legacy:new String[]{"wifi","label","native_network_badge"}) {
+            equal(null,SettingsCatalog.group(legacy),"old destinations do not register duplicate fields "+legacy);
+            equal("network",SettingsCatalog.canonicalGroupId(legacy),"legacy route resolves to merged page "+legacy);
+        }
+        equal("network",SettingsCatalog.canonicalGroupId("network"));equal(null,SettingsCatalog.canonicalGroupId(null));
+        equal("wifi",SettingsCatalog.networkRoutePage("wifi"));equal("text",SettingsCatalog.networkRoutePage("label"));
+        equal("badge",SettingsCatalog.networkRoutePage("native_network_badge"));equal("common",SettingsCatalog.networkRoutePage("network"));
+        java.util.List<SettingsCatalog.DetailPage> tabs=SettingsCatalog.detailPages(network);
+        equal(4,tabs.size());
+        equal(java.util.Arrays.asList("common","wifi","text","badge"),java.util.Arrays.asList(tabs.get(0).id,tabs.get(1).id,tabs.get(2).id,tabs.get(3).id));
+        equal(java.util.Arrays.asList("共用位置","Wi-Fi","制式文字","角标与箭头"),java.util.Arrays.asList(tabs.get(0).title,tabs.get(1).title,tabs.get(2).title,tabs.get(3).title));
+        Set<String> networkKeys=new HashSet<>();
+        for(SettingsCatalog.DetailPage tab:tabs)for(SettingsCatalog.Item item:tab.items) {
+            equal(true,networkKeys.add(item.key),"one field on one network tab "+item.key);
+            equal("network",item.groupId);equal(false,item.master);
+            equal(tab.id,SettingsCatalog.networkDetailPageId(item.key),"search resolves to correct tab "+item.key);
+            equal(true,!SettingsCatalog.networkOwner(item.key).isEmpty(),"historical portable ownership known "+item.key);
+        }
+        equal(network.items.size(),networkKeys.size());equal(0,SettingsCatalog.commonDetailItems(network).size());
+        for(String key:new String[]{"wifi_enabled",NetworkDisplaySettings.WIFI_HIDDEN,"wifi_size_enabled",StatusBarSettings.WIFI_ICON_SCALE})
+            equal(true,tabs.get(1).items.contains(SettingsCatalog.item(key)),"Wi-Fi visibility and styling independent "+key);
+        for(String key:new String[]{"wifi_position_enabled",StatusBarSettings.WIFI_OFFSET_X,StatusBarSettings.WIFI_OFFSET_Y,
+                StatusBarLayoutSettings.key("wifi","margin_left"),StatusBarLayoutSettings.key("wifi","margin_right")})
+            equal(true,tabs.get(0).items.contains(SettingsCatalog.item(key)),"canonical position appears once "+key);
+        for(String key:new String[]{"label_color_enabled","label_color_light","label_color_dark"})
+            equal(true,tabs.get(3).items.contains(SettingsCatalog.item(key)),"text and badge share one colour block "+key);
+        equal(null,SettingsCatalog.item(StatusBarSettings.LABEL_HIDDEN));equal(true,SettingsCatalog.hiddenKeys().contains(StatusBarSettings.LABEL_HIDDEN));
+        equal(null,SettingsCatalog.item("data_badge_hidden"));equal(true,SettingsCatalog.hiddenKeys().contains("data_badge_hidden"));
+        Map<String,Object> independent=new HashMap<>();independent.put(StatusBarLayoutSettings.WIFI_LABEL_SHARED,true);
+        for(String key:new String[]{"label_position_enabled",StatusBarSettings.LABEL_OFFSET_Y,
+                StatusBarLayoutSettings.key("label","margin_left"),StatusBarLayoutSettings.key("label","margin_right")}) {
+            equal(false,SettingsCatalog.applicable(SettingsCatalog.item(key),independent),"shared geometry not duplicated "+key);
+            equal(true,SettingsCatalog.inactivePresentationReason(SettingsCatalog.item(key),independent).contains("独立位置"));
+        }
+        for(String group:new String[]{"speed","data"}) {
             equal(group,SettingsCatalog.group(group).id,"released independent destination "+group);
             equal(FeatureOptions.masterKey(group),SettingsCatalog.group(group).masterKey,"released page master "+group);
             equal(false,SettingsCatalog.group(group).independentSwitches,"released page has its own master "+group);
@@ -230,20 +267,30 @@ public final class SettingsCatalogCheck {
         SettingsCatalog.Item unified=SettingsCatalog.item("label_normalize_enabled");
         equal("统一网络制式名称",unified.title);
         equal(true,unified.defaultValue,"released normalization default retained");
-        equal("label",unified.groupId,"normalization stays on the released label page");
-        equal("wifi",SettingsCatalog.item("wifi_position_enabled").groupId,"Wi-Fi independent position belongs to Wi-Fi");
-        equal("label",SettingsCatalog.item("label_position_enabled").groupId,"label independent position belongs to label");
-        equal("label",SettingsCatalog.item(StatusBarSettings.SLOT_WIDTH).groupId,"released reserved width belongs to the label");
-        equal(0f,SettingsCatalog.item(StatusBarSettings.SLOT_WIDTH).min);
-        equal(80f,SettingsCatalog.item(StatusBarSettings.SLOT_WIDTH).max);
+        equal("network",unified.groupId,"normalization stays editable in merged page");
+        equal("network",SettingsCatalog.item("wifi_position_enabled").groupId,"Wi-Fi position is on network page");
+        equal("network",SettingsCatalog.item("label_position_enabled").groupId,"independent label position remains saved");
+        equal(null,SettingsCatalog.item(StatusBarSettings.SLOT_WIDTH),"automatic width has no manual editor");
+        equal(true,SettingsCatalog.hiddenKeys().contains(StatusBarSettings.SLOT_WIDTH),"old width remains protocol-only");
+        equal(false,SettingsCatalog.isVisible(StatusBarSettings.SLOT_WIDTH));
+        equal(ConfigTransfer.Type.NUMBER,ConfigTransfer.types().get(StatusBarSettings.SLOT_WIDTH),"old backups still accept the numeric key");
+        for(SettingsCatalog.Group group:SettingsCatalog.groups()) {
+            for(SettingsCatalog.Item item:SettingsCatalog.searchItems(group))
+                equal(false,StatusBarSettings.SLOT_WIDTH.equals(item.key),"search cannot reveal the retired width");
+            for(SettingsCatalog.DetailPage page:SettingsCatalog.editorDetailPages(group,PanelMode.SEPARATE,StatusBarSettings.SLOT_WIDTH))
+                for(SettingsCatalog.Item item:page.items)
+                    equal(false,StatusBarSettings.SLOT_WIDTH.equals(item.key),"a stale requested key cannot reveal the retired width");
+        }
+        equal("文字粗细",SettingsCatalog.item("label_text_style_enabled").title);
+        equal(true,SettingsCatalog.item("label_text_style_enabled").description.contains("宽度自动"));
         for(String key:new String[]{NetworkSlotGeometry.POSITION,NetworkSlotGeometry.OFFSET_X,NetworkSlotGeometry.OFFSET_Y,
                 NetworkSlotGeometry.MARGIN_LEFT,NetworkSlotGeometry.MARGIN_RIGHT,"data_roaming_hidden"}) {
             equal(null,SettingsCatalog.item(key),"post-release control absent "+key);
             equal(true,SettingsCatalog.hiddenKeys().contains(key),"saved compatibility key is hidden "+key);
         }
-        equal("label",SettingsCatalog.item(NetworkLabelFormats.ENABLED).groupId,"custom network text switch is on the label page");
+        equal("network",SettingsCatalog.item(NetworkLabelFormats.ENABLED).groupId,"custom network text switch is on merged page");
         for(String key:NetworkLabelFormats.STRINGS.keySet()) {
-            equal("label",SettingsCatalog.item(key).groupId,"per-generation text is editable "+key);
+            equal("network",SettingsCatalog.item(key).groupId,"per-generation text is editable "+key);
             equal(false,SettingsCatalog.hiddenKeys().contains(key),"per-generation text is not hidden "+key);
         }
         equal(null,SettingsCatalog.item(RadioState.BOTH_VISIBLE),"public 1.8.2 has no dual-display option");
@@ -303,6 +350,20 @@ public final class SettingsCatalogCheck {
             equal(true,SettingsCatalog.unavailableReason(apps[i],values).contains("请先开启"),"picker disabled with click");
         }
     }
+    /** Retired host controls retain their data protocol without a page or search result. */
+    private static void qsCardRetiredSettings() {
+        equal(null,SettingsCatalog.group("qs_card"),"free editing belongs to the independent plugin");
+        Set<String> retired=new HashSet<>(QsCardSettings.BOOLEANS.keySet());
+        retired.addAll(QsCardSettings.NUMBERS.keySet());retired.addAll(QsCardSettings.STRINGS.keySet());
+        equal(10,retired.size(),"all published host card keys retained");
+        for(String key:retired) {
+            equal(null,SettingsCatalog.item(key),"no host editor "+key);
+            equal(true,SettingsCatalog.hiddenKeys().contains(key),"compatibility key hidden "+key);
+            equal(true,ConfigTransfer.types().containsKey(key),"legacy key remains portable "+key);
+        }
+        for(SettingsCatalog.Group group:SettingsCatalog.groups())for(SettingsCatalog.Item item:SettingsCatalog.searchItems(group))
+            equal(false,retired.contains(item.key),"retired host controls absent from search");
+    }
     public static void main(String[] args) throws java.io.IOException {
         backdropReadability171();
         bigClockBackdropMaterialLock();
@@ -312,13 +373,14 @@ public final class SettingsCatalogCheck {
         speedAdjacentGap();
         miniStackBadgeSetting();
         portraitClockActions();
+        qsCardRetiredSettings();
         Set<String> reachable=new HashSet<>();
         for(String category:new String[]{SettingsCatalog.STATUSBAR,SettingsCatalog.NOTIFICATION,SettingsCatalog.CONTROL_CENTER,SettingsCatalog.LOCK_SCREEN,SettingsCatalog.OTHER})
             for(SettingsCatalog.NavigationSection section:SettingsCatalog.navigationSections(category))
                 for(SettingsCatalog.Group group:section.groups){equal(true,group!=null);reachable.add(group.id);}
         for(SettingsCatalog.Group group:SettingsCatalog.groups()) {
             equal(true,reachable.contains(group.id),"reachable group "+group.id);
-            equal(true,StatusBarSettings.BOOLEAN_DEFAULTS.containsKey(group.masterKey),"master registered "+group.id+"/"+group.masterKey);
+            equal(true,group.independentSwitches&&group.masterKey==null||StatusBarSettings.BOOLEAN_DEFAULTS.containsKey(group.masterKey),"master registered or independent page "+group.id+"/"+group.masterKey);
             Set<String> detailKeys=new HashSet<>();
             for(SettingsCatalog.Item item:SettingsCatalog.commonDetailItems(group))
                 equal(true,detailKeys.add(item.key),"unique shared detail item "+group.id+"/"+item.key);
@@ -460,21 +522,22 @@ public final class SettingsCatalogCheck {
         SettingsCatalog.Group hints=SettingsCatalog.group("status_hint_icons");
         equal(SettingsCatalog.STATUSBAR,hints.category);equal(NativeStatusIcons.MASTER,hints.masterKey);
         equal(false,StatusBarSettings.bool(java.util.Collections.emptyMap(),hints.masterKey));
-        SettingsCatalog.Group badge=SettingsCatalog.group("native_network_badge");
-        equal("原生角标调整",badge.title);equal(SettingsCatalog.STATUSBAR,badge.category);
-        equal(false,StatusBarSettings.bool(java.util.Collections.emptyMap(),badge.masterKey));
+        SettingsCatalog.Group badge=SettingsCatalog.group("network");
+        equal("网络组合",badge.title);equal(SettingsCatalog.STATUSBAR,badge.category);
+        equal(false,StatusBarSettings.bool(java.util.Collections.emptyMap(),NativeNetworkBadgeControls.MASTER));
         java.util.Map<String,Object> badgeValues=new java.util.HashMap<>();
-        equal("",SettingsCatalog.unavailableReason(badge.masterKey,badgeValues));
+        equal("",SettingsCatalog.unavailableReason(NativeNetworkBadgeControls.MASTER,badgeValues));
         badgeValues.put("label_enabled",true);
-        for(SettingsCatalog.Item item:badge.items)
+        for(SettingsCatalog.Item item:badge.items)if("native_network_badge".equals(SettingsCatalog.networkOwner(item.key)))
             if(item.key.startsWith("native_data_activity_"))equal("",SettingsCatalog.unavailableReason(item.key,badgeValues));
-            else equal(true,SettingsCatalog.unavailableReason(item.key,badgeValues).contains("关闭网络制式文字"));
+            else equal(true,SettingsCatalog.unavailableReason(item.key,badgeValues).contains("选择原生角标"));
         equal(badge.id,SettingsCatalog.item(NativeDataActivity.MASTER).groupId);
         equal(false,StatusBarSettings.bool(badgeValues,NativeDataActivity.MASTER));
         equal(0xff000000,StatusBarSettings.COLOR_DEFAULTS.get(NativeDataActivity.COLOR_LIGHT));
         equal(0xffffffff,StatusBarSettings.COLOR_DEFAULTS.get(NativeDataActivity.COLOR_DARK));
         badgeValues.put("label_enabled",false);
-        for(SettingsCatalog.Item item:badge.items)equal("",SettingsCatalog.unavailableReason(item.key,badgeValues));
+        for(SettingsCatalog.Item item:badge.items)if("native_network_badge".equals(SettingsCatalog.networkOwner(item.key)))
+            equal("",SettingsCatalog.unavailableReason(item.key,badgeValues));
         equal(-3.5f,SettingsCatalog.customNumber(SettingsCatalog.item(NativeNetworkBadgeSettings.key(1,"offset_x")),"-3.5"));
         equal(true,SettingEditor.forItem(SettingsCatalog.item(NativeNetworkBadgeSettings.key(1,"weight")),badgeValues).description.contains("原生字体"));
         SettingsCatalog.Item badgeFont=SettingsCatalog.item(NativeNetworkBadgeSettings.key(1,"font"));
@@ -487,16 +550,16 @@ public final class SettingsCatalogCheck {
         equal(true,SettingEditor.forItem(SettingsCatalog.item(NativeNetworkBadgeSettings.key(1,"weight")),badgeValues).description.contains("系统字体"));
         badgeValues.put(badgeFont.key,"custom");badgeValues.put(StatusBarSettings.FONT_REVISION,FontCatalog.find("manrope").sha256);
         equal(true,SettingEditor.forItem(SettingsCatalog.item(NativeNetworkBadgeSettings.key(1,"weight")),badgeValues).description.contains("Manrope"));
-        equal(3,SettingsCatalog.detailPages(badge).size());
+        equal(4,SettingsCatalog.detailPages(badge).size());
         for(int part=1;part<=2;part++) {
-            equal("角标"+part,SettingsCatalog.detailPages(badge).get(part-1).title);
+            equal("角标与箭头",SettingsCatalog.detailPages(badge).get(3).title);
             for(String suffix:new String[]{"enabled","offset_x","offset_y","scale","weight","font"}) {
                 SettingsCatalog.Item setting=SettingsCatalog.item(NativeNetworkBadgeSettings.key(part,suffix));
                 equal(badge.id,setting.groupId);
-                equal(true,SettingsCatalog.detailPages(badge).get(part-1).items.contains(setting));
+                equal(true,SettingsCatalog.detailPages(badge).get(3).items.contains(setting));
             }
         }
-        equal("数据小箭头",SettingsCatalog.detailPages(badge).get(2).title);
+        equal(true,SettingsCatalog.detailPages(badge).get(3).items.contains(SettingsCatalog.item(NativeDataActivity.MASTER)));
         for(String old:new String[]{NativeNetworkBadgeControls.X,NativeNetworkBadgeControls.Y,NativeNetworkBadgeControls.SCALE,
                 NativeNetworkBadgeControls.WEIGHT,NativeNetworkBadgeControls.FONT})equal(true,SettingsCatalog.hiddenKeys().contains(old));
         equal(true,NumericPolicy.signed(NativeStatusIcons.X));equal(true,NumericPolicy.signed(NativeStatusIcons.Y));
@@ -576,7 +639,7 @@ public final class SettingsCatalogCheck {
         equal(false,SettingsCatalog.groups().stream().anyMatch(group->group.title.contains("未完成")),"no page says unfinished");
         for(int part=1;part<=2;part++) {
             SettingsCatalog.Item hidden=SettingsCatalog.item(NativeNetworkBadgeSettings.key(part,"hidden"));
-            equal("native_network_badge",hidden.groupId);equal(false,hidden.defaultValue);
+            equal("network",hidden.groupId);equal(false,hidden.defaultValue);
             equal(ConfigTransfer.Type.BOOLEAN,ConfigTransfer.types().get(hidden.key));
         }
         SettingsCatalog.Item widthEnabled=SettingsCatalog.item(NotificationBigClockSettings.LANDSCAPE_NOTIFICATION_WIDTH_ENABLED),
@@ -941,6 +1004,20 @@ public final class SettingsCatalogCheck {
         }
         SettingEditor.Info pattern=SettingEditor.forItem(SettingsCatalog.item(StatusBarSettings.CLOCK_PATTERN),values);
         equal(true,pattern.pattern);equal(false,pattern.numeric);equal(true,pattern.description.contains("HH:mm:ss"));equal(true,pattern.description.contains(Integer.toString(TimeFormat.MAX_PATTERN)));
+        for(String token:new String[]{"{星期英文简}","{星期英文}","{星期英文简大写}","{星期英文大写}","{星期英文简小写}","{星期英文小写}","{月份英文简}","{月份英文}","{月份英文简大写}","{月份英文大写}","{月份英文简小写}","{月份英文小写}","{英文时段}","{英文时段大写}","{英文时段小写}","{AMPM}","{ampm}","{时段}"})
+            equal(true,pattern.description.contains(token));
+        equal(true,pattern.description.contains("中午"));equal(true,pattern.description.contains("不改变系统语言"));
+        java.util.Set<String> clockCategories=new java.util.HashSet<>();
+        for(String[] choice:SettingEditor.presets(SettingsCatalog.item(StatusBarSettings.CLOCK_PATTERN))){
+            if(choice[1].startsWith("中文："))clockCategories.add("中文");
+            if(choice[1].startsWith("英文："))clockCategories.add("英文");
+            if(choice[1].startsWith("组合："))clockCategories.add("组合");
+        }
+        equal(new java.util.HashSet<>(java.util.Arrays.asList("中文","英文","组合")),clockCategories);
+        long noon=java.time.Instant.parse("2026-10-28T04:30:00Z").toEpochMilli();
+        java.util.TimeZone shanghai=java.util.TimeZone.getTimeZone("Asia/Shanghai");
+        equal("中午 12:30 Wed",TimeFormat.format("{时段} HH:mm {星期英文简}",noon,shanghai));
+        equal("Oct 28 Wed",TimeFormat.format("{月份英文简} d {星期英文简}",noon,shanghai));
         equal(true,SettingEditor.forItem(SettingsCatalog.item(NotificationBigClockSettings.FOOTER_PATTERN),values).description.contains("{text}"));
         equal(true,SettingEditor.forItem(SettingsCatalog.item(NotificationIconArea.TEXT),values).description.contains("12个"));
         // "预设": every time-class field offers ready-made formats, each one saves and previews without an error.

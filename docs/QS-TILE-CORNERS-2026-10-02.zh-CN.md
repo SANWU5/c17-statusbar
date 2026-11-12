@@ -1,5 +1,3 @@
-> 本页保留历史功能与实现说明；其中旧入口、默认值、场景规则和阶段验证不代表当前版本。当前功能以[1.8.3更新日志](RELEASE-1.8.3.zh-CN.md)和[公开验证说明](../VALIDATION.md)为准。
-
 # ColorOS 17 的统一磁贴圆角
 
 > **code96 更新**：按住亮度滑块时屏幕上显示的是 `BrightnessMirrorContainer` 里的**镜像滑块**（系统在按住滑块时叠在原滑块上的第二个 `OplusQsVerticalSeekBar`，原滑块此时透明度为 0）；在手机上复现到它的玻璃层是整个滑块大小的纯圆，描边却是统一圆角。code96 加固：①`QsSeekBarBlurManager` 的 `createSeekBarBlurDrawable`、`getSeekBarBackground`、`getSeekBarActiveDrawable` 只要是为我们的滑块（第一个参数）创建的，不论在哪个时机都改成统一半径（以前只在模块自己的绘制范围内才改写）；②每次滑块原生绘制结束后（`QsPanelCorners.reconcile`），若这一帧里系统新建或替换了玻璃层，立刻按统一半径设置并重绘。**该加固基于推断，未在手机上验证**；没有查明镜像玻璃层原来为什么没被改写。
@@ -8,7 +6,7 @@
 
 > **code94 更新**：亮度/音量二级页面（`OplusQsDetail…`）里的滑块是控制中心同一个 `OplusQsVerticalSeekBar`（系统设置了 `isDetailToggle`），圆角路径本就覆盖；本轮把磁贴颜色与透明度的作用范围扩到该页面的滑块（按其所在的 `OplusQsDetailToggleSliderLayout` 识别）和页面下方的圆形按钮（`QsDetailTileBaseView` 及 `Std/Sep` 子类）。统一圆角关闭时，磁贴不再被登记观察，也不再对任何磁贴重绘。控制中心里没有 `OplusQSHighlightTileView` 实例（实机视图层级核对），code93 对它的支持保留但在这台手机上不会触发。
 
-当前本地 `1.6.1` / versionCode 58 的主要依据为 OnePlus 13 / ColorOS 17，尚未公开发布，本轮实机结果待复核。`qs_tile_corners_enabled` 默认关闭，`qs_tile_corner_radius` 默认 `24dp`，硬范围为 `0..30dp`，手工输入和导入同样遵守。旧配置中的超范围半径不会因打开设置页回写，实际绘制以30dp及控件宽高一半为限，重新保存须用合法范围。关闭后恢复各控件最新原生圆角；下面旧设备证据保留历史含义，当前其他功能见 [当前版本说明](RELEASE-1.8.3.zh-CN.md)。
+当前本地 `1.6.1` / versionCode 58 的主要依据为 OnePlus 13 / ColorOS 17，尚未公开发布，本轮实机结果待复核。`qs_tile_corners_enabled` 默认关闭，`qs_tile_corner_radius` 默认 `24dp`，硬范围为 `0..30dp`，手工输入和导入同样遵守。旧配置中的超范围半径不会因打开设置页回写，实际绘制以30dp及控件宽高一半为限，重新保存须用合法范围。关闭后恢复各控件最新原生圆角；下面旧设备证据保留历史含义，当前其他功能见 [code58说明](LOCAL-1.6.1-CODE58.zh-CN.md)。
 
 beta2 开发阶段曾对照用户指定的 [Maga-King/coloros16-control-center](https://github.com/Maga-King/coloros16-control-center) 审查原生背景、几何和动画两端的处理思路；读取时未见授权许可证，没有复制其源码。当前版保留本项目已接入的目标 ROM 原生 provider、滑块轨道和材质路径，范围收紧并增加独立 1×1 图标调节。正式构建、检查与本版实机范围见 [VALIDATION.md](../VALIDATION.md)。以下 code38/code40 设备证据均属于 beta1 历史，不代表本版实机通过。
 

@@ -12,7 +12,7 @@ public class PluginDrawable extends Drawable {
     public final com.oplusos.systemui.common.outline.RoundRectOutlineProvider pathProvider=new com.oplusos.systemui.common.outline.RoundRectOutlineProvider(56f,1f){
         public void update(float radius,Float weight){super.update(radius,weight);PluginDrawable.this.radius=radius;PluginDrawable.this.weight=weight;}
     };
-    public Object getPathProvider(){return pathProvider;}
+    public com.oplusos.systemui.common.outline.CornerOutlineProvider getPathProvider(){return pathProvider;}
     public void setCornerRadius(float radius,Float weight){cornerUpdates++;this.radius=radius;this.weight=weight;pathProvider.update(radius,weight);if(fail||failCalls>0){if(failCalls>0)failCalls--;throw new IllegalStateException("native plugin radius");}}
     public void draw(Canvas canvas){}
     public void setAlpha(int alpha){this.alpha=alpha;}

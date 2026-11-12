@@ -40,6 +40,9 @@ public final class NativeNetworkBadgeControls {
         Object family(Context context,Object nativeFamily,String mode,String revision,int weight)throws ReflectiveOperationException;
         default boolean supportsParts(){return false;}
         default Object drawing(Object base,Object token)throws ReflectiveOperationException{throw new NoSuchMethodException("Native text drawing unavailable");}
+        default boolean supportsColor(){return false;}
+        default int argb(long color)throws ReflectiveOperationException{throw new NoSuchMethodException("Native color conversion unavailable");}
+        default long packed(int color)throws ReflectiveOperationException{throw new NoSuchMethodException("Native color conversion unavailable");}
     }
     private volatile Access access;
     private volatile Settings settings=new Settings(null);
@@ -76,7 +79,8 @@ public final class NativeNetworkBadgeControls {
         boolean same(Style other){return enabled==other.enabled&&hidden==other.hidden&&x==other.x&&y==other.y&&scale==other.scale&&weight==other.weight&&font.equals(other.font);}
     }
     private static final class Settings {
-        final boolean enabled,explicitParts;final Style legacy;final Style[] parts;final String revision;
+        final boolean enabled,explicitParts,colorEnabled;final Style legacy;final Style[] parts;final String revision;
+        final Map<String,Integer> colors;final Map<String,Boolean> alphas;
         Settings(Bundle b){
             enabled=b!=null&&b.getBoolean(MASTER,false)&&!b.getBoolean("label_enabled",false)&&!SafetyMode.enabled(b);
             legacy=new Style(b,0);parts=new Style[]{new Style(b,1),new Style(b,2)};
@@ -84,13 +88,26 @@ public final class NativeNetworkBadgeControls {
             if(b!=null)for(String key:b.keySet())if(key.startsWith(NativeNetworkBadgeSettings.PART_ONE+"_")
                     ||key.startsWith(NativeNetworkBadgeSettings.PART_TWO+"_")){explicit=true;break;}
             explicitParts=explicit;
+            Map<String,Integer> configuredColors=new LinkedHashMap<>();Map<String,Boolean> configuredAlphas=new LinkedHashMap<>();
+            for(String key:new String[]{"label_color_light","label_color_dark"}){
+                configuredColors.put(key,b==null?StatusBarSettings.COLOR_DEFAULTS.get(key):b.getInt(key,StatusBarSettings.COLOR_DEFAULTS.get(key)));
+                configuredAlphas.put(key,b!=null&&b.getBoolean(StatusBarSettings.alphaKey(key),false));
+            }
+            colors=Collections.unmodifiableMap(configuredColors);alphas=Collections.unmodifiableMap(configuredAlphas);
+            // Keep a default black/white pair completely native, including its
+            // original packed colour space and all current animation alpha.
+            colorEnabled=b!=null&&b.getBoolean("label_color_enabled",true)
+                    &&((colors.get("label_color_light")&0xffffff)!=0||(colors.get("label_color_dark")&0xffffff)!=0xffffff
+                    ||alphas.get("label_color_light")||alphas.get("label_color_dark"));
             // Include the selected global source in the independent family cache identity.
             // A switch system→bundled can otherwise retain a cached "global" family.
             revision=b==null?"":b.getString(StatusBarSettings.FONT_REVISION,"")+':'
                     +(b.getBoolean("font_enabled",false)?b.getString(StatusBarSettings.FONT_MODE,"system")+':'+b.getString(FontScopes.KEY,"{}"):"system");
         }
         boolean same(Settings other){return enabled==other.enabled&&explicitParts==other.explicitParts&&legacy.same(other.legacy)&&parts[0].same(other.parts[0])
-                &&parts[1].same(other.parts[1])&&revision.equals(other.revision);}
+                &&parts[1].same(other.parts[1])&&revision.equals(other.revision)&&colorEnabled==other.colorEnabled
+                &&colors.equals(other.colors)&&alphas.equals(other.alphas);}
+        int color(int nativeTint){return colorEnabled?IconAppearance.color("label",nativeTint,colors,alphas):nativeTint;}
     }
     private static float partNumber(Bundle b,String key,float fallback){
         Object value=b==null?null:b.get(key);
@@ -140,6 +157,7 @@ public final class NativeNetworkBadgeControls {
         WeakReference<Object> drawingModifier;
         Settings drawingSettings;
         boolean drawingUsesRuns,drawingUsesTypography;
+        boolean colorOwned;long nativeColor,appliedColor;
         Binding(Object composer,Object owner){this.composer=new WeakReference<>(composer);this.owner=new WeakReference<>(owner);}
     }
     private static final class Owner extends WeakReference<Object>{
@@ -193,8 +211,11 @@ public final class NativeNetworkBadgeControls {
             // Fresh content owns its new native baseline. Saved lower callbacks first restore
             // our previous outputs, even after OFF, safe mode or a custom-label change.
             if(!scoped){
+                if(state.colorOwned&&nativeArgs[1] instanceof Long&&(Long)nativeArgs[1]==state.appliedColor){
+                    base=nativeArgs.clone();base[1]=state.nativeColor;
+                }
                 if(state.prefixHidden&&state.prefix.equals(nativeArgs[0])){
-                    base=nativeArgs.clone();base[0]=state.nativePrefix;
+                    if(base==nativeArgs)base=nativeArgs.clone();base[0]=state.nativePrefix;
                 }
                 if(state.suffixHidden&&state.suffix.equals(nativeArgs[5])){
                     if(base==nativeArgs)base=nativeArgs.clone();base[5]=state.nativeSuffix;
@@ -210,12 +231,19 @@ public final class NativeNetworkBadgeControls {
                     if(base==nativeArgs)base=nativeArgs.clone();base[6+i]=state.units[i];
                 }
             }
+            if(base[1] instanceof Long)state.nativeColor=(Long)base[1];
             if(!enabled())return base;if(!Float.isFinite(density)||density<=0f)density=1f;
             Settings configured=settings;Style current=configured.legacy;
             boolean separate=(partsReady||configured.explicitParts)&&base[0] instanceof String&&base[5] instanceof String
                     &&((String)base[0]).length()+((String)base[5]).length()<=128;
             float dx=NumericPolicy.pixels(current.x,density),dy=NumericPolicy.pixels(current.y,density);
             Object[] result=base.clone();
+            if(base[1] instanceof Long){
+                result[1]=adjustColor((Long)base[1],configured);
+                // OFF/defaults may receive the same saved coloured callback
+                // more than once. Keep its last owned colour recognisable.
+                if((Long)result[1]!=state.nativeColor){state.appliedColor=(Long)result[1];state.colorOwned=true;}
+            }
             if(base[0] instanceof String&&base[5] instanceof String){state.nativePrefix=(String)base[0];state.nativeSuffix=(String)base[5];}
             if(separate){
                 state.density=density;
@@ -247,7 +275,8 @@ public final class NativeNetworkBadgeControls {
             if(state.prefixHidden)result[0]="";if(state.suffixHidden)result[5]="";
             if(result[0] instanceof String&&result[5] instanceof String){state.prefix=(String)result[0];state.suffix=(String)result[5];}
             state.weight=base[4]==null?700:access.weight(base[4]);boolean changed=!result[6].equals(base[6])||!result[7].equals(base[7])
-                    ||!java.util.Objects.equals(result[0],base[0])||!java.util.Objects.equals(result[5],base[5]);
+                    ||!java.util.Objects.equals(result[0],base[0])||!java.util.Objects.equals(result[1],base[1])
+                    ||!java.util.Objects.equals(result[5],base[5]);
             for(int i=0;i<INDEX.length;i++){
                 state.known[i]=true;state.nullOriginal[i]=base[INDEX[i]]==null;
                 if(i==1)state.originalFamily=base[INDEX[i]];
@@ -257,6 +286,14 @@ public final class NativeNetworkBadgeControls {
             }
             state.appliedX=separate?0f:dx;state.appliedY=separate?0f:dy;if(result[2]!=base[2])outputs.put(result[2],new WeakReference<>(state));return changed?result:base;
         }catch(ReflectiveOperationException|RuntimeException unsupported){return nativeArgs;}
+    }
+    private long adjustColor(long nativeColor,Settings configured){
+        Access current=access;
+        if(!configured.colorEnabled||current==null||!current.supportsColor())return nativeColor;
+        try{
+            int nativeTint=current.argb(nativeColor),color=configured.color(nativeTint);
+            return color==nativeTint?nativeColor:current.packed(color);
+        }catch(ReflectiveOperationException|RuntimeException unavailable){return nativeColor;}
     }
     private boolean matchesText(Binding state,Object[] args){
         if(state.nativePrefix.equals(args[0])&&state.nativeSuffix.equals(args[5]))return true;
@@ -484,6 +521,7 @@ public final class NativeNetworkBadgeControls {
                 paint.setTextSize(NumericPolicy.textPixels((double)nativePaint.getTextSize()*style.scale/100d));
                 if(paint.getFontVariationSettings()!=null)paint.setFontVariationSettings(null);
                 if(face!=null)paint.setTypeface(face);
+                if(configured.colorEnabled)paint.setColor(configured.color(nativePaint.getColor()));
             }
             return paint;
         }
@@ -517,7 +555,7 @@ public final class NativeNetworkBadgeControls {
     }
     private final class NativeAccess implements Access {
         final Class<?> modifier,function,loadedFamily,wrapper;final Object kotlinUnit;
-        final Method layer,setX,setY,drawWithContent,drawContent,familyFace,wrapperFace,wrapFamily;final Field weightValue;final Constructor<?> weightConstructor;
+        final Method layer,setX,setY,drawWithContent,drawContent,familyFace,wrapperFace,wrapFamily,colorArgb,colorPacked;final Field weightValue;final Constructor<?> weightConstructor;
         final Map<Integer,Object> weights=new LinkedHashMap<>();final Map<Object,Map<String,Object>> families=new WeakHashMap<>();
         NativeAccess(ClassLoader loader)throws ReflectiveOperationException{
             modifier=loader.loadClass("androidx.compose.ui.Modifier");function=loader.loadClass("kotlin.jvm.functions.Function1");
@@ -529,6 +567,12 @@ public final class NativeNetworkBadgeControls {
                 content=resolveDrawContent(loader);
             }catch(ReflectiveOperationException unavailable){ }
             drawWithContent=draw;drawContent=content;
+            Method argb=null,packed=null;
+            try{
+                Class<?> color=loader.loadClass("androidx.compose.ui.graphics.ColorKt");
+                argb=color.getMethod("toArgb-8_81llA",Long.TYPE);packed=color.getMethod("Color",Integer.TYPE);
+            }catch(ReflectiveOperationException unavailable){ }
+            colorArgb=argb;colorPacked=packed;
             Class<?> scope=loader.loadClass("androidx.compose.ui.graphics.GraphicsLayerScope");setX=scope.getMethod("setTranslationX",Float.TYPE);setY=scope.getMethod("setTranslationY",Float.TYPE);
             Class<?> weight=loader.loadClass("androidx.compose.ui.text.font.FontWeight");weightConstructor=weight.getConstructor(Integer.TYPE);weightValue=weight.getField("weight");
             loadedFamily=loader.loadClass("androidx.compose.ui.text.font.LoadedFontFamily");familyFace=loadedFamily.getMethod("getTypeface");
@@ -537,6 +581,9 @@ public final class NativeNetworkBadgeControls {
         }
         @Override public boolean modifier(Object value){return modifier.isInstance(value);}
         @Override public boolean supportsParts(){return drawWithContent!=null&&drawContent!=null;}
+        @Override public boolean supportsColor(){return colorArgb!=null&&colorPacked!=null;}
+        @Override public int argb(long color)throws ReflectiveOperationException{return ((Number)colorArgb.invoke(null,color)).intValue();}
+        @Override public long packed(int color)throws ReflectiveOperationException{return ((Number)colorPacked.invoke(null,color)).longValue();}
         @Override public Object translate(Object base,float x,float y)throws ReflectiveOperationException{
             Object action=Proxy.newProxyInstance(function.getClassLoader(),new Class<?>[]{function},(proxy,method,args)->{
                 switch(method.getName()){

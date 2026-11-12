@@ -19,7 +19,8 @@ final class PreferenceWrites {
         long revision;
         int writing;
         boolean failed;
-        Map<String, Object> rejected, originals;
+        final Map<String, Object> rejected = new LinkedHashMap<>(), originals = new LinkedHashMap<>();
+        final Map<String, Long> owners = new HashMap<>();
     }
     private PreferenceWrites() { }
     private static State state(SharedPreferences raw) {
@@ -36,7 +37,7 @@ final class PreferenceWrites {
         synchronized (raw) {
             Map<String, Object> current = copy(raw.getAll());
             State state = state(raw);
-            if (state.rejected != null) for (String key : state.rejected.keySet()) {
+            for (String key : state.rejected.keySet()) {
                 if (!matches(current, key, state.rejected.get(key))) continue;
                 Object original = state.originals.get(key);
                 if (original == null) current.remove(key); else current.put(key, original);
@@ -49,18 +50,22 @@ final class PreferenceWrites {
         synchronized (raw) {
             Map<String, Object> before = values(raw);
             Map<String, Object> expected = new LinkedHashMap<>();
-            if (clear) for (String key : before.keySet()) expected.put(key, null);
+            if (clear) for (String key : raw.getAll().keySet()) expected.put(key, null);
             expected.putAll(changes);
             State state = state(raw);
-            state.writing++; state.revision++;
+            state.writing++; long operation = ++state.revision;
             boolean saved = false;
-            try { saved = editor.commit(); }
+            try {
+                repairPending(raw, editor, expected, clear, state);
+                for (String key : expected.keySet()) state.owners.put(key, operation);
+                saved = editor.commit();
+            }
             catch (RuntimeException failure) {
                 ModuleDiagnostics.error("settings", "Settings commit failed; restoring the previous edit", failure);
             } finally {
-                if (!saved) restoreOwned(raw, before, expected, state);
-                else { state.rejected = null; state.originals = null; }
-                state.failed = !saved; state.writing--;
+                if (!saved) restoreOwned(raw, before, expected, state, operation);
+                else acceptOwned(expected, state, operation);
+                state.failed = !saved || !state.rejected.isEmpty(); state.writing--;
             }
             return saved;
         }
@@ -70,40 +75,67 @@ final class PreferenceWrites {
         synchronized (raw) {
             Map<String, Object> before = values(raw);
             Map<String, Object> expected = new LinkedHashMap<>();
-            if (clear) for (String key : before.keySet()) expected.put(key, null);
+            if (clear) for (String key : raw.getAll().keySet()) expected.put(key, null);
             expected.putAll(changes);
             State state = state(raw);
-            state.writing++; state.revision++;
+            state.writing++; long operation = ++state.revision;
             boolean accepted = false;
-            try { editor.apply(); accepted = true; }
+            try {
+                repairPending(raw, editor, expected, clear, state);
+                for (String key : expected.keySet()) state.owners.put(key, operation);
+                editor.apply(); accepted = true;
+            }
             finally {
-                if (!accepted) restoreOwned(raw, before, expected, state);
-                else { state.rejected = null; state.originals = null; }
-                state.failed = !accepted; state.writing--;
+                if (!accepted) restoreOwned(raw, before, expected, state, operation);
+                else acceptOwned(expected, state, operation);
+                state.failed = !accepted || !state.rejected.isEmpty(); state.writing--;
             }
         }
     }
+    private static void repairPending(SharedPreferences raw, SharedPreferences.Editor editor,
+            Map<String, Object> expected, boolean clear, State state) {
+        Map<String, ?> current = raw.getAll();
+        for (String key : new HashSet<>(state.rejected.keySet())) {
+            if (!matches(current, key, state.rejected.get(key))) {
+                state.rejected.remove(key); state.originals.remove(key); continue;
+            }
+            if (clear || expected.containsKey(key)) continue;
+            // Repair in the SAME commit: an unrelated successful write must never persist a rejected value.
+            Object original = state.originals.get(key);
+            if (original == null) editor.remove(key); else StatusBarSettings.copyPreference(editor, key, original);
+            expected.put(key, original);
+        }
+    }
+    private static void acceptOwned(Map<String, Object> expected, State state, long operation) {
+        for (String key : expected.keySet()) if (Objects.equals(state.owners.get(key), operation)) {
+            state.rejected.remove(key); state.originals.remove(key);
+        }
+    }
     private static void restoreOwned(SharedPreferences raw, Map<String, Object> before,
-            Map<String, Object> expected, State state) {
-        state.rejected = new LinkedHashMap<>(); state.originals = new LinkedHashMap<>();
+            Map<String, Object> expected, State state, long operation) {
         try {
             Map<String, Object> current = copy(raw.getAll());
-            SharedPreferences.Editor restore = raw.edit();
-            boolean changed = false;
+            Map<String, Object> restoreValues = new LinkedHashMap<>();
             for (String key : expected.keySet()) {
                 Object projected = expected.get(key), original = before.get(key);
+                if (!Objects.equals(state.owners.get(key), operation)) continue;
                 if (!matches(current, key, projected) || matches(before, key, projected)) continue;
-                // Another writer's different value wins; only this editor's unchanged value is owned.
+                // A later guarded writer wins even if it writes the same value (A -> B -> A).
                 state.rejected.put(key, projected); state.originals.put(key, original);
-                if (original == null) restore.remove(key);
-                else StatusBarSettings.copyPreference(restore, key, original);
-                changed = true;
+                restoreValues.put(key, original);
             }
-            if (changed && !restore.commit())
+            if (restoreValues.isEmpty()) return;
+            SharedPreferences.Editor restore = raw.edit();
+            for (Map.Entry<String, Object> entry : restoreValues.entrySet()) {
+                if (entry.getValue() == null) restore.remove(entry.getKey());
+                else StatusBarSettings.copyPreference(restore, entry.getKey(), entry.getValue());
+            }
+            if (!restore.commit())
                 ModuleDiagnostics.info("settings", "Previous settings restored in memory; disk confirmation remains unavailable");
         } catch (RuntimeException failure) {
             // The independent original values remain available to provider reads after a partial restore.
-            if (state.rejected.isEmpty()) for (String key : expected.keySet()) {
+            for (String key : expected.keySet()) if (Objects.equals(state.owners.get(key), operation)
+                    && !state.rejected.containsKey(key) && !matches(before, key, expected.get(key))) {
                 state.rejected.put(key, expected.get(key)); state.originals.put(key, before.get(key));
             }
             ModuleDiagnostics.error("settings", "Previous settings disk restoration unavailable", failure);

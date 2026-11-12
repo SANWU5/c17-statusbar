@@ -80,9 +80,7 @@ public final class IconManagementRepository {
         public Bitmap preview(String role,int size)throws Exception{return preview(role,size,role);}
         public Bitmap preview(String role,int size,String geometryRole)throws Exception{synchronized(LOCK){
             if(closed)throw IconManagementJson.error("图标预览已关闭");
-            String selected=PuiIconAliases.sourceRole(pack.manifest,role);IconManagementManifest.Asset asset=selected==null?null:pack.manifest.icons.get(selected);if(asset==null)throw IconManagementJson.error("该套装没有此图案");
-            byte[] bytes=read(new File(staging,asset.source),IconManagementArchive.MAX_ENTRY);
-            return IconAssetDecoder.preview(asset,bytes,size,size*size,IconRoleRegistry.sharedSignalCanvas(geometryRole));
+            return previewFile(pack,staging,role,size,geometryRole);
         }}
         public ImportStatus status()throws IOException{return status(pack.name);}
         public ImportStatus status(String name)throws IOException{synchronized(LOCK){if(closed)throw IconManagementJson.error("图标暂存已关闭");Pack installed=existing(root,pack.id);return new ImportStatus(installed,installed==null?conflict(root,displayName(name,null),pack.id):null);}}
@@ -148,7 +146,15 @@ public final class IconManagementRepository {
     /** Notify after publication and outside the library lock; a failed observer cannot undo durable resource writes. */
     private static void changed(Context context){try{context.getContentResolver().notifyChange(Uri.parse(URI_PREFIX),null);}catch(RuntimeException failure){ModuleDiagnostics.error("icon_packs","V3 resource publication succeeded; observer notification failed",failure);}}
     public static Bitmap preview(Context context,String id,String role,int size)throws Exception{return preview(context,id,role,size,role);}
-    public static Bitmap preview(Context context,String id,String role,int size,String geometryRole)throws Exception{Pack pack=get(context,id);String selected=PuiIconAliases.sourceRole(pack.manifest,role);IconManagementManifest.Asset asset=selected==null?null:pack.manifest.icons.get(selected);if(asset==null)throw IconManagementJson.error("该套装没有此图案");byte[] bytes=read(new File(directory(root(context),id),asset.source),IconManagementArchive.MAX_ENTRY);return IconAssetDecoder.preview(asset,bytes,size,size*size,IconRoleRegistry.sharedSignalCanvas(geometryRole));}
+    public static Bitmap preview(Context context,String id,String role,int size,String geometryRole)throws Exception{Pack pack=get(context,id);return previewFile(pack,directory(root(context),id),role,size,geometryRole);}
+    private static Bitmap previewFile(Pack pack,File directory,String role,int size,String geometryRole)throws IOException{
+        String selected=IconManagementSelection.sourceRole(pack.manifest,role);IconManagementManifest.Asset asset=selected==null?null:pack.manifest.icons.get(selected);
+        if(asset==null)throw IconManagementJson.error("该套装没有此图案");
+        IconAssetDecoder.Decoded decoded=IconAssetDecoder.decode(asset,read(new File(directory,asset.source),IconManagementArchive.MAX_ENTRY),size,size*size);
+        IconAssetGeometry.Frame frame=IconAssetGeometry.resolve(decoded,asset,selected,geometryRole,pack.manifest,size,
+                peer->read(new File(directory,peer.source),IconManagementArchive.MAX_ENTRY));
+        return IconAssetDecoder.preview(decoded,frame.preview);
+    }
     public static Bitmap previewPrepared(PreparedPack prepared,String role,int size)throws Exception{if(prepared==null)throw IconManagementJson.error("图标预览已关闭");return prepared.preview(role,size);}
     public static Bitmap previewPrepared(PreparedPack prepared,String role,int size,String geometryRole)throws Exception{if(prepared==null)throw IconManagementJson.error("图标预览已关闭");return prepared.preview(role,size,geometryRole);}
     private static String bundledFile(String kind)throws IOException{

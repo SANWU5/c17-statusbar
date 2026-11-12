@@ -23,7 +23,7 @@ import java.util.WeakHashMap;
 
 /** Exact horizontal assets extracted from PUI Theme For OPlus17, inside the native battery renderer. */
 public final class PuiBatteryStyle {
-    private static final String PACKAGE="dev.puitheme.iosstatusbar";
+    private static final String PACKAGE=ModuleVariant.PACKAGE;
     private final Field[] shapes;
     private final Field insideRect,outsideRect,percentPaint,progress,background,outline,level;
     private final Method context,tint,measureText;

@@ -110,7 +110,7 @@ public final class MainActivity extends Activity {
         new Group("label", "网络制式文字", "统一显示 5G、4G、3G；Wi-Fi 接通后隐藏。", new Setting[]{
             pos("水平位置",StatusBarSettings.LABEL_OFFSET_X,true),pos("垂直位置",StatusBarSettings.LABEL_OFFSET_Y,false),
             scale("文字大小",StatusBarSettings.LABEL_SCALE),
-            new Setting("预留宽度",StatusBarSettings.SLOT_WIDTH," dp",0,80,.01f),weight(StatusBarSettings.FONT_WEIGHT)}),
+            weight(StatusBarSettings.FONT_WEIGHT)}),
         new Group("clock", "状态栏时间", "设置状态栏时钟的格式、位置、大小与字距。通知栏与控制中心默认跟随此处设置，也可独立调节。长日期会占用更多空间。", new Setting[]{
             pos("水平位置",StatusBarSettings.CLOCK_OFFSET_X,true),pos("垂直位置",StatusBarSettings.CLOCK_OFFSET_Y,false),
             scale("文字大小",StatusBarSettings.CLOCK_SCALE),weight(StatusBarSettings.CLOCK_WEIGHT),
@@ -797,7 +797,7 @@ public final class MainActivity extends Activity {
 
         addSection(card,"时钟与通知安全间距");
         addToggle(card,NotificationBigClockSettings.NOTIFICATION_GAP_ENABLED,"自动保留时钟与首张通知的距离");
-        addBigClockNumbers(card,new Setting("时间与通知间距",NotificationBigClockSettings.NOTIFICATION_GAP," dp",0,100,.01f));
+        addBigClockNumbers(card,new Setting("时间与通知间距",NotificationBigClockSettings.NOTIFICATION_GAP," dp",-100,100,.01f));
         addHint(card,"从调整后的时间与日期实际底边计算，字号和位置改变时同步更新首张通知的留白。支持两位小数与点击输入；此间距独立于通知堆叠及边缘虚化，关闭不会清除已保存的数值。");
 
         addSection(card,"通知堆叠");addToggle(card,NotificationBigClockSettings.STACK_ENABLED,"大时钟展开时层叠后续通知");
@@ -809,7 +809,7 @@ public final class MainActivity extends Activity {
 
         addSection(card,"通知边缘过渡");
         addToggle(card,NotificationBigClockSettings.NOTIFICATION_EDGE_ENABLED,"通知进入顶部边缘时模糊与渐隐");
-        addBigClockNumbers(card,new Setting("顶部安全距离",NotificationBigClockSettings.NOTIFICATION_EDGE_SAFE_DISTANCE," dp",0,100,.01f),
+        addBigClockNumbers(card,new Setting("顶部安全距离",NotificationBigClockSettings.NOTIFICATION_EDGE_SAFE_DISTANCE," dp",-100,100,.01f),
                 new Setting("过渡范围",NotificationBigClockSettings.NOTIFICATION_EDGE_RANGE," dp",0,120,.01f),
                 new Setting("边缘模糊半径",NotificationBigClockSettings.NOTIFICATION_EDGE_BLUR_RADIUS," dp",0,32,.01f));
         addHint(card,"完整卡片在安全区保持清晰。卡片进入顶部安全距离后，在设定范围内逐渐模糊与渐隐；停止滑动时保留当前位置对应的效果，返回安全区恢复清晰。点击数值可精细输入到两位小数。");
@@ -1338,13 +1338,19 @@ public final class MainActivity extends Activity {
         card.addView(preview,matchWrap());
     }
     private void chooseFormat(String key) {
-        String[] patterns=key.equals(NotificationBigClockSettings.DATE_PATTERN)
+        SettingsCatalog.Item item=SettingsCatalog.item(key);
+        String[][] choices=item==null?new String[0][]:SettingEditor.presets(item);
+        String[] patterns=choices.length>0?new String[choices.length]:key.equals(NotificationBigClockSettings.DATE_PATTERN)
                 ?new String[]{NotificationBigClockSettings.DATE_DEFAULT,"M月d日 EEEE","yyyy年M月d日 {星期}","M月d日 {周} {农历}","{干支} {农历日期}"}
                 :key.equals(NotificationBigClockSettings.FOOTER_PATTERN)
                 ?new String[]{"{text}","HH:mm {text}","yyyy年M月d日 {周} {text}","{农历} {text}","'C17' HH:mm {text}","✨ {text}"}
                 :new String[]{"HH:mm","HH:mm:ss","{上午下午} hh:mm","{时段} HH:mm","M月d日 {周} HH:mm","yyyy年MM月dd日 {星期} HH:mm","MM/dd HH:mm"};
         String[] labels=new String[patterns.length];long now=System.currentTimeMillis();
-        for(int i=0;i<patterns.length;i++){String value=formatPatternPreview(key,patterns[i],now);labels[i]=value.isEmpty()?"纯文本 {text}":value;}
+        for(int i=0;i<patterns.length;i++){
+            if(choices.length>0)patterns[i]=choices[i][0];
+            String value=formatPatternPreview(key,patterns[i],now);
+            labels[i]=(choices.length>0?choices[i][1]+"  ·  ":"")+(value.isEmpty()?"纯文本 {text}":value);
+        }
         new AlertDialog.Builder(this).setTitle("常用时间格式").setItems(labels,(dialog,which)->{
             preferences.edit().putString(key,patterns[which]).apply();changed();selectGroup(selected);
         }).setNegativeButton("取消",null).show();
@@ -1355,8 +1361,8 @@ public final class MainActivity extends Activity {
         field.setText(string(key));content.addView(field,matchWrap());TextView result=text("",14,INK,false);content.addView(result,matchWrap());
         addHint(content,"点击添加：年 / 月 / 日 / 周 / 星期 / 时 / 12时 / 分 / 秒 / 上午下午 / 时段 / 农历 / 农历日期 / 干支。“农历日期”不带“农历”前缀。");
         String[][] tokens=key.equals(NotificationBigClockSettings.FOOTER_PATTERN)
-                ?new String[][]{{"年","月","日","周","星期"},{"时","12时","分","秒"},{"上午下午","时段"},{"农历","农历日期","干支","text"}}
-                :new String[][]{{"年","月","日","周","星期"},{"时","12时","分","秒"},{"上午下午","时段"},{"农历","农历日期","干支"}};
+                ?new String[][]{{"年","月","日","周","星期"},{"时","12时","分","秒"},{"上午下午","时段"},{"星期英文简","星期英文","星期英文简大写"},{"星期英文大写","星期英文简小写","星期英文小写"},{"月份英文简","月份英文","月份英文简大写"},{"月份英文大写","月份英文简小写","月份英文小写"},{"英文时段","英文时段大写","英文时段小写"},{"AMPM","ampm"},{"农历","农历日期","干支","text"}}
+                :new String[][]{{"年","月","日","周","星期"},{"时","12时","分","秒"},{"上午下午","时段"},{"星期英文简","星期英文","星期英文简大写"},{"星期英文大写","星期英文简小写","星期英文小写"},{"月份英文简","月份英文","月份英文简大写"},{"月份英文大写","月份英文简小写","月份英文小写"},{"英文时段","英文时段大写","英文时段小写"},{"AMPM","ampm"},{"农历","农历日期","干支"}};
         for(String[] line:tokens) {
             LinearLayout row=row();for(String token:line) {
                 TextView chip=text(token.equals("text")?"纯文本":token,11,ACCENT,true);chip.setGravity(Gravity.CENTER);chip.setPadding(dp(3),dp(10),dp(3),dp(10));
@@ -1364,7 +1370,7 @@ public final class MainActivity extends Activity {
                 row.addView(chip,new LinearLayout.LayoutParams(0,-2,1));
             }content.addView(row,matchWrap());
         }
-        addHint(content,"也可输入 yyyy-MM-dd HH:mm:ss 等格式。固定英文放在单引号内，例如 'C17' HH:mm；中文直接输入。时段按小时显示凌晨、早晨、上午、中午、下午、晚上。");
+        addHint(content,SettingEditor.patternHelp(key.equals(NotificationBigClockSettings.FOOTER_PATTERN)));
         if(key.equals(NotificationBigClockSettings.FOOTER_PATTERN))addHint(content,"{text} 引用独立输入的纯文本，英文与 emoji 都按原文显示；单引号内的 {text} 仅显示这个标记本身。");
         ScrollView scroll=new ScrollView(this);scroll.addView(content);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("自定义时间格式").setView(scroll).setNegativeButton("取消",null).setPositiveButton("应用",null).create();
@@ -1610,7 +1616,7 @@ public final class MainActivity extends Activity {
         });
         dialog.show();
     }
-    private boolean signedNumber(String key) { return key.contains("offset_")||key.endsWith("spacing")||key.endsWith("line_gap"); }
+    private boolean signedNumber(String key) { return key.contains("offset_")||key.endsWith("spacing")||key.endsWith("line_gap")||NumericPolicy.signed(key); }
     private void stepNumber(SliderControl control,int direction) {
         Setting setting=control.setting;float next=control.current+direction*setting.step;
         if(!Float.isFinite(next)||!signedNumber(setting.key)&&next<0||NotificationBigClockSettings.positiveSize(setting.key)&&next<=0)return;

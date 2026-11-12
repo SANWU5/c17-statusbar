@@ -106,7 +106,32 @@ public final class QsNativeGlassFillCheck {
         QsNativeGlassFill.Swap swap=fill.prepare(engine,style);RuntimeShader nativeReplacement=new RuntimeShader("native concurrently replaced shader");
         Shader nativePaintReplacement=texture(8);nativeShader.shader=nativeReplacement;paint.setShader(nativePaintReplacement);swap.restore();equal(nativeReplacement,nativeShader.shader);equal(nativePaintReplacement,paint.getShader());
         deviceOpacity();
+        liquidGlassTransfer();
         System.out.println("QsNativeGlassFillCheck passed: "+checks);
+    }
+    private static void liquidGlassTransfer()throws Exception {
+        BlendDrawable engine=new BlendDrawable();engine.setBounds(0,0,100,200);QsNativeGlassFill fill=new QsNativeGlassFill();
+        RuntimeShader original=engine.drawableShader.shader,target=new RuntimeShader("composed liquid glass");
+        equal(false,QsNativeGlassFill.hasLiquidGlassState(engine.drawableShader,original));
+        QsNativeGlassFill.Swap scope=fill.prepare(engine,new QsTileAppearance.Style(0xff1677ff,0xff224466,75,90,true));
+        RuntimeShader active=engine.drawableShader.shader;
+        try {
+            equal(true,QsNativeGlassFill.hasLiquidGlassState(engine.drawableShader,active));
+            equal(false,QsNativeGlassFill.hasLiquidGlassState(new Object(),active));
+            equal(false,QsNativeGlassFill.transferLiquidGlassState(engine.drawableShader,original,target));
+            equal(false,QsNativeGlassFill.transferLiquidGlassState(engine.drawableShader,active,active));
+            equal(true,QsNativeGlassFill.transferLiquidGlassState(engine.drawableShader,active,target));
+            equal(active.inputs.get("c17QsFill"),target.inputs.get("c17QsFill"));
+            near(active.floats.get("c17QsSlots")[0],target.floats.get("c17StateSlots")[0]);near(active.floats.get("c17QsSlots")[1],target.floats.get("c17StateSlots")[1]);
+            equal(active.ints.get("c17QsKeepNativeRgb"),target.ints.get("c17QsKeepNativeRgb"));
+            final boolean[] other={true};Thread thread=new Thread(()->other[0]=QsNativeGlassFill.hasLiquidGlassState(engine.drawableShader,active));thread.start();thread.join();equal(false,other[0]);
+            BlendDrawable nested=new BlendDrawable();nested.setBounds(0,0,50,50);
+            QsNativeGlassFill.Swap inner=fill.prepare(nested,new QsTileAppearance.Style(0xff55aa33,0xff55aa33,100,0,false));
+            equal(false,QsNativeGlassFill.hasLiquidGlassState(engine.drawableShader,active));inner.restore();
+            equal(true,QsNativeGlassFill.hasLiquidGlassState(engine.drawableShader,active));
+            engine.drawableShader.shader=original;equal(false,QsNativeGlassFill.transferLiquidGlassState(engine.drawableShader,active,target));engine.drawableShader.shader=active;
+        } finally {scope.restore();}
+        equal(false,QsNativeGlassFill.hasLiquidGlassState(engine.drawableShader,active));equal(original,engine.drawableShader.shader);
     }
     private static void deviceOpacity() throws Exception {
         BlendDrawable engine=new BlendDrawable();engine.setBounds(0,0,100,200);

@@ -62,6 +62,9 @@ public final class PerformanceWebActivity extends Activity {
         @JavascriptInterface public void setEnabled(boolean enabled, String callback) {
             submit(enabled ? RootPerformanceModule.Action.ENABLE : RootPerformanceModule.Action.DISABLE, callback);
         }
+        @JavascriptInterface public void setRecoveryEnabled(boolean enabled, String callback) {
+            submit(enabled ? RootPerformanceModule.Action.RESCUE_ENABLE : RootPerformanceModule.Action.RESCUE_DISABLE, callback);
+        }
     }
     private void submit(RootPerformanceModule.Action action, String callback) {
         if (callback == null || !callback.matches("[A-Za-z_$][A-Za-z0-9_$]{0,63}")) return;

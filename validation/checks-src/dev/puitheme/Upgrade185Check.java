@@ -22,8 +22,8 @@ public final class Upgrade185Check {
     }
     private static String document(String key,String raw){return "{\"package\":\""+ConfigTransfer.PACKAGE_NAME+"\",\"schema\":1,\"settings\":{\""+key+"\":"+raw+"}}";}
     private static void registration(Bundle full){
-        equal(48,SettingsFrameworkMirror.VERSION,"mirror schema");equal(1,ConfigTransfer.SCHEMA_VERSION,"portable JSON unchanged");
-        equal(979,full.keySet().size(),"complete setting count");equal(966,ConfigTransfer.types().size(),"portable setting count");
+        equal(52,SettingsFrameworkMirror.VERSION,"mirror schema");equal(1,ConfigTransfer.SCHEMA_VERSION,"portable JSON unchanged");
+        equal(1000, full.keySet().size(),"complete setting count");equal(987,ConfigTransfer.types().size(),"portable setting count");
         equal(additions(),Upgrade185.DEFAULTS,"exact frozen thirteen Boolean additions");equal(additions(),FluidCloudScope.BOOLEANS,"runtime default registry matches migration");
         equal(false,FluidCloudScope.isScopeKey(null),"null is not a scope key");equal(false,FluidCloudScope.isScopeKey("fluid_cloud_scope_unknown_enabled"),"unpublished key is not registered");
         for(String id:IDS){String key=key(id);
@@ -73,7 +73,7 @@ public final class Upgrade185Check {
         Upgrade185.migrate(store);for(String id:IDS)equal(false,store.values.get(key(id)),"old import and migration preserve category opt-outs");
         for(String id:IDS)for(String raw:new String[]{"null","0","1","\"true\"","[]","{}"}){checks++;try{ConfigTransfer.prepare(document(key(id),raw),true);throw new AssertionError("accepted non-Boolean scope");}catch(IOException expected){}}
         Map<String,Object> saved=values(full);for(String id:IDS)saved.put(key(id),false);Map<String,Object> before=new LinkedHashMap<>(saved);
-        ConfigTransfer.PreparedImport prepared=ConfigTransfer.prepare(ConfigTransfer.exportJson(saved),true);equal(966,prepared.count,"full portable count");equal(before,saved,"export input immutable");
+        ConfigTransfer.PreparedImport prepared=ConfigTransfer.prepare(ConfigTransfer.exportJson(saved),true);equal(987,prepared.count,"full portable count");equal(before,saved,"export input immutable");
         for(String id:IDS)equal(false,prepared.values().get(key(id)),"full export retains opt-out");
     }
     private static void editor(){

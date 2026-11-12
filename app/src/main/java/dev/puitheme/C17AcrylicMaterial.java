@@ -9,6 +9,7 @@ import android.graphics.RuntimeShader;
 import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.view.View;
+import android.view.ViewParent;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -25,6 +26,7 @@ final class C17AcrylicMaterial {
     private static final String MATERIAL = "com.oplus.posteffect.agsl.DrawableShader";
     private static final String EFFECTS = "com.oplus.posteffect.agsl.effects.";
     private static final String TINT = "c17AcrylicTint";
+    private static final String GROUP_FILL = "c17GroupTileFill";
     private static final String MAIN = "half4 main(float2 position) {";
     private static final int MAX_MATERIALS = 256;
     private final Map<Object, Cached> materials = Collections.synchronizedMap(new WeakHashMap<>());
@@ -111,6 +113,12 @@ final class C17AcrylicMaterial {
             cached.tint[2] = (argb & 255) / 255f;
             cached.tint[3] = tint ? (argb >>> 24) / 255f : 0f;
             variant.setFloatUniform(TINT, cached.tint);
+            // The group body and its inactive native circles sample the same blur.
+            // Once optics are removed, tinting both identically erases their boundary.
+            // Keep a flat inner surface inside the native mask, without restoring optics.
+            float strength = Math.max(groupTileFill(host), sliderTileFill(engine, host));
+            float shade = night ? 1f : 0f;
+            variant.setFloatUniform(GROUP_FILL, shade, shade, shade, strength * (night ? .14f : .08f));
             Object value = QsTileAppearance.field(engine, "drawableShaderPaint");
             if (!(value instanceof Paint)) return null;
             Swap result = new Swap(material, access.shader, (RuntimeShader) shader, variant, (Paint) value);
@@ -121,6 +129,71 @@ final class C17AcrylicMaterial {
 
     void clear() { materials.clear(); contracts.clear(); }
     void detach(Drawable engine) { Object material = QsTileAppearance.field(engine, "drawableShader"); if (material != null) materials.remove(material); }
+
+    /** Exact owned group members only. A normal 1x1, single copy, expanded picker,
+     * outer group plate, or icon foreground must retain its native material. */
+    static float groupTileFill(View host) {
+        if (!nativeTile(host)) return 0f;
+        ViewParent parent = host.getParent();
+        for (int depth = 0; parent instanceof View && depth < 4; depth++) {
+            View view = (View) parent;
+            if ("dev.c17.plugins.freeedit.QsTileGroupHolder$Slot".equals(view.getClass().getName())) {
+                if (!Boolean.FALSE.equals(QsTileAppearance.field(view, "plain"))) return 0f;
+                Object state = QsTileAppearance.field(QsTileAppearance.call(host, "getTileState"), "state");
+                // Native 0 = unavailable, 1 = off, 2 = on. Active/custom fills win.
+                return state instanceof Number && (((Number) state).intValue() == 0 || ((Number) state).intValue() == 1) ? 1f : 0f;
+            }
+            // Never cross another native tile or a group body into an unrelated owner.
+            if (nativeTile(view)) return 0f;
+            parent = view.getParent();
+        }
+        return 0f;
+    }
+
+    private static boolean nativeTile(View view) {
+        if (view == null) return false;
+        for (Class<?> type = view.getClass(); type != null; type = type.getSuperclass())
+            if ("com.oplus.systemui.plugins.qs.customize.view.tile.OplusQSResizeableTileView".equals(type.getName())) return true;
+        return false;
+    }
+
+    /** Expanded private slider buttons and the exact inactive track need the same
+     * separation as group members. Never tint the progress layer or outer plate. */
+    static float sliderTileFill(Drawable engine, View host) {
+        boolean seek = "com.oplus.systemui.qs.base.seek.OplusQsVerticalSeekBar".equals(host.getClass().getName());
+        if (!seek && !nativeTile(host)) return 0f;
+        View child = host;
+        for (int depth = 0; child.getParent() instanceof View && depth < 6; depth++) {
+            View parent = (View) child.getParent();
+            if ("dev.c17.plugins.freeedit.QsSliderCardLayout".equals(parent.getClass().getName())) {
+                if (!Integer.valueOf(2).equals(QsTileAppearance.field(parent,"columns"))
+                        || !Integer.valueOf(2).equals(QsTileAppearance.field(parent,"rows"))
+                        || !Boolean.FALSE.equals(QsTileAppearance.field(parent,"released"))) return 0f;
+                if (seek) {
+                    if (QsTileAppearance.field(QsTileAppearance.field(parent,"slider"),"view") != child) return 0f;
+                    Object base = QsTileAppearance.field(host,"baseMixColorDrawable"), active = QsTileAppearance.field(host,"activeMixColorDrawable");
+                    return sliderEngine(base,host) == engine && sliderEngine(active,host) != engine ? 1f : 0f;
+                }
+                Object buttons = QsTileAppearance.field(parent,"buttons");
+                if (QsTileAppearance.field(buttons,"top") != host && QsTileAppearance.field(buttons,"bottom") != host) return 0f;
+                Object state = QsTileAppearance.field(QsTileAppearance.call(host,"getTileState"),"state");
+                return Integer.valueOf(0).equals(state) || Integer.valueOf(1).equals(state) ? 1f : 0f;
+            }
+            if (nativeTile(parent)) return 0f;
+            child = parent;
+        }
+        return 0f;
+    }
+
+    private static Object sliderEngine(Object drawable, View host) {
+        if (drawable == null || !"com.oplusos.systemui.common.blurability.drawable.AutoBlurDrawable".equals(drawable.getClass().getName())) return null;
+        Object proxy = QsTileAppearance.field(drawable,"viewBlurProxy");
+        if (QsTileAppearance.field(proxy,"view") != host) return null;
+        Object lazy = QsTileAppearance.field(proxy,"platformBlurHelper$delegate");
+        // Read only an already initialized backend; do not create a second blur source.
+        if (!Boolean.TRUE.equals(QsTileAppearance.call(lazy,"isInitialized"))) return null;
+        return QsTileAppearance.field(QsTileAppearance.field(QsTileAppearance.call(lazy,"getValue"),"blurDrawable"),"blurDrawable");
+    }
 
     /** Native shape/clip effects survive; only the three audited optical layers leave. */
     static List<?> drawingEffects(List<?> effects, boolean removeOptics) {
@@ -144,8 +217,9 @@ final class C17AcrylicMaterial {
         int at = source.lastIndexOf(end);
         if (at < 0) { end = "return outputCol;}"; at = source.lastIndexOf(end); }
         if (at < 0 || source.indexOf(end) != at) return null;
-        String mix = "outputCol = half4(mix(outputCol.rgb, half3(c17AcrylicTint.rgb), c17AcrylicTint.a), outputCol.a);\n";
-        return "uniform float4 " + TINT + ";\n" + source.substring(0, at) + mix + source.substring(at);
+        String mix = "outputCol = half4(mix(outputCol.rgb, half3(c17AcrylicTint.rgb), c17AcrylicTint.a), outputCol.a);\n"
+                + "outputCol = half4(mix(outputCol.rgb, half3(c17GroupTileFill.rgb) * outputCol.a, c17GroupTileFill.a), outputCol.a);\n";
+        return "uniform float4 " + TINT + ";\nuniform float4 " + GROUP_FILL + ";\n" + source.substring(0, at) + mix + source.substring(at);
     }
 
     private Access contract(Class<?> type) {

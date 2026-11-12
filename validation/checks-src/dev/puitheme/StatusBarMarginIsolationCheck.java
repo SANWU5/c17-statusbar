@@ -6,7 +6,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Public settings contracts: standalone margins, per-page sharing, preserved ordering and safe-mode restore. */
+/** Public settings contracts: standalone margins, unified network editor, exact legacy export subsets and safe restore. */
 public final class StatusBarMarginIsolationCheck {
     private static int checks;
     private static void check(boolean value, String why) { checks++; if (!value) throw new AssertionError(why); }
@@ -17,11 +17,18 @@ public final class StatusBarMarginIsolationCheck {
         for (int i = 0; i < tokens.length; i++) owners.put(tokens[i], groups[i]);
         for (Map.Entry<String, String> element : owners.entrySet()) {
             String token = element.getKey(), group = element.getValue();
+            String editorGroup = token.equals("wifi") || token.equals("label") ? "network" : group;
             for (String side : Arrays.asList("margin_left", "margin_right")) {
                 String key = StatusBarLayoutSettings.key(token, side);
                 SettingsCatalog.Item item = SettingsCatalog.item(key);
-                check(item != null && item.groupId.equals(group), token + " margins live on their own page");
-                check(ConfigScope.section(group).keys().contains(key), "element page exports its margin");
+                check(item != null && item.groupId.equals(editorGroup), token + " margins live on the current element editor");
+                check(ConfigScope.section(editorGroup).keys().contains(key), "current editor exports its margin");
+                check(ConfigScope.section(group).keys().contains(key), "legacy element export selection retains its margin");
+                if (token.equals("wifi") || token.equals("label")) {
+                    String otherToken=token.equals("wifi") ? "label" : "wifi";
+                    check(!ConfigScope.section(group).keys().contains(StatusBarLayoutSettings.key(otherToken,side)), "legacy network export subset cannot import the other element's margin");
+                    check(ConfigScope.keys(Collections.singletonList(group)).equals(ConfigScope.section(group).keys()), "saved legacy network export selection remains an exact local subset");
+                }
                 check(!ConfigScope.section(StatusBarLayoutSettings.GROUP).keys().contains(key), "sorting page cannot overwrite margin");
                 check(SettingsCatalog.unavailableReason(key, Collections.emptyMap()).isEmpty(), "margin editor available with style and sorting off");
                 Map<String, Object> saved = new LinkedHashMap<>(); saved.put(key, 5.25f);
@@ -63,7 +70,7 @@ public final class StatusBarMarginIsolationCheck {
         check(((Number)StatusBarLayoutSettings.runtime(values).get(StatusBarSettings.CLOCK_OFFSET_X)).floatValue() == 17, "zero restores saved legacy contract");
         for (SettingsCatalog.Item item : SettingsCatalog.group(StatusBarLayoutSettings.GROUP).items)
             check(!StatusBarLayoutSettings.marginKey(item.key), "sorting UI has no margin fields");
-        check(SettingsFrameworkMirror.VERSION == 48 && Upgrade144.DEFAULTS.size() == 36, "independent margin protocol remains unchanged by the shared-slot schema");
+        check(SettingsFrameworkMirror.VERSION == 52 && Upgrade144.DEFAULTS.size() == 36, "independent margin protocol remains unchanged by subsequent schemas");
         System.out.println("StatusBarMarginIsolationCheck: " + checks + " checks passed");
     }
     private static void signedMargin(String key, String token, String side) throws Exception {

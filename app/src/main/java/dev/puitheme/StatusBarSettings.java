@@ -16,8 +16,8 @@ import java.util.Collections;
 public final class StatusBarSettings {
     private static final String MIGRATION_PREFS = "statusbar_settings_storage";
     private static final String CREDENTIAL_MIGRATED = "credential_preferences_migrated";
-    public static final String AUTHORITY = "dev.puitheme.iosstatusbar.settings";
-    public static final String CONTENT_URI = "content://dev.puitheme.iosstatusbar.settings/values";
+    public static final String AUTHORITY = ModuleVariant.PACKAGE + ".settings";
+    public static final String CONTENT_URI = "content://" + AUTHORITY + "/values";
     public static final String DATA_ICON_SCALE = "data_icon_scale";
     public static final String DATA_OFFSET_X = "data_offset_x";
     public static final String DATA_OFFSET_Y = "data_offset_y";
@@ -114,6 +114,8 @@ public final class StatusBarSettings {
         booleans.putAll(QsTileFullFill.BOOLEANS);
         booleans.putAll(QsTileCorners.BOOLEANS);
         booleans.putAll(QsMediaAppearance.BOOLEANS);
+        booleans.putAll(QsCardSettings.BOOLEANS);
+        booleans.put(QsWifiAlias.ENABLED,false);
         booleans.putAll(NotificationBigClockSettings.BOOLEANS);
         booleans.putAll(BigClockWidgetsSettings.BOOLEANS);
         booleans.putAll(FeatureGroups.BOOLEANS);
@@ -182,6 +184,7 @@ public final class StatusBarSettings {
         numbers.put(FluidCloudCapsule.FILL_OPACITY, FluidCloudCapsule.DEFAULT_FILL_OPACITY);
         numbers.put(FluidCloudCapsule.BORDER_WIDTH, FluidCloudCapsule.DEFAULT_BORDER_WIDTH);
         numbers.put(FluidCloudCapsule.RADIUS, FluidCloudCapsule.DEFAULT_RADIUS);
+        numbers.put(PrivacyIndicatorSettings.DURATION, PrivacyIndicatorSettings.DEFAULT_DURATION);
         numbers.put(FluidCloudCapsule.BLUR_RADIUS, FluidCloudCapsule.DEFAULT_BLUR_RADIUS);
         numbers.put(FluidCloudCapsule.MARQUEE_OPACITY, FluidCloudCapsule.DEFAULT_MARQUEE_OPACITY);
         numbers.put(FluidCloudCapsule.MARQUEE_PERIOD, FluidCloudCapsule.DEFAULT_MARQUEE_PERIOD);
@@ -220,6 +223,7 @@ public final class StatusBarSettings {
         numbers.putAll(QsTileAppearance.NUMBERS);
         numbers.putAll(QsTileCorners.NUMBERS);
         numbers.putAll(QsMediaAppearance.NUMBERS);
+        numbers.putAll(QsCardSettings.NUMBERS);
         numbers.putAll(NotificationBigClockSettings.NUMBERS);
         numbers.putAll(BigClockWidgetsSettings.NUMBERS);
         numbers.putAll(NotificationClearAppearance.NUMBERS);
@@ -296,6 +300,9 @@ public final class StatusBarSettings {
         strings.put(IconManagementSettings.KEY, IconManagementSettings.DEFAULT);
         strings.put(SIGNAL_LAYOUT, "system");
         strings.putAll(NetworkLabelFormats.STRINGS);
+        strings.put(QsWifiAlias.MODE,"per_network");
+        strings.put(QsWifiAlias.UNIFIED,"");
+        strings.put(QsWifiAlias.RULES,"{}");
         strings.putAll(NetworkSpeedControls.STRINGS);
         strings.putAll(SpeedPosition.stringDefaults());
         strings.putAll(StatusBarLayoutSettings.STRINGS);
@@ -313,6 +320,7 @@ public final class StatusBarSettings {
         strings.put(IconPackAssignments.ASSIGNMENTS, "[]");
         strings.putAll(ClassicTextSettings.STRINGS);
         strings.putAll(ShadeWallpaperSettings.STRINGS);
+        strings.putAll(QsCardSettings.STRINGS);
         strings.put(ShadeWallpaperSettings.LEGACY_MANAGE, "");
         strings.putAll(NativeStatusIcons.stringDefaults());
         strings.putAll(NativeNetworkBadgeControls.stringDefaults());
@@ -510,6 +518,10 @@ public final class StatusBarSettings {
             Upgrade186.migrate(preferences);
             Upgrade187.migrate(preferences);
             Upgrade188.migrate(preferences);
+            Upgrade195.migrate(preferences);
+            Upgrade196.migrate(preferences);
+            Upgrade209.migrate(preferences);
+            Upgrade279.migrate(preferences);
         }
         NumericTrial.recover(deviceContext, preferences);
         NotificationClearAppearance.migrate(preferences,migration,userManager!=null&&userManager.isUserUnlocked());

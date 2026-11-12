@@ -3,6 +3,9 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+// Build the private customer app from the same production sources, with its own identity and entry point.
+def c17Dabing = providers.gradleProperty('c17Dabing').orElse('false').get().toBoolean()
+
 // Signing stays local. Environment variables take precedence over the ignored private file.
 def c17SigningProperties = new Properties()
 def c17SigningFile = rootProject.file('.local-private/signing.properties')
@@ -23,6 +26,7 @@ android {
     buildToolsVersion '36.0.0'
     buildFeatures {
         compose true
+        buildConfig true
     }
     androidResources {
         noCompress += ['ttf', 'otf', 'ttc']
@@ -34,11 +38,23 @@ android {
             && c17PrivateIconAssets.isDirectory()) sourceSets.main.assets.srcDir(c17PrivateIconAssets)
 
     defaultConfig {
-        applicationId 'dev.puitheme.iosstatusbar'
+        applicationId c17Dabing ? 'dev.puitheme.dabingstack' : 'dev.puitheme.iosstatusbar'
         minSdk 26
         targetSdk 35
-        versionCode 192
-        versionName '1.8.3'
+        versionCode 293
+        versionName '2.1.0'
+        buildConfigField 'boolean', 'CUSTOMER_DABING', c17Dabing.toString()
+    }
+
+    if (c17Dabing) {
+        defaultConfig.versionCode = 4
+        defaultConfig.versionName = '1.1.0'
+        sourceSets.main.java.srcDir('src/dabing/java')
+        sourceSets.main.manifest.srcFile('src/dabing/AndroidManifest.xml')
+        sourceSets.main.resources.setSrcDirs(['src/dabing/resources'])
+        // Build-type resources override the main app's names without duplicate same-priority values.
+        sourceSets.debug.res.srcDir('src/dabing/res')
+        sourceSets.release.res.srcDir('src/dabing/res')
     }
 
     compileOptions {
@@ -76,6 +92,26 @@ android {
     }
 }
 
+def c17PerformanceAssets = rootProject.layout.buildDirectory.dir('generated/c17-performance-assets')
+android.sourceSets.main.assets.srcDir(c17PerformanceAssets.get().asFile)
+def c17BuildCache = tasks.register('buildCompanionCache', Exec) {
+    workingDir rootProject.projectDir
+    commandLine providers.environmentVariable('C17_PYTHON').orElse('python').get(), 'tools/performance-cache/build.py'
+    inputs.files(rootProject.file('tools/performance-cache/c17cached.cpp'), rootProject.file('tools/performance-cache/build.py'))
+    outputs.files(['arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86'].collect {
+        c17PerformanceAssets.get().file("performance-module/bin/c17cached-$it")
+    })
+}
+def c17BuildBootRescue = tasks.register('buildCompanionBootRescue', Exec) {
+    workingDir rootProject.projectDir
+    commandLine providers.environmentVariable('C17_PYTHON').orElse('python').get(), 'tools/boot-rescue/build.py'
+    inputs.files(rootProject.fileTree('tools/boot-rescue') { include '*.cpp', '*.h', '*.hpp', 'build.py' })
+    outputs.files(['arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86'].collect {
+        c17PerformanceAssets.get().file("performance-module/bin/c17bootrescue-$it")
+    })
+}
+tasks.named('preBuild').configure { dependsOn(c17BuildCache, c17BuildBootRescue) }
+
 kotlin {
     compilerOptions {
         // Compose 1.12 inline APIs require JVM 11; the existing Java hooks still target Java 8.
@@ -103,6 +139,8 @@ dependencies {
     implementation 'io.github.libxposed:service:102.0.0'
     // Bounded ZIP/RAR4/RAR5 icon-pack imports; native decoding runs only in the settings app.
     implementation 'me.zhanghai.android.libarchive:library:1.1.6'
+    // Java 8 compatible Rhino security maintenance release; scripts run only in the settings app.
+    implementation 'org.mozilla:rhino:1.7.15.1'
 
     implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.4.20'
     implementation 'androidx.activity:activity-compose:1.13.0'
@@ -116,6 +154,10 @@ dependencies {
     // Local COUI UI variant; the existing Miuix option remains available.
     implementation 'io.github.suqi8.coui.kmp:coui-ui-android:1.1.0'
     implementation 'io.github.suqi8.coui.kmp:coui-preference-android:1.1.0'
+    // Material UI variant: Google's Compose Material 3. Miuix already pins material3-window-size-class to this
+    // release line, and the shared material-color-utilities derives its palettes; versions stay aligned.
+    implementation 'androidx.compose.material3:material3:1.5.0-alpha22'
+    implementation 'com.materialkolor:material-color-utilities:5.0.1'
     // Liquid glass navigation (About → 液态玻璃底栏). The library is minSdk 33; the manifest
     // overrides it and every use is gated by GlassNavigationPreference.supported().
     implementation 'top.yukonga.miuix.kmp:miuix-blur-android:0.9.4'

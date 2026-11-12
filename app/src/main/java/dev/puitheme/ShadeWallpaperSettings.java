@@ -104,6 +104,13 @@ public final class ShadeWallpaperSettings {
     public static String unavailableReason() { return available() ? "" : "下拉壁纸未完成，暂时不能开启"; }
     public static String unavailableReason(String key) { return key != null && key.startsWith("shade_wallpaper_") ? unavailableReason() : ""; }
     public static boolean validScene(String scene) { return SCENES.contains(scene); }
+    /** The card has its own asset/settings; it is never a pull-down scene or page master. */
+    public static boolean assetScene(String scene) { return validScene(scene)||QsCardSettings.wallpaperScene(scene); }
+    public static boolean assetAvailable(String scene) { return QsCardSettings.wallpaperScene(scene)||available(); }
+    public static String assetRevisionKey(String scene) { return QsCardSettings.wallpaperScene(scene)?QsCardSettings.WALLPAPER_REVISION:revisionKey(scene); }
+    public static String assetEnabledKey(String scene) { return QsCardSettings.wallpaperScene(scene)?QsCardSettings.WALLPAPER_ENABLED:enabledKey(scene); }
+    public static String assetMasterKey(String scene) { return QsCardSettings.wallpaperScene(scene)?null:masterKey(scene); }
+    public static String assetTitle(String scene) { return QsCardSettings.wallpaperScene(scene)?"音乐卡片":title(scene); }
     /** The scene whose picture this setting key names (the picture card is shown on that key), or null. */
     public static String sceneOfRevisionKey(String key) {
         if (key == null) return null;

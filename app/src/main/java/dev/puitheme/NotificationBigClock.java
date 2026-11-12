@@ -174,7 +174,7 @@ public final class NotificationBigClock {
             entryCompletion = number(source, prefix + "entry_completion", 85f, 1f, 100f);
             entryTravel = number(source, prefix + "entry_travel", 32f, 0f, Float.MAX_VALUE);
             notificationEdgeEnabled = bool(source, prefix + "notification_edge_enabled", true);
-            notificationEdgeSafeDistance = number(source, prefix + "notification_edge_safe_distance", 18f, 0f, Float.MAX_VALUE);
+            notificationEdgeSafeDistance = number(source, prefix + "notification_edge_safe_distance", 18f, -Float.MAX_VALUE, Float.MAX_VALUE);
             notificationEdgeRange = number(source, prefix + "notification_edge_range", 24f, 0f, Float.MAX_VALUE);
             notificationEdgeBlurRadius = number(source, prefix + "notification_edge_blur_radius", 8f, 0f, Float.MAX_VALUE);
             pattern = pattern(source, prefix + "pattern", "HH:mm");
@@ -237,7 +237,7 @@ public final class NotificationBigClock {
             dateOffsetY = number(source, prefix + "date_offset_y", 0f, -Float.MAX_VALUE, Float.MAX_VALUE);
             dateGap = number(source, prefix + "date_gap", 12f, 0f, Float.MAX_VALUE);
             notificationGap = bool(source, prefix + "notification_gap_enabled", true)
-                    ? number(source, prefix + "notification_gap", 18f, 0f, Float.MAX_VALUE) : 0f;
+                    ? number(source, prefix + "notification_gap", 18f, -Float.MAX_VALUE, Float.MAX_VALUE) : 0f;
             notificationWidthEnabled=NotificationBigClockSettings.LANDSCAPE_PREFIX.equals(prefix)
                     &&bool(source,NotificationBigClockSettings.LANDSCAPE_NOTIFICATION_WIDTH_ENABLED,false);
             notificationWidth=number(source,NotificationBigClockSettings.LANDSCAPE_NOTIFICATION_WIDTH,100f,0f,Float.MAX_VALUE);
@@ -717,16 +717,17 @@ public final class NotificationBigClock {
         return view == host && NotificationBigClockModel.finite(y) ? y : stackY(stack, panelY);
     }
 
-    /** Stack-local clipping keeps notifications underneath the visible clock without moving the list. */
+    /** Stack-local spacing follows the visible header; negative values allow overlap. */
     public float clipTop(View stack) {
         View host = panel.get();
         float hardTop = headerBottomInStack(stack);
         if (!NotificationBigClockModel.finite(hardTop) || host == null) return hardTop;
         // Map the safety gap through the same native panel transform as the hard boundary.
-        return hardTop + stackY(stack, NumericPolicy.pixels(settings.notificationGap, density())) - stackY(stack, 0f);
+        return Math.max(physicalTopInStack(stack),
+                hardTop + stackY(stack, NumericPolicy.pixels(settings.notificationGap, density())) - stackY(stack, 0f));
     }
 
-    /** Notifications may enter the clear safety band, but never draw over the clock itself. */
+    /** The actual drawn header is the anchor for signed spacing and the existing spatial edge. */
     private float headerBottomInStack(View stack) {
         View host = panel.get();
         if (stack == null || host == null || !eligible()) return Float.NaN;
@@ -740,6 +741,31 @@ public final class NotificationBigClock {
                 : Math.max(frame.clockTop + frame.clockHeight, frame.dateTop + (overlay == null ? 0f : overlay.dateHeight))
                     + entryTranslation() + nativePanelTranslationY + nativeHeaderRebound;
         return Math.max(0f, stackY(stack, contentBottom));
+    }
+
+    /** Negative offsets open the existing edge into the header, never into the physical inset. */
+    private float notificationHardTop(View stack, float headerBottom) {
+        float d = density(), overlap = Math.min(0f, NumericPolicy.pixels(settings.notificationGap, d));
+        if (settings.notificationEdgeEnabled && settings.notificationEdgeSafeDistance < 0f)
+            overlap = Math.min(overlap, NumericPolicy.pixels(settings.notificationEdgeSafeDistance, d)
+                    - NumericPolicy.pixels(settings.notificationEdgeRange, d));
+        return Math.max(physicalTopInStack(stack), headerBottom + stackY(stack, overlap) - stackY(stack, 0f));
+    }
+
+    private float physicalTopInStack(View stack) {
+        if (stack == null) return 0f;
+        View root = stack.getRootView();
+        float top = overlay == null ? 32f * density() : overlay.safeTop;
+        WindowInsets insets = root.getRootWindowInsets();
+        if (insets != null) {
+            top = Math.max(top, insets.getSystemWindowInsetTop());
+            if (Build.VERSION.SDK_INT >= 28 && insets.getDisplayCutout() != null)
+                top = Math.max(top, insets.getDisplayCutout().getSafeInsetTop());
+        }
+        // The physical edge belongs to the window, so panel/rebound motion must not carry it.
+        stackMapping.reset(); root.transformMatrixToGlobal(stackMapping); stack.transformMatrixToLocal(stackMapping);
+        stackPoint[0] = root.getWidth() * .5f; stackPoint[1] = top; stackMapping.mapPoints(stackPoint);
+        return Math.max(0f, NotificationBigClockModel.finite(stackPoint[1]) ? stackPoint[1] : top);
     }
 
     /** Map the visible clock edge into stack-local coordinates through the native page transforms. */
@@ -756,7 +782,8 @@ public final class NotificationBigClock {
     /** Before the native stack's View.draw(Canvas), including its hardware RenderNode path. */
     public void clipNotifications(View stack, Canvas canvas) {
         if (canvas == null || stack == null) return;
-        float top = headerBottomInStack(stack);
+        float headerBottom = headerBottomInStack(stack);
+        float top = notificationHardTop(stack, headerBottom);
         if (NotificationBigClockModel.finite(top)) {
             if (canvas.getClipBounds(notificationClip)) canvas.clipRect(notificationClip.left, top, notificationClip.right, notificationClip.bottom);
         }
@@ -766,6 +793,7 @@ public final class NotificationBigClock {
     public Object drawNotifications(View stack, Canvas canvas, boolean horizontalSwitch,
             NotificationClockEdge.DrawAction nativeDraw) throws Throwable {
         float top = headerBottomInStack(stack);
+        if (!NotificationBigClockModel.finite(top)) return nativeDraw.draw(canvas);
         View host = panel.get();
         // A native fling can keep row springs moving after the parent already reaches its target.
         boolean paging = horizontalSwitch || pageMotion != null && pageMotion.isRunning()
@@ -774,11 +802,22 @@ public final class NotificationBigClock {
                 || stack != null && (Math.abs(stack.getTranslationX()) > .5f
                     || stack.getScaleX() != 1f || stack.getScaleY() != 1f)
                 || overlay != null && overlay.hasPageOffset();
-        if (paging && scrollY <= 0) return nativeDraw.draw(canvas);
-        if (!NotificationBigClockModel.finite(top)) return nativeDraw.draw(canvas);
+        if (paging && scrollY <= 0) {
+            // At the top, native paging owns the header overlap. Its physical window inset
+            // still applies, including when signed spacing lets rows enter the clock area.
+            int save = canvas.save();
+            try {
+                // A RecordingCanvas reports the display-list cull rectangle as its clip.
+                // Recording those X bounds creates a side wall for native child RenderNodes
+                // translated later by the pager. As with native TopFade, constrain only Y.
+                canvas.clipRect((float) Integer.MIN_VALUE, physicalTopInStack(stack),
+                        (float) Integer.MAX_VALUE, (float) Integer.MAX_VALUE);
+                return nativeDraw.draw(canvas);
+            } finally { canvas.restoreToCount(save); }
+        }
         float d = density();
         float safeGap = stackY(stack, NumericPolicy.pixels(settings.notificationEdgeSafeDistance, d)) - stackY(stack, 0f);
-        return NotificationClockEdge.draw(stack, canvas, top, top + Math.max(0f, safeGap),
+        return NotificationClockEdge.draw(stack, canvas, notificationHardTop(stack, top), top + safeGap,
                 settings.notificationEdgeEnabled ? NumericPolicy.pixels(settings.notificationEdgeRange, d) : 0f,
                 settings.notificationEdgeEnabled ? NumericPolicy.pixels(settings.notificationEdgeBlurRadius, d) : 0f,
                 nativeDraw, !paging);
@@ -797,7 +836,7 @@ public final class NotificationBigClock {
                     ancestor = ancestor.getParent() instanceof View ? (View) ancestor.getParent() : null) {
                 if (ancestor == host) { current = true; break; }
             }
-            if (current && boundary.contains(stack, origin, x, y, headerBottomInStack(stack))) return true;
+            if (current && boundary.contains(stack, origin, x, y, notificationHardTop(stack, headerBottomInStack(stack)))) return true;
         }
         return false;
     }
@@ -960,6 +999,12 @@ public final class NotificationBigClock {
 
     public void onStatusIconHorizontalProgressChanged() {
         refreshStatusIcons();
+        if (!active || !eligible()) return;
+        View host = panel.get();
+        // Native paging can change only RenderNode properties, retaining the parent's
+        // resting clip. Re-record this invocation's paging edge, including the final frame.
+        for (View stack : new ArrayList<>(stacks.keySet()))
+            if (clockStackUnder(stack, host)) stack.invalidate();
     }
 
     public void onSeparateQsLeftChanged(View nativePanel, View clockContainer, View clockCopy, View phoneClock,
@@ -1821,6 +1866,7 @@ public final class NotificationBigClock {
             safeLeft = insets == null ? 0f : insets.getSystemWindowInsetLeft();
             safeRight = insets == null ? 0f : insets.getSystemWindowInsetRight();
             if (Build.VERSION.SDK_INT >= 28 && insets != null && insets.getDisplayCutout() != null) {
+                safeTop = Math.max(safeTop, insets.getDisplayCutout().getSafeInsetTop());
                 safeLeft = Math.max(safeLeft, insets.getDisplayCutout().getSafeInsetLeft());
                 safeRight = Math.max(safeRight, insets.getDisplayCutout().getSafeInsetRight());
             }
@@ -2490,6 +2536,8 @@ public final class NotificationBigClock {
         int borderColor = Color.WHITE, outlineColor;
         float outlineTop, outlineBottom;
         final Rect ink = new Rect();
+        final Paint inkPaint = new Paint();
+        String inkText;
         Shader gradient, outline;
         int gradientColor;
         float gradientTop, gradientBottom;
@@ -2503,9 +2551,16 @@ public final class NotificationBigClock {
             int pad = Math.max(1, Math.round(density() * 2f)); setPadding(pad, pad, pad, pad);
         }
         void measureInk() {
-            String text = getText().toString();
+            CharSequence current = getText();
+            Paint paint = getPaint();
+            // Measure, body draw and material-mask alignment share one glyph box.
+            // Compare text content (including mutable buffers) and the platform's full font state.
+            if (android.os.Build.VERSION.SDK_INT >= 28 && inkText != null
+                    && inkText.contentEquals(current) && paint.equalsForTextMeasurement(inkPaint)) return;
+            String text = current.toString();
             ink.setEmpty();
-            if (!text.isEmpty()) getPaint().getTextBounds(text, 0, text.length(), ink);
+            if (!text.isEmpty()) paint.getTextBounds(text, 0, text.length(), ink);
+            inkText = text; inkPaint.set(paint);
         }
         boolean tightInk() { return true; }
         private void drawBody(Canvas canvas) {

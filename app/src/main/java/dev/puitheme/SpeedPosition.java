@@ -118,7 +118,12 @@ public final class SpeedPosition {
     public boolean configure(Bundle b){
         boolean enabled=!released&&b!=null&&!SafetyMode.enabled(b)&&b.getBoolean("speed_enabled",false);
         boolean flow=StatusBarLayoutSettings.enabled(b);
-        boolean positioning=enabled&&!flow&&b.getBoolean("speed_position_enabled",true);
+        // The page's switch is "垂直位置调整": by itself it only moves the speed vertically.
+        // Horizontal placement (and its radio reserve, which showed as an empty gap after
+        // the speed while Wi-Fi or data was missing) applies only to an explicitly saved,
+        // now hidden, legacy position or horizontal offset.
+        boolean legacyPlacement=b!=null&&(!NATIVE.equals(position(b.get(POSITION)))||number(b,"speed_offset_x",0f)!=0f);
+        boolean positioning=enabled&&!flow&&legacyPlacement&&b.getBoolean("speed_position_enabled",true);
         boolean gap=enabled&&!flow&&b.getBoolean(SAFE_GAP_ENABLED,false);
         Selection next=enabled?new Selection(positioning?position(b.get(POSITION)):NATIVE,
                 positioning&&!gap?number(b,"speed_offset_x",0f):0f,

@@ -1,5 +1,9 @@
 package android.widget;
 public class ImageView extends android.view.View {
+    public enum ScaleType { MATRIX,FIT_XY,FIT_START,FIT_CENTER,FIT_END,CENTER,CENTER_CROP,CENTER_INSIDE }
+    private ScaleType scaleType=ScaleType.FIT_CENTER;
+    public ScaleType getScaleType(){return scaleType;}
+    public void setScaleType(ScaleType value){scaleType=value;}
     private android.graphics.drawable.Drawable mDrawable;
     private android.content.res.ColorStateList imageTint;
     private final android.graphics.Matrix imageMatrix=new android.graphics.Matrix();

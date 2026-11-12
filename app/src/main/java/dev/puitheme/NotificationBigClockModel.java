@@ -57,7 +57,7 @@ final class NotificationBigClockModel {
         // clock ahead of its notifications. Keep glyph size and intrinsic reservation stable.
         return new Frame(p, initialTop - scroll, expanded,
                 initialDate - scroll + NumericPolicy.pixels(dateOffsetY, d),
-                initialBottom + Math.max(0f, NumericPolicy.pixels(notificationGap, d)), 1f, distance, 0f,
+                Math.max(safe, initialBottom + NumericPolicy.pixels(notificationGap, d)), 1f, distance, 0f,
                 clamp(bounded(panelFraction, 0f, 0f, 1f) / .3f, 0f, 1f), Math.round(bounded(weight, 600f, 1f, 1000f)));
     }
 
@@ -169,7 +169,7 @@ final class NotificationBigClockModel {
         float finalDateTop = finalDateBase + dateShift;
         float initialTop = initialDateBase + date + dateSpacing;
         float finalTop = finalDateBase + date + dateSpacing;
-        float gap = Math.max(0f, NumericPolicy.pixels(notificationGap, d));
+        float gap = NumericPolicy.pixels(notificationGap, d);
         float initialBottom = Math.max(initialTop + expanded, initialDateTop + date);
         float finalBottom = Math.max(finalTop + compact, finalDateTop + date);
         // Fixed intrinsic space means list scroll is never counted twice during collapse.

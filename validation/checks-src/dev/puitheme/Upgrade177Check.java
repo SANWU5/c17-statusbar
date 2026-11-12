@@ -22,8 +22,8 @@ public final class Upgrade177Check {
     }
     private static String document(String key,String raw){return "{\"package\":\""+ConfigTransfer.PACKAGE_NAME+"\",\"schema\":1,\"settings\":{\""+key+"\":"+raw+"}}";}
     private static void registration(Bundle full) {
-        equal(48,SettingsFrameworkMirror.VERSION,"current mirror schema");equal(1,ConfigTransfer.SCHEMA_VERSION,"portable JSON unchanged");
-        equal(979,full.keySet().size(),"complete settings count");equal(966,ConfigTransfer.types().size(),"portable count");
+        equal(52,SettingsFrameworkMirror.VERSION,"current mirror schema");equal(1,ConfigTransfer.SCHEMA_VERSION,"portable JSON unchanged");
+        equal(1000,full.keySet().size(),"complete settings count");equal(987,ConfigTransfer.types().size(),"portable count");
         equal(additions(),Upgrade177.DEFAULTS,"exact two Float400 additions");equal(LEFT,BigClockWidgetsSettings.LEFT_WEIGHT,"left protocol");equal(RIGHT,BigClockWidgetsSettings.RIGHT_WEIGHT,"right protocol");
         equal(400f,BigClockWidgetsSettings.DEFAULT_WEIGHT,"default weight");equal(100f,BigClockWidgetsSettings.MIN_WEIGHT,"minimum");equal(1000f,BigClockWidgetsSettings.MAX_WEIGHT,"maximum");
         equal(18,Upgrade169.DEFAULTS.size(),"169 batch frozen");equal(23,Upgrade171.DEFAULTS.size(),"171 batch frozen");equal(6,Upgrade173.DEFAULTS.size(),"173 batch frozen");equal(1,Upgrade174.DEFAULTS.size(),"174 batch frozen");equal(4,Upgrade175.DEFAULTS.size(),"175 batch frozen");
@@ -32,7 +32,18 @@ public final class Upgrade177Check {
         for(String key:Upgrade175.DEFAULTS.keySet()){equal(true,full.get(key),"retired parent default stays wire compatible");equal(null,SettingsCatalog.item(key),"retired parent stays hidden");}
         Map<String,Object> saved=new LinkedHashMap<>();saved.put(LEFT,687.5f);Bundle chosen=SettingsSnapshot.fromPreferences(saved);
         equal(687.5f,chosen.get(LEFT),"explicit effective left weight retained");equal(400f,chosen.get(RIGHT),"missing effective right defaults independently");equal(1,saved.size(),"snapshot does not seed defaults into source preferences");
-        equal(8L,RootPerformanceModule.VERSION_CODE,"root companion protocol unchanged");
+        equal(14L,RootPerformanceModule.VERSION_CODE,"root companion current version (code14: the five Volume Up rescue command)");
+        Map<String,String> oldModule=new LinkedHashMap<>();oldModule.put("installed","1");oldModule.put("module_version","2.0");
+        oldModule.put("module_version_code","11");oldModule.put("rescue_enabled","1");oldModule.put("rescue_state","idle");
+        oldModule.put("rescue_error","none");oldModule.put("rescue_time","0");
+        RootPerformanceModule.Snapshot legacy=new RootPerformanceModule.Snapshot(oldModule,true);
+        equal(11L,legacy.moduleVersionCode,"published companion 11 remains readable");equal("2.0",legacy.moduleVersion,"published companion version retained");
+        equal(true,legacy.outdated,"published companion 11 requires the explicit code14 upgrade");
+        equal(false,legacy.rescueAvailable,"old module cannot claim boot-key recovery even with matching status fields");
+        oldModule.put("module_version","2.1");oldModule.put("module_version_code","12");
+        RootPerformanceModule.Snapshot previous=new RootPerformanceModule.Snapshot(oldModule,true);
+        equal(true,previous.outdated,"published companion 12 receives the explicit UI upgrade");
+        equal(true,previous.rescueAvailable,"published companion 12 recovery status remains readable");
     }
     private static void mirrors(Bundle full)throws Exception {
         for(int schema=1;schema<43;schema++) {
@@ -63,7 +74,7 @@ public final class Upgrade177Check {
         Map<String,Object> before=new LinkedHashMap<>(store.values);ConfigTransfer.PreparedImport text=ConfigTransfer.prepare(document(BigClockWidgetsSettings.LEFT_TEXT,"\"天气（天气）\""),true);equal(1,text.count,"legacy partial remains one key");for(String key:KEYS)equal(false,text.values().containsKey(key),"legacy partial does not invent weight");equal(true,ConfigTransfer.commit(store,text),"legacy partial commits");for(String key:before.keySet())if(!BigClockWidgetsSettings.LEFT_TEXT.equals(key))equal(before.get(key),store.values.get(key),"legacy partial preserves weights and siblings");
         for(String key:KEYS)for(String raw:new String[]{"null","true","\"400\"","[]","{}","99.99999999999999999999","1000.00000000000000000001","1e309"}){checks++;try{ConfigTransfer.prepare(document(key,raw),true);throw new AssertionError("accepted invalid weight "+raw);}catch(IOException expected){}}
         Map<String,Object> saved=values(full);saved.putAll(siblings());saved.remove("private_note");saved.put(LEFT,375.25f);saved.put(RIGHT,950.5f);Map<String,Object> sourceBefore=new LinkedHashMap<>(saved);
-        ConfigTransfer.PreparedImport prepared=ConfigTransfer.prepare(ConfigTransfer.exportJson(saved),true);equal(966,prepared.count,"full portable count");equal(sourceBefore,saved,"export leaves source unchanged");equal(375.25f,prepared.values().get(LEFT),"full left exact");equal(950.5f,prepared.values().get(RIGHT),"full right exact");
+        ConfigTransfer.PreparedImport prepared=ConfigTransfer.prepare(ConfigTransfer.exportJson(saved),true);equal(987,prepared.count,"full portable count");equal(sourceBefore,saved,"export leaves source unchanged");equal(375.25f,prepared.values().get(LEFT),"full left exact");equal(950.5f,prepared.values().get(RIGHT),"full right exact");
         ActivationGuardPreferencesCheck.MemoryPreferences imported=new ActivationGuardPreferencesCheck.MemoryPreferences();equal(true,ConfigTransfer.commit(imported,prepared),"full local import commits");for(Map.Entry<String,Object> item:prepared.values().entrySet())equal(item.getValue(),imported.values.get(item.getKey()),"full import lossless");Upgrade177.migrate(imported);equal(375.25f,imported.values.get(LEFT),"postimport migration preserves left");equal(950.5f,imported.values.get(RIGHT),"postimport migration preserves right");
         String future=ConfigTransfer.exportJson(saved).replace("\"schema\": 1","\"schema\": 2").replace("\"schema\":1","\"schema\":2");checks++;try{ConfigTransfer.prepare(future,true);throw new AssertionError("accepted future portable schema");}catch(IOException expected){}
     }

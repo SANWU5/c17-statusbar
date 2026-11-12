@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<objectAnimator xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="840" android:interpolator="@android:interpolator/linear">
+    <propertyValuesHolder android:propertyName="fillAlpha" android:valueType="floatType">
+        <keyframe android:fraction="0" android:value="0" />
+        <keyframe android:fraction="0.5952381" android:value="0" />
+        <keyframe android:fraction="1" android:value="1" android:interpolator="@android:interpolator/fast_out_slow_in" />
+    </propertyValuesHolder>
+</objectAnimator>

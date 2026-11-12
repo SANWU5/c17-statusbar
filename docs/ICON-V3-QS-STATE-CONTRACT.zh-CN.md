@@ -4,7 +4,7 @@
 
 ## 1. 证据与共同护栏
 
-状态合同依据上述固定版本的原生 Tile 与 Factory 方法体；原始反汇编和审计辅助文件不随公开源码提供。本文保留身份、字段和状态分支的事实摘要，公开复核入口是生产适配器、对应 `IconNativeQsCheck` / `IconNativeControlCenterHooksCheck` 等回归及[验证说明](../VALIDATION.md)。
+忽略目录 `build/c17-dev/icon-v3-audit/tile-states/` 保存从已有 `.local-private/device95-readonly/dump/index.json` 精确字节区间提取的 82 个相关类及 `metadata.json`；本文行号均指其中完整类 `.txt`，不是删去日志后的摘要行。Factory 的 47 项 spec/provider 对照见 `factories/spec-candidates.json`。没有重新拉取 APK、运行手机命令或联网安装工具。
 
 角色只能由真实 Tile spec / 已绑定 proxy 的身份取得。标题、内容描述、drawable 名字、View 相邻位置均不作为运行时身份；第三方 `custom(...)` 与额外 state、非零未知三段模式保持原生。宿主原生的 `isTransient`、`disabledByPolicy`、点击、无障碍、View tint / alpha 与可见性不由图标角色更改。
 

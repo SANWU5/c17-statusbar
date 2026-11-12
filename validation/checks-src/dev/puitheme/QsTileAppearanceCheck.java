@@ -28,10 +28,11 @@ public final class QsTileAppearanceCheck {
         private int read(){return live;}
     }
     private static final class NativeChild extends NativeBase {
+        int failures;
         private String choose(String value){return "text:"+value;}
         private float choose(float value){return value+1f;}
         private static int nativeStatic(int value){return value*2;}
-        private void failure(){throw new IllegalStateException("native failure");}
+        private void failure(){failures++;throw new IllegalStateException("native failure");}
     }
     private static void nativeMembers() throws Exception {
         NativeChild owner=new NativeChild();
@@ -46,6 +47,13 @@ public final class QsTileAppearanceCheck {
         equal(null,QsTileAppearance.field(owner,"absent"));
         equal(false,QsTileAppearance.setField(owner,"absent",1));
         equal(null,QsTileAppearance.call(owner,"failure"));
+        equal(1,owner.failures);
+        try {QsTileAppearance.invoke(owner,"failure");throw new AssertionError("strict invocation swallowed native failure");}
+        catch(java.lang.reflect.InvocationTargetException expected){equal("native failure",expected.getCause().getMessage());}
+        equal(2,owner.failures);
+        for(String name:new String[]{"absent","choose"})try {
+            QsTileAppearance.invoke(owner,name,new Object());throw new AssertionError("strict invocation swallowed missing overload");
+        }catch(NoSuchMethodException expected){equal(NativeChild.class.getName()+"."+name,expected.getMessage());}
         // Reuse metadata while reading changed fields/results, including negative lookups.
         for(int value:new int[]{2,5,9}) {
             QsTileAppearance.setField(owner,"live",value);
@@ -53,6 +61,48 @@ public final class QsTileAppearanceCheck {
             equal(value,QsTileAppearance.field(owner,"live"));
             equal(null,QsTileAppearance.call(owner,"absent"));
         }
+    }
+    /** A cached optional miss is normal on OEM variants, not a reason to allocate a Throwable on every tile callback. */
+    private static void optionalLookupBudget() {
+        com.sun.management.ThreadMXBean threads=(com.sun.management.ThreadMXBean)java.lang.management.ManagementFactory.getThreadMXBean();
+        if(!threads.isThreadAllocatedMemorySupported())throw new AssertionError("JDK allocation counters required for optional lookup budget");
+        threads.setThreadAllocatedMemoryEnabled(true);
+        NativeChild owner=new NativeChild();Object unmatched=new Object();
+        for(int i=0;i<2000;i++){QsTileAppearance.call(owner,"absent");QsTileAppearance.call(owner,"choose",unmatched);}
+        long thread=Thread.currentThread().getId(),before=threads.getThreadAllocatedBytes(thread);
+        for(int i=0;i<4000;i++){equal(null,QsTileAppearance.call(owner,"absent"));equal(null,QsTileAppearance.call(owner,"choose",unmatched));}
+        long bytes=threads.getThreadAllocatedBytes(thread)-before;
+        checks++;if(bytes>1000000L)throw new AssertionError("cached optional getters allocated "+bytes+" bytes for 8000 misses; discarded exceptions must not be the normal path");
+        System.out.println("Optional getter misses: 8000, allocated bytes: "+bytes);
+    }
+    private static final class CurrentDrawable extends Drawable {
+        Drawable current;
+        int reads;
+        @Override public Drawable getCurrent(){reads++;return current;}
+        public void draw(Canvas canvas){}public void setAlpha(int value){}public void setColorFilter(ColorFilter value){}public int getOpacity(){return 0;}
+    }
+    private static void repeatedAttachRefresh() throws Throwable {
+        QsTileAppearance appearance=new QsTileAppearance();appearance.configure(settings());Canvas canvas=new Canvas();
+        OplusQSResizeableTileView tile=new OplusQSResizeableTileView();tile.state=new State(2,"wifi");
+        CurrentDrawable wrapper=new CurrentDrawable();MixColorTileDrawable first=new MixColorTileDrawable();first.setBounds(0,0,80,80);wrapper.current=first;
+        tile.bg=wrapper;tile.theme=wrapper;android.widget.ImageView body=new android.widget.ImageView(new Context());body.setBackground(wrapper);tile.bgView=body;
+        // Actual OEM attach calls two drawable updates and one theme update, then
+        // the outer attach hook refreshes again. None of those native calls is skipped.
+        for(int pass=0;pass<2;pass++) {
+            for(int event=0;event<4;event++)appearance.refreshTile(tile);
+            appearance.drawTile(first,canvas,first::draw);colors(first.seenShader,0xff123456,0xff123456);
+        }
+        equal(true,wrapper.reads>=8);
+        MixColorTileDrawable next=new MixColorTileDrawable();next.setBounds(0,0,80,80);wrapper.current=next;
+        appearance.refreshTile(tile);appearance.drawTile(next,canvas,next::draw);colors(next.seenShader,0xff123456,0xff123456);
+        ((State)tile.state).state=1;appearance.refreshTile(tile);appearance.drawTile(next,canvas,next::draw);equal(null,next.seenShader);
+        tile.state=new State(2,"bluetooth");MixColorTileDrawable replacement=new MixColorTileDrawable();replacement.setBounds(0,0,80,80);
+        tile.bg=replacement;tile.theme=null;body.setBackground(replacement);appearance.refreshTile(tile);
+        appearance.drawTile(replacement,canvas,replacement::draw);colors(replacement.seenShader,0xff123456,0xff123456);
+        appearance.detach(tile);appearance.drawTile(replacement,canvas,replacement::draw);equal(null,replacement.seenShader);
+        appearance.refreshTile(tile);appearance.drawTile(replacement,canvas,replacement::draw);colors(replacement.seenShader,0xff123456,0xff123456);
+        Bundle disabled=settings();disabled.putBoolean(QsTileAppearance.MASTER,false);appearance.configure(disabled);
+        appearance.drawTile(replacement,canvas,replacement::draw);equal(null,replacement.seenShader);
     }
     public static final class Icon {public Drawable circle;private Drawable getBgDrawable(){return circle;}private Drawable getThemeDrawable(){return circle;}private Drawable getIconBgDrawable(){return circle;}}
     public static final class ResourceView extends View {
@@ -272,7 +322,7 @@ public final class QsTileAppearanceCheck {
     }
     public static void main(String[] args) throws Throwable {
         detailPage();highlightTile();
-        nativeMembers();steadyDrawing();
+        nativeMembers();optionalLookupBudget();repeatedAttachRefresh();steadyDrawing();
         QsTileAppearance a=new QsTileAppearance();OplusQSResizeableTileView tile=new OplusQSResizeableTileView();Canvas c=new Canvas();MixColorTileDrawable bg=attach(a,tile,"wifi",2);
         a.configure(new Bundle());a.drawTile(bg,c,bg::draw);equal(null,bg.seenShader);equal(3,QsTileAppearance.BOOLEANS.size());equal(6,QsTileAppearance.NUMBERS.size());equal(4,QsTileAppearance.COLORS.size());equal(false,QsTileAppearance.BOOLEANS.get(QsTileAppearance.MASTER));
         for(String key:QsTileAppearance.BOOLEANS.keySet())equal(false,key.startsWith("qs_style_"));

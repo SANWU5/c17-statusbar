@@ -24,7 +24,7 @@ import java.util.Map;
 
 /** Portable settings only. Preparing an import never changes preferences. */
 public final class ConfigTransfer {
-    public static final String PACKAGE_NAME = "dev.puitheme.iosstatusbar";
+    public static final String PACKAGE_NAME = ModuleVariant.PACKAGE;
     public static final int SCHEMA_VERSION = 1;
     public static final int MAX_BYTES = 256 * 1024;
     public enum Type { BOOLEAN, NUMBER, COLOR, STRING }
@@ -60,6 +60,9 @@ public final class ConfigTransfer {
                     break;
                 }
             }
+            Object cardRevision=values.get(QsCardSettings.WALLPAPER_REVISION);
+            if(cardRevision instanceof String&&!((String)cardRevision).isEmpty())
+                warning+=(warning.isEmpty()?"":"\n")+"音乐卡片壁纸的图片文件不会随配置传输；配置会保留，在本机重新选择图片后生效。";
             this.warning = warning;
         }
         public int count() { return count; }
@@ -100,6 +103,7 @@ public final class ConfigTransfer {
     public static Map<String, Type> types() { return TYPES; }
 
     private static boolean portableString(String key) {
+        if(QsWifiAlias.MODE.equals(key)||QsWifiAlias.UNIFIED.equals(key)||QsWifiAlias.RULES.equals(key))return true;
         if(IconManagementSettings.LEGACY_KEYS.contains(key))return false;
         if(IconManagementSettings.KEY.equals(key))return true;
         if(FontScopes.KEY.equals(key))return true;
@@ -109,6 +113,7 @@ public final class ConfigTransfer {
                 || ClassicTextSettings.STRINGS.containsKey(key) || ClockLayoutSettings.STRINGS.containsKey(key)
                 || BigClockWidgetsSettings.STRINGS.containsKey(key)
                 || ShadeWallpaperSettings.STRINGS.containsKey(key)
+                || QsCardSettings.WALLPAPER_REVISION.equals(key)||QsCardSettings.SMALL_MODE.equals(key)
                 || NativeNetworkBadgeSettings.STRINGS.containsKey(key) || NetworkLabelFormats.owns(key)) return true;
         if (LockscreenControls.DATE_FORMAT.equals(key)) return true;
         if (FluidCloudStyle.COLOR_STYLE.equals(key) || FluidCloudCapsule.GRADIENT_MODE.equals(key)
@@ -151,6 +156,8 @@ public final class ConfigTransfer {
                     // Export must not silently turn an old stored ratio into the new native-pixel basis.
                     if (NativeClockMeasurement.SCALE_BASIS_VERSION.equals(key)
                             && !source.containsKey(key) && source.containsKey(StatusBarSettings.CLOCK_SCALE)) number = 1f;
+                    if(QsCardSettings.GRID_ROWS.equals(key)&&!source.containsKey(key))
+                        number=Boolean.TRUE.equals(source.get(QsCardSettings.GRID_6))?6f:4f;
                     value = number;
                     break;
                 case COLOR: value = StatusBarSettings.color(source, key); break;
@@ -274,6 +281,7 @@ public final class ConfigTransfer {
                         throw invalid("数值超出可保存范围");
                     String numericError = SettingsCatalog.numericInputError(key, (BigDecimal) value);
                     if (numericError != null) throw invalid(numericError);
+                    if(QsCardSettings.GRID_ROWS.equals(key)&&!Upgrade196.validRows(value))throw invalid("控制中心行数必须为 4 到 7 的整数");
                     if (QsTileCorners.RADIUS.equals(key) && (number < 0f || number > QsTileCorners.MAX_RADIUS))
                         throw invalid("圆角半径应为 0 到 " + (int) QsTileCorners.MAX_RADIUS + " dp");
                     if ((NativeStatusIcons.MAX.equals(key)||NotificationIconArea.MAX_COUNT.equals(key)) && (number < 0f || number != Math.floor(number)))
@@ -299,6 +307,8 @@ public final class ConfigTransfer {
             validated.put(key, NotificationGroupStack.MASTER.equals(key)||FluidCloudStyle.FOLLOW_FOREGROUND.equals(key)
                     ||FluidCloudStyle.SCOPE_SHADE.equals(key) ? false : value);
         }
+        if(validated.containsKey(QsCardSettings.GRID_6)&&!validated.containsKey(QsCardSettings.GRID_ROWS))
+            validated.put(QsCardSettings.GRID_ROWS,Boolean.TRUE.equals(validated.get(QsCardSettings.GRID_6))?6f:4f);
         Upgrade107.importLegacy(validated);
         if(!validated.containsKey(FluidCloudStyle.FOLLOW_MEDIA)
                 &&"media".equals(validated.get(FluidCloudStyle.BACKGROUND_MODE)))
@@ -398,7 +408,14 @@ public final class ConfigTransfer {
             if(!BigClockWidgetsSettings.validProvider(value))throw invalid("组件来源格式不正确，请重新选择组件");
             return value;
         }
-        if (NativeStatusIcons.LAYOUT.equals(key)) {
+        if(QsWifiAlias.RULES.equals(key)) {
+            new JsonReader(value).document();
+            try{QsWifiAlias.parse(value);}catch(IllegalArgumentException malformed){throw invalid(malformed.getMessage());}
+        } else if(QsWifiAlias.MODE.equals(key)) {
+            if(!value.equals("per_network")&&!value.equals("unified"))throw invalid("WiFi 名称显示方式无效");
+        } else if(QsWifiAlias.UNIFIED.equals(key)) {
+            String error=QsWifiAlias.aliasError(value);if(error!=null)throw invalid(error);
+        } else if (NativeStatusIcons.LAYOUT.equals(key)) {
             new JsonReader(value).document();
             try { return NativeStatusIconLayout.validate(value); }
             catch(IllegalArgumentException malformed) { throw invalid(malformed.getMessage()); }
@@ -410,11 +427,13 @@ public final class ConfigTransfer {
             new JsonReader(value).arrayDocument();
             String error=IconPackAssignments.validationError(value);
             if(error!=null)throw invalid(error);
-        } else if (ShadeWallpaperSettings.STRINGS.containsKey(key)) {
+        } else if (ShadeWallpaperSettings.STRINGS.containsKey(key)||QsCardSettings.WALLPAPER_REVISION.equals(key)) {
             if (!value.isEmpty() && !ShadeWallpaperSettings.validRevision(value)) throw invalid("壁纸引用无效，请重新选择图片");
         } else if (IconPackRepository.LAYERS.equals(key)) {
             new JsonReader(value).arrayDocument();
             IconPackRepository.layers(value);
+        } else if (QsCardSettings.SMALL_MODE.equals(key)) {
+            if(!Upgrade196.validMode(value))throw invalid("小磁贴显示方式无效");
         } else if (SpeedPosition.POSITION.equals(key)) {
             requireChoice(value,SpeedPosition.NATIVE,SpeedPosition.CELLULAR_LEFT,SpeedPosition.RIGHT_START,SpeedPosition.CLOCK_LEFT,SpeedPosition.CLOCK_RIGHT);
         } else if (StatusBarLayoutSettings.sideKey(key)) {

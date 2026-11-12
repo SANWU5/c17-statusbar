@@ -27,4 +27,4 @@ SHA-256：`2d0f958dd88502da6451a7085bc02e2315cb6f6f129d47de86c56ce80dd17828`。
 
 源码和 APK 不含手机录屏、个人配置、原始系统 APK、日志或签名私钥。设置应用采用原生控件实现 HyperOS 设计语言，不包含 Compose/Miuix 运行库。
 
-查看 [下载与对应源码](https://github.com/SANWU5/c17-statusbar/releases/tag/v1.15.0)、[构建记录](../VALIDATION.md)、[验证与构建说明](../VALIDATION.md)。
+查看 [下载与对应源码](https://github.com/SANWU5/c17-statusbar/releases/tag/v1.15.0)、[构建记录](../VALIDATION.md)、[持久化与计算优化](PERSISTENCE-PERFORMANCE-2026-10-01.zh-CN.md)。

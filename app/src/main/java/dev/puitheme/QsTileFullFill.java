@@ -100,7 +100,7 @@ public final class QsTileFullFill {
     private final Map<Drawable, Integer> peakAlpha = Collections.synchronizedMap(new WeakHashMap<>());
     private final Paint purePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF pureBounds = new RectF();
-    private volatile boolean enabled, released;
+    private volatile boolean enabled, released, controlGlass;
     private boolean failureLogged;
     private int diagnosticCount;
 
@@ -108,7 +108,24 @@ public final class QsTileFullFill {
     QsTileFullFill(QsTileAppearance appearance, Factory factory) { this.appearance = appearance; this.factory = factory; }
     public void configure(Bundle settings) {
         enabled = !released && settings != null && settings.getBoolean(ENABLED, false);
-        onMain(() -> { failureLogged = false; for (View tile : snapshot()) refreshTile(tile); });
+        boolean glass = CustomPluginMaterialIsolation.controlOwned(settings);
+        onMain(() -> {
+            boolean materialChanged = controlGlass != glass;
+            controlGlass = glass;
+            failureLogged = false;
+            for (View tile : snapshot()) {
+                refreshTile(tile);
+                if (!materialChanged) continue;
+                State state = tiles.get(tile);
+                if (state == null || !state.owned) continue;
+                // The same wrapper can switch draw paths without replacing its child.
+                for (Fill fill : state.fills) {
+                    Drawable wrapper = fill.wrapper.get();
+                    if (wrapper != null) wrapper.invalidateSelf();
+                }
+                tile.invalidate();
+            }
+        });
     }
     private List<View> snapshot() { synchronized (tiles) { return new ArrayList<>(tiles.keySet()); } }
     private void onMain(Runnable action) { if (Looper.myLooper() == Looper.getMainLooper()) action.run(); else main.post(action); }
@@ -133,9 +150,7 @@ public final class QsTileFullFill {
     }
     /** Inactive and unavailable 2x1 tiles keep their native fill and labels but lose the circle too. */
     private boolean circleEligible(View tile) {
-        return enabled && !released && QsTileAppearance.type(tile, TILE)
-                && !Boolean.TRUE.equals(QsTileAppearance.call(tile, "isEditMode"))
-                && !Boolean.TRUE.equals(QsTileAppearance.field(tile, "isBeingDragged"));
+        return enabled && !released && QsTileAppearance.type(tile, TILE);
     }
     /** Measuring an already owned tile only changes native bounds/providers, never the fill source. */
     public void measuredTile(View tile) {
@@ -223,6 +238,8 @@ public final class QsTileFullFill {
      * native activation fades stay, scaled to this fill's own peak alpha.
      */
     public boolean drawPure(Drawable drawable, Canvas canvas) {
+        // Keep the native full-width drawable in the glass plugin's drawing path.
+        if (controlGlass) return false;
         WeakReference<View> owner = drawable == null ? null : pureFills.get(drawable);
         View tile = owner == null ? null : owner.get();
         State state = tile == null ? null : tiles.get(tile);

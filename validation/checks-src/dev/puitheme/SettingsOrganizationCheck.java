@@ -18,13 +18,13 @@ public final class SettingsOrganizationCheck {
     }
     public static void main(String[] args) throws Exception {
         searchDestinations();
-        String[] legacy = {"statusbar_layout","speed","data","wifi","label","native_network_badge","clock","carrier","font","battery",
-                "notification_icons","status_hint_icons","notification_icon_overrides","status_icon_library","qs_appearance","tile_2x1_fill",
+        String[] legacy = {"statusbar_layout","speed","data","network","clock","carrier","font","battery",
+                "notification_icons","status_hint_icons","privacy_dot","notification_icon_overrides","status_icon_library","qs_appearance","tile_2x1_fill",
                 "tile_corners","tile_icon_size","qs_entrances","shade_clock","notification_big_clock","notification_big_clock_landscape",
                 "notification_stack","notification_mini_stack","notification_clear","notification_clear_landscape","qs_media","c17_highlight_removal",
                 "classic_text","shade_wallpaper_portrait","shade_wallpaper_landscape","lockscreen_date","lockscreen_lock_icon","lockscreen_status_blur",
                 "fluid_cloud_accent","fluid_cloud_style","fluid_cloud_capsule","lock_awake","lock_aod"};
-        require(SettingsOrganization.guides().size() == legacy.length, "every original page has an explicit scope guide");
+        require(SettingsOrganization.guides().size() == legacy.length+1, "all current pages and the WiFi-name page have explicit scope guides");
         Set<String> destinations = new HashSet<>();
         for (String category : Arrays.asList(SettingsCatalog.STATUSBAR,SettingsCatalog.NOTIFICATION,SettingsCatalog.CONTROL_CENTER,SettingsCatalog.LOCK_SCREEN,SettingsCatalog.OTHER))
             for (SettingsCatalog.NavigationSection section : SettingsCatalog.navigationSections(category))
@@ -32,7 +32,7 @@ public final class SettingsOrganizationCheck {
         Set<String> itemKeys = new LinkedHashSet<>();
         for (int n = 0; n < legacy.length; n++) {
             SettingsCatalog.Group group = SettingsCatalog.groups().get(n);
-            require(group.id.equals(legacy[n]), "published group order must not reassign partial configuration: " + legacy[n]);
+            require(group.id.equals(legacy[n]), "catalogue order includes one real merged network destination: " + legacy[n]);
             require(!SettingsOrganization.guide(group.id).isEmpty(), "page scope guide: " + group.id);
         }
         for (SettingsCatalog.Group group : SettingsCatalog.groups()) {
@@ -46,7 +46,18 @@ public final class SettingsOrganizationCheck {
                 require(item.master || detail.contains(item.key), "folding may not lose a parameter: " + item.key);
             }
         }
-        require(SettingsCatalog.groups().size() == 39, "exactly the 39 original functional pages, with no withdrawn parent controls");
+        require(legacy.length==38,"the three network editors form one destination; the privacy page is the one addition");
+        require(SettingsCatalog.groups().size() == legacy.length+1, "WiFi-name page remains appended after current destinations");
+        require(SettingsCatalog.groups().get(legacy.length).id.equals(QsWifiAlias.GROUP),"WiFi-name page is appended after the published destinations");
+        require(SettingsCatalog.group("qs_card")==null,"free editing has no host destination");
+        require(SettingsOrganization.guide("qs_card").isEmpty(),"retired page has no host guide");
+        Set<String> currentCards=new LinkedHashSet<>(Upgrade195.DEFAULTS.keySet());currentCards.addAll(Upgrade196.DEFAULTS.keySet());
+        require(currentCards.size()==10&&ConfigScope.section("qs_card")==null,"all historical card keys remain without a host share page");
+        for(String key:currentCards)require(SettingsCatalog.hiddenKeys().contains(key)
+                &&ConfigScope.section(ConfigScope.OTHER_ID).keys().contains(key),"retired key remains in hidden compatibility settings: "+key);
+        boolean cards=false;for(SettingsCatalog.NavigationSection section:SettingsCatalog.navigationSections(SettingsCatalog.CONTROL_CENTER))
+            if("音乐与卡片".equals(section.title)){Set<String> ids=new LinkedHashSet<>();for(SettingsCatalog.Group group:section.groups)ids.add(group.id);cards=ids.equals(new LinkedHashSet<>(Arrays.asList("qs_media")));}
+        require(cards,"control center keeps its original media appearance destination");
         String[] parents = {"layout_controls","stack_controls","clear_controls","lock_effects"};
         String[] parentKeys = {FeatureGroups.LAYOUT,FeatureGroups.STACKS,FeatureGroups.CLEAR,FeatureGroups.LOCK};
         Set<String> newKeys = new HashSet<>(Arrays.asList(parentKeys));
@@ -62,10 +73,15 @@ public final class SettingsOrganizationCheck {
             require(!newKeys.contains(item.key), "withdrawn parent cannot reappear in search");
         // Freeze the code174 portable key->section protocol, not current presentation or implementation values.
         Set<String> laterKeys = new HashSet<>(newKeys);
-        laterKeys.add(BigClockWidgetsSettings.LEFT_WEIGHT);laterKeys.add(BigClockWidgetsSettings.RIGHT_WEIGHT);laterKeys.addAll(Upgrade184.DEFAULTS.keySet());laterKeys.addAll(Upgrade185.DEFAULTS.keySet());laterKeys.addAll(Upgrade186.DEFAULTS.keySet());laterKeys.addAll(Upgrade187.DEFAULTS.keySet());laterKeys.addAll(Upgrade188.DEFAULTS.keySet());
+        laterKeys.addAll(Arrays.asList(QsWifiAlias.ENABLED,QsWifiAlias.MODE,QsWifiAlias.UNIFIED,QsWifiAlias.RULES,NetworkDisplaySettings.WIFI_HIDDEN));
+        laterKeys.add(BigClockWidgetsSettings.LEFT_WEIGHT);laterKeys.add(BigClockWidgetsSettings.RIGHT_WEIGHT);laterKeys.addAll(Upgrade184.DEFAULTS.keySet());laterKeys.addAll(Upgrade185.DEFAULTS.keySet());laterKeys.addAll(Upgrade186.DEFAULTS.keySet());laterKeys.addAll(Upgrade187.DEFAULTS.keySet());laterKeys.addAll(Upgrade188.DEFAULTS.keySet());laterKeys.addAll(Upgrade195.DEFAULTS.keySet());laterKeys.addAll(Upgrade196.DEFAULTS.keySet());
         TreeMap<String,String> owners = new TreeMap<>();
         for (ConfigScope.Section section : ConfigScope.sections()) for (String key : section.keys())
-            if (!laterKeys.contains(key)) require(owners.put(key,section.id) == null, "portable key still has one owner");
+            if (!laterKeys.contains(key)) {
+                String historical="network".equals(section.id)?SettingsCatalog.networkOwner(key):section.id;
+                require(!historical.isEmpty(),"merged editor preserves a known original export subset: "+key);
+                require(owners.put(key,historical) == null, "portable key still has one owner");
+            }
         // These three fields were portable in code174. Freeze their historical
         // ownership explicitly while proving the current protocol retires them.
         for(String retired:IconManagementSettings.LEGACY_KEYS){
@@ -73,6 +89,9 @@ public final class SettingsOrganizationCheck {
             require(!owners.containsKey(retired),"retired icon rules have no current share owner");
             owners.put(retired,"status_icon_library");
         }
+        // The code279 privacy page is the only addition; it is checked here and kept out of the frozen code174 digest.
+        for (String privacy : Upgrade279.DEFAULTS.keySet())
+            require("privacy_dot".equals(owners.remove(privacy)), "privacy settings are owned by the privacy page: " + privacy);
         require(owners.size() == 943, "all original portable settings remain, excluding later compatibility and font-weight keys");
         StringBuilder canonical = new StringBuilder();
         for (Map.Entry<String,String> owner : owners.entrySet()) canonical.append(owner.getKey()).append('\t').append(owner.getValue()).append('\n');

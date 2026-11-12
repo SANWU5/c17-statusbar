@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The platform owns the launch icon animation, including the system animation scale. -->
+    <style name="C17LaunchTheme" parent="AppTheme">
+        <item name="android:windowBackground">@color/c17_launch_background</item>
+        <item name="android:windowSplashScreenBackground">@color/c17_launch_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/c17_launch_animated</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/c17_launcher_background</item>
+        <item name="android:windowSplashScreenAnimationDuration">1300</item>
+    </style>
+</resources>

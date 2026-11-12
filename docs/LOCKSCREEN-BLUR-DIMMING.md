@@ -10,7 +10,7 @@ code72 的分段 surface 产生横条，code73 的单个均匀模糊区域缺少
 
 只读核对的原生 API 包括 Surface/RenderNode/RenderEffect、ScreenCaptureInternal 的真实构造参数和返回值，以及 CanvasEngine.drawFrameOnCanvas(Bitmap) 提交路径。保留默认显示屏、静态 CanvasEngine、一比一全屏、零 insets 的映射限制；未知缩放和外部动态壁纸保留原生画面，不回退到前景窗口模糊。原生 dim、scrim 与 doze/dismiss 同步规则仍保留。
 
-当前桌面契约检查与待实机验证见 [当前版本说明](RELEASE-1.8.3.zh-CN.md)。以下为 code72–73 历史方案，涉及“无 bitmap/取样”或均匀模糊的表述不适用于当前 GPU 缓存实现。
+当前桌面契约检查与待实机验证见 [code74](LOCAL-CODE74.zh-CN.md)。以下为 code72–73 历史方案，涉及“无 bitmap/取样”或均匀模糊的表述不适用于当前 GPU 缓存实现。
 
 ---
 

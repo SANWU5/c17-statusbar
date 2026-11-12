@@ -46,7 +46,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -258,7 +257,7 @@ internal fun StatusBarOrderPage(app: ModernMainActivity, requested: String?, onR
                             if (editedToken != null) selectedToken = editedToken
                         })
                     C17TextButton(if (applying) "应用排列" else "保存排列", modifier = Modifier.weight(2f).heightIn(min = 48.dp),
-                        enabled = controlsEditable && dirty, colors = ButtonDefaults.textButtonColorsPrimary(), onClick = {
+                        enabled = controlsEditable && dirty, primary = true, onClick = {
                             if (app.saveStatusBarOrderDraft(fields, baseline)) {
                                 baseline = HashMap(fields); history = arrayListOf(); historyTokens = arrayListOf()
                                 app.toast(if (applying) "排列已应用" else if (paused.isNotEmpty()) "排列已保存，解除暂停后生效" else "排列已保存，开启自定义排序后生效")
@@ -282,7 +281,7 @@ internal fun StatusBarOrderPage(app: ModernMainActivity, requested: String?, onR
                     if (!app.canEdit) UiRow("激活模块或授予 Root 后即可修改", "当前可以查看排列")
                 }
                 OrderPreview(draft)
-                Text("点一下元素，再用底部按钮换区或左右移动；也可以长按元素直接拖到想要的位置。",
+                Text(tr("点一下元素，再用底部按钮换区或左右移动；也可以长按元素直接拖到想要的位置。"),
                     Modifier.padding(horizontal = 4.dp), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 orderRegions.forEach { side ->
                     val members = draft.tokens(side)
@@ -304,7 +303,7 @@ internal fun StatusBarOrderPage(app: ModernMainActivity, requested: String?, onR
                                     if (side != StatusBarOrderDraft.NATIVE && rank > 0) add(CustomAccessibilityAction("向左移") { moveWithin(token, -1); true })
                                     if (side != StatusBarOrderDraft.NATIVE && rank < members.size - 1) add(CustomAccessibilityAction("向右移") { moveWithin(token, 1); true })
                                     orderRegions.filter { it != side }.forEach { destination ->
-                                        add(CustomAccessibilityAction(if (destination == StatusBarOrderDraft.NATIVE) "交给系统" else "放到${orderRegionTitle(destination)}") {
+                                        add(CustomAccessibilityAction(if (destination == StatusBarOrderDraft.NATIVE) "交给系统" else trf("放到%s", orderRegionTitle(destination))) {
                                             moveToSide(token, destination); true
                                         })
                                     }
@@ -319,11 +318,11 @@ internal fun StatusBarOrderPage(app: ModernMainActivity, requested: String?, onR
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     UiGroupCard {
                         val arranged = HintIconOrderDraft.SLOTS.count { hintDraft.side(it) != HintIconOrderDraft.INHERIT }
-                        UiRow("系统提示图标逐个排序", if(arranged == 0) "全部跟随上面的提示组" else "已单独安排 $arranged 项；与本页排列一起应用",
+                        UiRow("系统提示图标逐个排序", if(arranged == 0) "全部跟随上面的提示组" else trf("已单独安排 %s 项；与本页排列一起应用", arranged),
                             if(hintsExpanded) "收起" else "展开", enabled = dragging == null) { hintsExpanded = !hintsExpanded }
                     }
                     if(hintsExpanded) {
-                        Text("同侧提示图标按这里的先后排列；整组位置仍用上面的“系统提示图标”锚点。跟随提示组会继承整组设置，跟随原生侧边只让系统决定所在的一侧。数量不足时的显示优先级仍在系统提示图标页设置。",
+                        Text(tr("同侧提示图标按这里的先后排列；整组位置仍用上面的“系统提示图标”锚点。跟随提示组会继承整组设置，跟随原生侧边只让系统决定所在的一侧。数量不足时的显示优先级仍在系统提示图标页设置。"),
                             Modifier.padding(horizontal = 4.dp), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         hintRegions.forEach { side ->
                             val members = hintDraft.slots(side)
@@ -355,7 +354,7 @@ internal fun StatusBarOrderPage(app: ModernMainActivity, requested: String?, onR
                 }
                 UiGroupCard {
                     C17BasicComponent(insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
-                        Text("网络制式与信号", fontSize = 16.sp)
+                        Text(tr("网络制式与信号"), fontSize = 16.sp)
                         Text(if (shared) "已与 Wi-Fi 共用位置；共用开关在网络页面" else "只调整蜂窝内部先后，不改变上面的排列", fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
@@ -364,7 +363,7 @@ internal fun StatusBarOrderPage(app: ModernMainActivity, requested: String?, onR
                         listOf("系统顺序", "制式在前", "信号在前").forEachIndexed { index, title ->
                             C17TextButton(title, enabled = controlsEditable, modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                                 .semantics { this.selected = index == labelOrder },
-                                colors = if (index == labelOrder) ButtonDefaults.textButtonColorsPrimary() else null,
+                                primary = index == labelOrder,
                                 onClick = { updateFields(HashMap(fields).apply { put(labelKey, index.toFloat()) }) })
                         }
                     }
@@ -379,7 +378,7 @@ internal fun StatusBarOrderPage(app: ModernMainActivity, requested: String?, onR
                     }
                     if (dirty) UiRow("放弃未应用的更改", "回到上次保存的排列", enabled = allowed) { requestDiscard(false) }
                 }
-                Text("这里列出全部可排序的元素，系统当前没有显示的元素不会被强制显示。各元素的左右间距在它自己的页面设置，不需要开启排序。",
+                Text(tr("这里列出全部可排序的元素，系统当前没有显示的元素不会被强制显示。各元素的左右间距在它自己的页面设置，不需要开启排序。"),
                     Modifier.padding(horizontal = 4.dp), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             // Insertion mark and the dragged chip float above the board.
@@ -422,7 +421,7 @@ private fun OrderPreview(draft: StatusBarOrderDraft) {
     val native = draft.tokens(StatusBarOrderDraft.NATIVE)
     UiGroupCard {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("预览（从左到右）", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(tr("预览（从左到右）"), fontSize = 14.sp, fontWeight = FontWeight.Medium)
             Row(Modifier.fillMaxWidth().heightIn(min = 36.dp).clip(RoundedCornerShape(10.dp))
                 .background(MiuixTheme.colorScheme.onSurface.copy(alpha = .06f)).padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically) {
@@ -441,7 +440,7 @@ private fun OrderPreview(draft: StatusBarOrderDraft) {
             Text(if (native.isEmpty()) "所有元素都已手动安排。"
                 else "“系统…”表示跟随系统的元素：它们留在系统原来的一侧，排在同侧手动元素的右边。",
                 fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            Text("流体云胶囊出现时保留自定义排序，图标的显示、隐藏和缩放继续跟随系统交互。" +
+            Text(tr("流体云胶囊出现时保留自定义排序，图标的显示、隐藏和缩放继续跟随系统交互。") +
                 if (draft.side(StatusBarLayoutSettings.CARRIER) != StatusBarOrderDraft.NATIVE) "\n$CARRIER_NOTE" else "",
                 fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
@@ -505,10 +504,10 @@ private fun OrderChip(title: String, side: String, index: Int, legacyOrder: Int,
                 onDragEnd = { end(true) }, onDragCancel = { end(false) },
                 onDrag = { change, amount -> change.consume(); move(amount) })
         }
-        .clickable(role = Role.Button, onClickLabel = if (selected) "取消选择$title" else "选择$title", onClick = onClick)
+        .clickable(role = Role.Button, onClickLabel = if (selected) trf("取消选择%s", title) else trf("选择%s", title), onClick = onClick)
         .semantics {
             this.selected = selected
-            stateDescription = regionName + if (index > 0) "第${index}个" else ""
+            stateDescription = regionName + if (index > 0) trf("第%s个", index) else ""
             customActions = actions
         }
         .padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
@@ -521,7 +520,7 @@ private fun OrderChip(title: String, side: String, index: Int, legacyOrder: Int,
         Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = content)
         if (tag != null) Text(tag, fontSize = 11.sp,
             color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        if (legacyOrder > 0) Text("旧顺序$legacyOrder", fontSize = 11.sp,
+        if (legacyOrder > 0) Text(trf("旧顺序%s", legacyOrder), fontSize = 11.sp,
             color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
@@ -538,7 +537,7 @@ private fun OrderSelectionPanel(token: String, title: String, draft: StatusBarOr
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(title, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                    Text(if (side == StatusBarOrderDraft.NATIVE) "跟随系统" else "${orderRegionTitle(side)}第 ${rank + 1} 个（共 ${members.size} 个）",
+                    Text(if (side == StatusBarOrderDraft.NATIVE) "跟随系统" else trf("%1\$s第 %2\$s 个（共 %3\$s 个）", orderRegionTitle(side), rank + 1, members.size),
                         fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     if (token == StatusBarLayoutSettings.CARRIER) Text(CARRIER_NOTE, fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -548,9 +547,9 @@ private fun OrderSelectionPanel(token: String, title: String, draft: StatusBarOr
             Row(Modifier.fillMaxWidth().padding(end = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(StatusBarOrderDraft.LEFT, StatusBarOrderDraft.NATIVE, StatusBarOrderDraft.RIGHT).forEach { destination ->
                     val current = destination == side
-                    C17TextButton(if (destination == StatusBarOrderDraft.NATIVE) "跟随系统" else "放到${orderRegionTitle(destination)}",
+                    C17TextButton(if (destination == StatusBarOrderDraft.NATIVE) "跟随系统" else trf("放到%s", orderRegionTitle(destination)),
                         modifier = Modifier.weight(1f).heightIn(min = 44.dp).semantics { this.selected = current },
-                        enabled = editable && !current, colors = if (current) ButtonDefaults.textButtonColorsPrimary() else null,
+                        enabled = editable && !current, primary = current,
                         onClick = { onSide(destination) })
                 }
             }
@@ -575,7 +574,7 @@ private fun HintOrderSelectionPanel(slot: String, draft: HintIconOrderDraft, edi
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(NativeStatusIcons.priorityLabel(slot), fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                    Text(if(physical && draft.order(slot) > 0) "${hintRegionTitle(side)}第 ${rank + 1} 个（仅提示图标）"
+                    Text(if(physical && draft.order(slot) > 0) trf("%1\$s第 %2\$s 个（仅提示图标）", hintRegionTitle(side), rank + 1)
                         else hintRegionTitle(side), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
                 C17IconButton(onClick = onClose) { Icon(Icons.Outlined.Close, "取消选择") }
@@ -585,7 +584,7 @@ private fun HintOrderSelectionPanel(slot: String, draft: HintIconOrderDraft, edi
                     pair.forEach { destination ->
                         C17TextButton(hintRegionTitle(destination), modifier = Modifier.weight(1f).heightIn(min = 44.dp)
                             .semantics { selected = destination == side }, enabled = editable && destination != side,
-                            colors = if(destination == side) ButtonDefaults.textButtonColorsPrimary() else null,
+                            primary = destination == side,
                             onClick = { onSide(destination) })
                     }
                 }

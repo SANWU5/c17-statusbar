@@ -99,10 +99,12 @@ public final class FluidCloudAodFollowCheck {
         mediaColourLasts();
         unifiedAodMask();
         lockWithoutMasters();
+        disableDuringAod();
+        unifyOnlyMasterOff();
         System.out.println("FluidCloudAodFollowCheck: "+checks+" checks passed");
     }
 
-    /** The lock screen and AOD are set on their own pages: with the media-accent and style masters off, the notifications still follow the media colour. */
+    /** Independent notification/glass options remain neutral while media accent is off. */
     private static void lockWithoutMasters()throws Exception{
         Rig rig=new Rig(true);FluidCloudStyle style=rig.style;C17HighlightRemoval control=rig.control;
         rig.options.putBoolean(FluidCloudAccent.ENABLED,false);rig.options.putBoolean(FluidCloudStyle.MASTER,false);
@@ -110,13 +112,81 @@ public final class FluidCloudAodFollowCheck {
         rig.options.putBoolean(FluidCloudStyle.FOLLOW_NOTIFICATION,false);
         rig.apply();
         Card card=new Card(style);style.sceneMaterialChanged(card.ext);drain();
-        check(gradient(control,card.body)!=null&&(gradient(control,card.body)&0xffffff)==0xa34759,"masters off: the ordinary card follows the media colour on its own switch");
+        check(gradient(control,card.body)==null&&overlay(control,card.body)==null,"media master off: the ordinary notification's follow option cannot source media colour");
         rig.options.putBoolean(FluidCloudStyle.NOTIFICATION_FOLLOW,false);rig.apply();
         check(gradient(control,card.body)==null&&overlay(control,card.body)==null,"its own switch off: it does not follow");
         rig.options.putBoolean(LockNotificationSettings.UNIFY_AOD,true);rig.apply();
-        check(gradient(control,card.body)!=null&&(gradient(control,card.body)&0xffffff)==0xa34759,"the unified style follows without the masters too");
+        check(gradient(control,card.body)==null&&overlay(control,card.body)==null,"unified AOD keeps neutral glass without bypassing the media master");
+        rig.options.putBoolean(FluidCloudAccent.ENABLED,true);rig.apply();
+        check(gradient(control,card.body)!=null&&(gradient(control,card.body)&0xffffff)==0xa34759,"the saved independent policy follows again only after media accent is enabled");
+        rig.options.putBoolean(FluidCloudAccent.ENABLED,false);rig.apply();
+        check(gradient(control,card.body)==null&&overlay(control,card.body)==null,"turning media accent off again clears the unified notification's colour");
         rig.options.putBoolean(LockNotificationSettings.UNIFY_AOD,false);rig.apply();
         check(gradient(control,card.body)==null,"unified off: not any more");
+        rig.release();
+    }
+
+    /** The master must also revoke a proven AOD hold and a cached colour while the native media view is detached. */
+    private static void disableDuringAod()throws Exception{
+        for(float boundary:new float[]{.5f,1f}){
+            Rig rig=new Rig(true);FluidCloudStyle style=rig.style;C17HighlightRemoval control=rig.control;
+            rig.options.putBoolean(FluidCloudStyle.LOCK_CAPSULE,true);
+            rig.options.putBoolean(FluidCloudAccent.AOD_GRADIENT,true);
+            rig.options.putBoolean(LockNotificationSettings.UNIFY_AOD,true);rig.apply();style.setMediaPlaying(true);drain();
+            Card card=new Card(style);style.sceneMaterialChanged(card.ext);drain();
+            check(gradient(control,card.body)!=null,"the regression starts with a visible media colour");
+            java.lang.reflect.Field cache=FluidCloudStyle.class.getDeclaredField("lastFollowMedia");cache.setAccessible(true);
+            java.lang.reflect.Field cacheTime=FluidCloudStyle.class.getDeclaredField("lastFollowMediaAt");cacheTime.setAccessible(true);
+            check(cache.get(style)!=null,"live following has populated the lock media cache");
+            rig.asleep(true);progress(style,boundary,card);
+            java.lang.reflect.Field materialField=FluidCloudStyle.class.getDeclaredField("sceneMaterial");materialField.setAccessible(true);
+            FluidCloudSceneMaterial material=(FluidCloudSceneMaterial)materialField.get(style);
+            check(material.holdingMediaComposition(card.body),"real native glass has a held media composition at AOD progress "+boundary);
+            java.lang.reflect.Field bindings=FluidCloudAccent.class.getDeclaredField("media");bindings.setAccessible(true);
+            for(Object binding:new java.util.ArrayList<>(((java.util.Map<?,?>)bindings.get(rig.accent)).values())){
+                java.lang.reflect.Field attached=binding.getClass().getDeclaredField("attached");attached.setAccessible(true);attached.setBoolean(binding,false);
+            }
+            check(rig.accent.nativeCurrentMediaColor(null)==null,"the original media view is absent, so the regression exercises cached following");
+            style.refreshAfterAccent();style.mediaOwnershipChanged();drain();
+            check(gradient(control,card.body)!=null||overlay(control,card.body)!=null,"before disable, a detached playing media view correctly retains its cached AOD colour");
+            rig.options.putBoolean(FluidCloudAccent.ENABLED,false);rig.apply();style.refreshAfterAccent();style.mediaOwnershipChanged();drain();
+            check(gradient(control,card.body)==null&&overlay(control,card.body)==null,"disable revokes the held colour during both the crossfade and settled AOD");
+            check(cache.get(style)==null&&cacheTime.getLong(style)==0L,"disable discards cached following and its timestamp instead of resurrecting the old album colour");
+            check(style.lockCapsulePlan(true)==null&&style.lockCapsulePlan(false)==null,"neither media nor non-media lock/AOD capsule bypasses the disabled master");
+            OplusAodRowBackgroundDrawable nativeMask=new OplusAodRowBackgroundDrawable(card.body.getContext());nativeMask.setColor(0x78000000);
+            card.ext.setPanoramicAodDrawable(nativeMask);
+            check(card.ext.panoramicAodDrawable!=nativeMask&&((ColorDrawable)card.ext.panoramicAodDrawable).getColor()==0x78667788,
+                    "the independent unified-AOD option retains neutral glass after media tint is removed");
+            rig.colour.value=new com.oplus.systemui.plugins.shared.data.media.model.a(0xff12789a);style.mediaChanged(rig.section);drain();
+            check(gradient(control,card.body)==null&&overlay(control,card.body)==null&&cache.get(style)==null,"media updates while disabled cannot refill the cache or recolour the sleeping card");
+            rig.asleep(false);progress(style,0f,card);
+            check(gradient(control,card.body)==null&&overlay(control,card.body)==null,"waking never restores the revoked held colour");
+            rig.options.putBoolean(FluidCloudAccent.ENABLED,true);rig.apply();
+            Integer latest=gradient(control,card.body);
+            check(latest!=null&&(latest&0xffffff)==0x12789a&&(latest>>>24)==102,"re-enabling follows the current track with the saved gradient and 40% opacity");
+            rig.release();
+        }
+    }
+
+    /** Accent-only change must refresh an already coloured ordinary row even when no remaining style requests media. */
+    private static void unifyOnlyMasterOff()throws Exception{
+        Rig rig=new Rig(true);FluidCloudStyle style=rig.style;C17HighlightRemoval control=rig.control;
+        rig.options.putBoolean(FluidCloudStyle.MASTER,false);rig.options.putBoolean(FluidCloudStyle.DESKTOP_BACKGROUND,false);
+        rig.options.putBoolean(FluidCloudStyle.FOLLOW_NOTIFICATION,false);rig.options.putBoolean(FluidCloudStyle.FOLLOW_MEDIA,false);
+        rig.options.putBoolean(FluidCloudStyle.NOTIFICATION_FOLLOW,false);rig.options.putBoolean(LockNotificationSettings.UNIFY_AOD,true);
+        for(String own:new String[]{FluidCloudAccent.LOCK_GRADIENT,FluidCloudAccent.AOD_GRADIENT,FluidCloudAccent.LOCK_CUSTOM,FluidCloudAccent.AOD_CUSTOM})rig.options.putBoolean(own,false);
+        rig.apply();Card card=new Card(style);style.sceneMaterialChanged(card.ext);drain();
+        check(overlay(control,card.body)!=null&&gradient(control,card.body)==null,"unified AOD alone follows media while the media master is enabled");
+        rig.asleep(true);progress(style,1f,card);
+        check(overlay(control,card.body)!=null,"the unified-only ordinary row is media coloured in settled AOD");
+        rig.options.putBoolean(FluidCloudAccent.ENABLED,false);
+        // Exercise only the accent listener: no row rebind, style configure, native state event or polling helps cleanup.
+        rig.accent.configure(rig.options);drain();
+        check(overlay(control,card.body)==null&&gradient(control,card.body)==null,"accent-only master disable cleans an old ordinary colour even when all media policies are now inactive");
+        OplusAodRowBackgroundDrawable nativeMask=new OplusAodRowBackgroundDrawable(card.body.getContext());nativeMask.setColor(0x78000000);
+        card.ext.setPanoramicAodDrawable(nativeMask);
+        check(card.ext.panoramicAodDrawable!=nativeMask&&((ColorDrawable)card.ext.panoramicAodDrawable).getColor()==0x78667788,
+                "unified-only ordinary row keeps neutral AOD registration after its old media colour is revoked");
         rig.release();
     }
 

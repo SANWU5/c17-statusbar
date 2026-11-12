@@ -4,9 +4,16 @@
 
 ## 1. 证据来源与适用范围
 
-已核对的 ColorOS 17 SystemUI 参考 APK 为 98,883,595 bytes，SHA-256 `DA83AE63B6CFC43A4CE57F21EE7A54444E14DADA85B24AD36D2FE74181F0A927`。下述类、R8 字段和资源来自此版本，不混用其他 ROM 的通用接口推断。
+`.local-private/device-before/SystemUI.apk` 与 `.local-private/device95-readonly/SystemUI.apk` 字节相同：98,883,595 bytes，SHA-256 `DA83AE63B6CFC43A4CE57F21EE7A54444E14DADA85B24AD36D2FE74181F0A927`。下述类、R8 字段和资源均来自此 APK，不混用其他 ROM 的 Lottie 文档或通用 SDK 猜测。
 
-原始 OEM APK、反汇编片段及本地审计辅助文件不随源码分发。公开复核使用生产适配器、`validation/checks-src/` 的宿主合同回归与[验证说明](../VALIDATION.md)；下文的原生签名是兼容性边界，不要求读者访问开发者本地目录。
+可复核的补充证据在忽略目录 `build/c17-dev/icon-v3-audit/`：
+
+- `lottie/CONTRACT.md`：完整 Lottie / Effective API、构造器、R8 标记、跟色、Alpha、异步任务、末态与回收的逐项行号。
+- `non-tile/metadata.json`、`non-tile/*.txt`：滑块、媒体子类、设备卡片、页脚的实际字段与方法体。
+- `non-tile-extra/metadata.json`、`non-tile-extra/*.txt`：ClipBrightnessView、滑块二级页及详细磁贴、PanelDevice。
+- `native-enums/metadata.json`：DeviceType 等真实枚举、QsDetailTileBaseView 的完整方法签名。
+- `factories/tileimpl.OplusQSFactoryImpl.txt`、`spec-candidates.json`：47 个真实 stock spec → provider 分支及精确行号。
+- `factories/widget.QsDetailTileBaseView.txt`：二级页也有独立 iconViewProxy，而非所有二级页都是普通 QSTileView。
 
 OEM APK、反汇编代码及 OEM 图形不进入规范仓库。本文只保存契约和事实摘要。后续遇到类、方法、字段、宿主层次或枚举不符时，关闭该适配器并保留原生，不能按中文标题或附近 ImageView 猜对象。
 

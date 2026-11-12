@@ -41,8 +41,8 @@ public final class Upgrade186Check {
     public static void main(String[] args)throws Exception{
         equal(Collections.singletonMap(FontScopes.KEY,FontScopes.DEFAULT),Upgrade186.DEFAULTS);
         equal(FontScopes.DEFAULT,StatusBarSettings.STRING_DEFAULTS.get(FontScopes.KEY));equal(ConfigTransfer.Type.STRING,ConfigTransfer.types().get(FontScopes.KEY));
-        equal(48,SettingsFrameworkMirror.VERSION);equal(1,ConfigTransfer.SCHEMA_VERSION);
-        Bundle defaults=SettingsSnapshot.fromPreferences(Collections.emptyMap());equal(979,defaults.keySet().size());equal(966,ConfigTransfer.types().size());
+        equal(52,SettingsFrameworkMirror.VERSION);equal(1,ConfigTransfer.SCHEMA_VERSION);
+        Bundle defaults=SettingsSnapshot.fromPreferences(Collections.emptyMap());equal(1000, defaults.keySet().size());equal(987,ConfigTransfer.types().size());
         equal(FontScopes.DEFAULT,defaults.getString(FontScopes.KEY));migration();imports();
         System.out.println("Upgrade186Check passed: "+checks);
     }

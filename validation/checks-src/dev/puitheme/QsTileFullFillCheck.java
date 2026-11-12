@@ -19,6 +19,7 @@ import com.oplus.systemui.qs.base.res.drawable.TileDrawableWrapper;
 import com.oplusos.systemui.common.outline.RoundRectOutlineProvider;
 import com.oplusos.systemui.common.util.QSBlurConfigProvider;
 import java.util.Objects;
+import org.json.JSONObject;
 
 /** Native pool -> fresh builder -> shaped wrapper, current labels and exact restore paths. */
 public final class QsTileFullFillCheck {
@@ -261,15 +262,15 @@ public final class QsTileFullFillCheck {
         full.refreshTile(tile); equal(View.INVISIBLE, circle.getVisibility()); equal(.35f, circle.getAlpha());
         equal(0xdd000000, tile.title().getCurrentTextColor()); equal(0x77000000, tile.desc().getCurrentTextColor());
         tile.isBeingDragged = true; full.refreshTile(tile);
-        equal(View.VISIBLE, circle.getVisibility()); equal(.35f, circle.getAlpha()); equal(latest, circle.getBackground());
-        equal(0xddeeffff, tile.title().getCurrentTextColor()); equal(0x77010203, tile.desc().getCurrentTextColor());
+        equal(View.INVISIBLE, circle.getVisibility()); equal(.35f, circle.getAlpha()); equal(latest, circle.getBackground());
+        equal(0xdd000000, tile.title().getCurrentTextColor()); equal(0x77000000, tile.desc().getCurrentTextColor());
         tile.isBeingDragged = false; full.refreshTile(tile); tile.edit = true; full.refreshTile(tile);
-        equal(View.VISIBLE, circle.getVisibility()); equal(.35f, circle.getAlpha());
+        equal(View.INVISIBLE, circle.getVisibility()); equal(.35f, circle.getAlpha());
         tile.edit = false; full.refreshTile(tile); tile.current.state = 1; full.refreshTile(tile);
         // Inactive 2x1 tiles keep the native fill and labels, but the circle stays hidden too.
         equal(View.INVISIBLE, circle.getVisibility()); equal(latest, circle.getBackground()); equal(.35f, circle.getAlpha());
         equal(0xddeeffff, tile.title().getCurrentTextColor()); equal(0x77010203, tile.desc().getCurrentTextColor());
-        tile.edit = true; full.refreshTile(tile); equal(View.VISIBLE, circle.getVisibility());
+        tile.edit = true; full.refreshTile(tile); equal(View.INVISIBLE, circle.getVisibility());
         tile.edit = false; full.refreshTile(tile); equal(View.INVISIBLE, circle.getVisibility());
         tile.current.state = 0; full.refreshTile(tile); equal(View.INVISIBLE, circle.getVisibility());
         full.configure(settings(false, false)); equal(View.VISIBLE, circle.getVisibility());
@@ -410,8 +411,40 @@ public final class QsTileFullFillCheck {
         equal(false, full.drawPure(customFill, new Canvas())); // Inactive: native glass again.
         full.release();
     }
+    private static void glassOwnedFill() throws Exception {
+        resetPool(); QsTileAppearance appearance = new QsTileAppearance();
+        QsTileFullFill full = new QsTileFullFill(appearance); Tile tile = new Tile(); tile.owner = full;
+        Drawable original = tile.background.child;
+        Bundle saved = settings(true, false);
+        appearance.configure(saved); full.configure(saved); full.refreshTile(tile);
+        Drawable replacement = tile.background.child;
+        equal(true, replacement != original);
+        equal(true, full.drawPure(replacement, new Canvas()));
+        int invalidations = tile.invalidations;
+
+        Bundle glass = CustomPluginMaterialIsolation.apply(saved, new JSONObject()
+                .put("system_glass", true).put("cc_glass", true));
+        appearance.configure(glass); full.configure(glass);
+        equal(replacement, tile.background.child);
+        equal(View.INVISIBLE, tile.glyph.iconBgView.getVisibility());
+        Canvas frame = new Canvas();
+        if (!full.drawPure(replacement, frame)) replacement.draw(frame);
+        equal(0, frame.roundRects);
+        equal(173, ((MixColorTileDrawable) replacement).seenAlpha);
+        equal(true, tile.invalidations > invalidations);
+
+        invalidations = tile.invalidations;
+        Bundle glassOff = CustomPluginMaterialIsolation.apply(saved, new JSONObject()
+                .put("system_glass", true).put("nc_glass", true));
+        appearance.configure(glassOff); full.configure(glassOff);
+        equal(true, full.drawPure(replacement, new Canvas()));
+        equal(true, tile.invalidations > invalidations);
+        equal(View.INVISIBLE, tile.glyph.iconBgView.getVisibility());
+        full.release();
+        equal(original, tile.background.child);
+    }
     public static void main(String[] args) throws Throwable {
-        deviceCardMaterial(); nativeTagCache(); pureFill(); lifecycle(); nativeThemeContract(); nativeReplacementAndFailures(); nativeAnimatedTargetAndRestore(); stylesAndIsolation(); circleAndLatestNativeRestore(); noFillAndOtherCardsStayNative(); nativeRecycleBoundary(); backgroundDispatch();
+        deviceCardMaterial(); nativeTagCache(); pureFill(); glassOwnedFill(); lifecycle(); nativeThemeContract(); nativeReplacementAndFailures(); nativeAnimatedTargetAndRestore(); stylesAndIsolation(); circleAndLatestNativeRestore(); noFillAndOtherCardsStayNative(); nativeRecycleBoundary(); backgroundDispatch();
         System.out.println("QsTileFullFillCheck: " + checks + " checks passed");
     }
     /** Current ROM's earbuds use a complete PluginDrawable, not a stretched OneXOne tile primitive. */
@@ -439,7 +472,7 @@ public final class QsTileFullFillCheck {
         int cornerCalls=material.cornerUpdates,applies=material.blur().viewBlurProxy.applied;
         for(int i=0;i<1000;i++)fill.draw(new Canvas());
         equal(cornerCalls,material.cornerUpdates);equal(applies,material.blur().viewBlurProxy.applied);
-        tile.background.getPathProvider().update(32f,2f);fill.draw(new Canvas());
+        tile.background.getPathProvider().radius=32f;tile.background.getPathProvider().weight=2f;fill.draw(new Canvas());
         equal(32f,material.radius);equal(2f,material.weight);equal(32f,material.blur().viewBlurProxy.visibleScalar);
         fill.setAlpha(64);equal(64,material.alpha);equal(64,fill.getAlpha());
         tile.resources.getConfiguration().uiMode=android.content.res.Configuration.UI_MODE_NIGHT_YES;

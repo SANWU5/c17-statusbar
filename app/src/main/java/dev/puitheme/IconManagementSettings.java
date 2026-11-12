@@ -76,6 +76,44 @@ public final class IconManagementSettings {
         if(animationEnabled)animations.remove(targetId);else animations.put(targetId,false);return encode(new State(old.scopePacks,overrides,appearances,animations));
     }
     public static String applyAppearance(String records,String key,Appearance appearance)throws IOException{requireAppearanceKey(key);State old=parse(records);Map<String,Appearance> values=new LinkedHashMap<>(old.appearances);if(appearance==null)values.remove(key);else{validate(appearance);values.put(key,appearance);}return encode(new State(old.scopePacks,old.overrides,values,old.animations));}
+    /** Three-way merge for one target. Committed field changes win conflicts; independent draft edits survive. */
+    public static String rebaseTargetDraft(String baseRecords,String draftRecords,String currentRecords,String targetId)throws IOException{
+        return rebaseTargetDraft(baseRecords,draftRecords,currentRecords,targetId,null);
+    }
+    /** Null sources means the library is still loading. Only unsaved, unavailable source edits are discarded. */
+    public static String rebaseTargetDraft(String baseRecords,String draftRecords,String currentRecords,String targetId,Map<String,IconManagementManifest> availablePacks)throws IOException{
+        State base=parse(baseRecords),draft=parse(draftRecords),current=parse(currentRecords);IconRoleRegistry.Target target=IconRoleRegistry.target(targetId);
+        if(target==null)throw IconManagementJson.error("目标草稿无效");
+        Map<String,Override> overrides=new LinkedHashMap<>();Map<String,Appearance> appearances=new LinkedHashMap<>();
+        for(String role:target.roles){
+            Override saved=current.overrides.get(role),selected=sameOverride(base.overrides.get(role),saved)?draft.overrides.get(role):saved;
+            if(availablePacks!=null&&selected!=null&&"pack".equals(selected.mode)&&!sameOverride(selected,saved)){
+                String source=IconManagementSelection.sourceRole(availablePacks.get(selected.packId),selected.sourceRole);
+                selected=source==null?saved:new Override("pack",selected.packId,source);
+            }
+            if(selected!=null)overrides.put(role,selected);
+            Appearance appearance=rebaseAppearance(base.appearances.get("role:"+role),draft.appearances.get("role:"+role),current.appearances.get("role:"+role));
+            if(appearance!=null)appearances.put(role,appearance);
+        }
+        String key="target:"+targetId;
+        Appearance appearance=rebaseAppearance(base.appearances.get(key),draft.appearances.get(key),current.appearances.get(key));
+        boolean oldAnimation=!Boolean.FALSE.equals(base.animations.get(targetId)),savedAnimation=!Boolean.FALSE.equals(current.animations.get(targetId));
+        boolean animation=oldAnimation==savedAnimation?!Boolean.FALSE.equals(draft.animations.get(targetId)):savedAnimation;
+        return applyTarget(currentRecords,targetId,overrides,appearance,appearances,animation);
+    }
+    private static boolean sameOverride(Override a,Override b){return a==b||a!=null&&b!=null&&a.mode.equals(b.mode)&&a.packId.equals(b.packId)&&a.sourceRole.equals(b.sourceRole);}
+    private static String colorMode(Appearance value){return value==null?"inherit":value.mode;}
+    private static boolean sameColor(Appearance a,Appearance b){String mode=colorMode(a);return mode.equals(colorMode(b))&&(!"custom".equals(mode)||a.lightColor==b.lightColor&&a.darkColor==b.darkColor);}
+    /** A palette may replace colors while independent in-progress size and opacity edits survive. */
+    private static Appearance rebaseAppearance(Appearance base,Appearance draft,Appearance current){
+        Appearance color=sameColor(base,current)?draft:current;String mode=colorMode(color);
+        Float baseOpacity=base==null?null:base.opacity,currentOpacity=current==null?null:current.opacity;
+        Float baseSize=base==null?null:base.sizePercent,currentSize=current==null?null:current.sizePercent;
+        Float opacity=Objects.equals(baseOpacity,currentOpacity)?draft==null?null:draft.opacity:currentOpacity;
+        Float size=Objects.equals(baseSize,currentSize)?draft==null?null:draft.sizePercent:currentSize;
+        if("inherit".equals(mode)&&opacity==null&&size==null)return null;
+        return new Appearance(mode,color==null?0xff000000:color.lightColor,color==null?0xffffffff:color.darkColor,opacity,size);
+    }
     /** A scope/target palette replaces shadowing child colors, preserving independent size and alpha. */
     public static String applyColorPreset(String records,IconColorPresets.Preset preset,Collection<String> scopes)throws IOException{
         if(preset==null||scopes==null||scopes.isEmpty())throw IconManagementJson.error("请选择颜色预设和应用范围");

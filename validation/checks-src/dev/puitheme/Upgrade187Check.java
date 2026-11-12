@@ -29,8 +29,8 @@ public final class Upgrade187Check {
     private static void registration(Bundle full){
         equal(KEY,IconManagementSettings.KEY,"frozen record identity");equal(DEFAULT,IconManagementSettings.DEFAULT,"frozen empty v3 record");
         equal(Collections.singletonMap(KEY,DEFAULT),Upgrade187.DEFAULTS,"one independent upgrade addition");equal(RETIRED,IconManagementSettings.LEGACY_KEYS,"exact retired boundary");
-        equal(48,SettingsFrameworkMirror.VERSION,"current wire schema");equal(1,ConfigTransfer.SCHEMA_VERSION,"portable JSON stays schema1");
-        equal(979,full.keySet().size(),"complete wire settings count");equal(966,ConfigTransfer.types().size(),"967 plus one minus three portable fields");
+        equal(52,SettingsFrameworkMirror.VERSION,"current wire schema");equal(1,ConfigTransfer.SCHEMA_VERSION,"portable JSON stays schema1");
+        equal(1000, full.keySet().size(),"complete wire settings count");equal(987,ConfigTransfer.types().size(),"current portable registry includes opt-in card settings");
         equal(DEFAULT,StatusBarSettings.STRING_DEFAULTS.get(KEY),"registered string default");equal(DEFAULT,full.getString(KEY),"fresh effective default");equal(ConfigTransfer.Type.STRING,ConfigTransfer.types().get(KEY),"new string is portable");
         for(String retired:RETIRED){equal(true,full.containsKey(retired),"old field retains complete-schema identity");equal(false,ConfigTransfer.types().containsKey(retired),"old field not portable");equal(null,SettingsCatalog.item(retired),"no retired editor");equal(true,SettingsCatalog.hiddenKeys().contains(retired),"retired field explicitly hidden");}
         SettingsCatalog.Group group=SettingsCatalog.group("status_icon_library");equal("图标管理",group.title,"retained route new title");equal(SettingsCatalog.OTHER,group.category,"other page destination");equal(IconManagementSettings.ENABLED,group.masterKey,"current independent v3 master");
@@ -56,7 +56,7 @@ public final class Upgrade187Check {
         Map<String,Object> missing=new LinkedHashMap<>(current);missing.remove(KEY);equal(null,SettingsFrameworkMirror.decode(missing),"current schema requires new field");
         for(Object wrong:new Object[]{null,true,0,0f,Collections.emptyList()}){Map<String,Object> invalid=new LinkedHashMap<>(current);invalid.put(KEY,wrong);equal(null,SettingsFrameworkMirror.decode(invalid),"current wire field requires string type");}
         current.put(SettingsFrameworkMirror.SCHEMA,SettingsFrameworkMirror.VERSION+1);equal(null,SettingsFrameworkMirror.decode(current),"future schema rejected");
-        ActivationGuardPreferencesCheck.MemoryPreferences remote=new ActivationGuardPreferencesCheck.MemoryPreferences();equal(true,SettingsFrameworkMirror.write(remote,full,187L),"publication succeeds");equal(48,remote.values.get(SettingsFrameworkMirror.SCHEMA),"publication advertises current schema");equal(DEFAULT,remote.values.get(KEY),"publication carries independent field");
+        ActivationGuardPreferencesCheck.MemoryPreferences remote=new ActivationGuardPreferencesCheck.MemoryPreferences();equal(true,SettingsFrameworkMirror.write(remote,full,187L),"publication succeeds");equal(52, remote.values.get(SettingsFrameworkMirror.SCHEMA),"publication advertises current schema");equal(DEFAULT,remote.values.get(KEY),"publication carries independent field");
         for(String retired:RETIRED)equal(full.get(retired),remote.values.get(retired),"old wire identity remains readable");
     }
     private static void portable()throws Exception{
@@ -67,7 +67,7 @@ public final class Upgrade187Check {
         ActivationGuardPreferencesCheck.MemoryPreferences store=new ActivationGuardPreferencesCheck.MemoryPreferences();store.values.putAll(saved());Map<String,Object> before=new LinkedHashMap<>(store.values);
         equal(true,ConfigTransfer.commit(store,planned),"current record import commits");equal(selected,store.values.get(KEY),"new choice saved");equal(false,store.values.get("clock_enabled"),"other selected current field imported");
         for(String key:before.keySet())if(!key.equals("clock_enabled"))equal(before.get(key),store.values.get(key),"import does not revive or modify retired/unselected field");
-        ConfigTransfer.PreparedImport full=ConfigTransfer.prepare(ConfigTransfer.exportJson(store.values),true);equal(966,full.count,"complete export uses only current portable registry");equal(0,full.skippedLegacyIcons,"current export contains no retired fields");
+        ConfigTransfer.PreparedImport full=ConfigTransfer.prepare(ConfigTransfer.exportJson(store.values),true);equal(987,full.count,"complete export uses only current portable registry");equal(0,full.skippedLegacyIcons,"current export contains no retired fields");
         for(String retired:RETIRED)equal(false,full.values().containsKey(retired),"retired field absent from current export");
         ConfigTransfer.PreparedImport partial=ConfigTransfer.prepare(ConfigTransfer.exportJson(store.values,Collections.singleton(KEY)),true);equal(1,partial.count,"v3 partial export has one field");equal(selected,partial.values().get(KEY),"v3 partial export preserves appearance");
         for(String invalid:new String[]{"[]","{\"version\":2}","{\"version\":3,\"version\":3}","{\"version\":3,\"scopePacks\":{\"wifi\":\"not-a-hash\"}}"})rejected(()->ConfigTransfer.prepare(document(Collections.singletonMap(KEY,invalid)),true),"strict v3 JSON import");

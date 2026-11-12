@@ -18,7 +18,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Native AGSL material with only confirmed QS base blend colors substituted. */
-final class QsNativeGlassFill {
+public final class QsNativeGlassFill {
     private static final Pattern BASE_ARGUMENT=Pattern.compile("vec4\\(u_multiBlendParams\\[i \\+ 1\\],\\s*u_multiBlendParams\\[i \\+ 2\\],\\s*u_multiBlendParams\\[i \\+ 3\\],\\s*u_multiBlendParams\\[i \\+ 4\\]\\)");
     private static final String MAIN="half4 main(float2 position) {";
     private static final Object[] NO_ARGUMENTS=new Object[0];
@@ -30,6 +30,25 @@ final class QsNativeGlassFill {
             +" return vec4(value.rgb*(fill.rgb/max(float(fill.a),0.000001)),value.a*fill.a);\n}\n";
     private final Map<Object,Cached> cache=Collections.synchronizedMap(new WeakHashMap<>());
     private final ThreadLocal<String> reason=new ThreadLocal<>();
+    private static final ThreadLocal<Swap> LIVE_FILL=new ThreadLocal<>();
+    /** Optional plugin contract: only the exact current native-recording scope is transferable. */
+    public static boolean hasLiquidGlassState(Object owner,RuntimeShader shader) {
+        Swap scope=LIVE_FILL.get();return scope!=null&&!scope.closed&&scope.owner==owner&&scope.replacement==shader
+                &&QsTileAppearance.field(owner,"shader")==shader;
+    }
+    /** Source composition is separate from changing uniforms and runs only when native structure changes. */
+    public static String decorateLiquidGlass(String source) {return decorate(source);}
+    public static boolean transferLiquidGlassState(Object owner,RuntimeShader current,RuntimeShader target) {
+        if(target==null||target==current||!hasLiquidGlassState(owner,current))return false;
+        Swap scope=LIVE_FILL.get();
+        target.setInputShader("c17QsFill",scope.fill);
+        target.setFloatUniform("c17QsSlots",scope.first,scope.second);
+        target.setIntUniform("c17QsKeepNativeRgb",scope.keepNativeRgb?1:0);
+        int tint=scope.deviceTint;
+        target.setFloatUniform("c17QsDeviceTint",((tint>>>16)&255)/255f,((tint>>>8)&255)/255f,(tint&255)/255f,(tint>>>24)/255f);
+        target.setFloatUniform("c17StateSlots",scope.first,scope.second);
+        return true;
+    }
     String lastReason(){String value=reason.get();return value==null?"unreported":value;}
     private Swap reject(String why){reason.set(why);return null;}
     private static final class Cached {
@@ -96,11 +115,20 @@ final class QsNativeGlassFill {
     }
     static final class Swap {
         private final Object owner;private final RuntimeShader original,replacement;private final Paint paint;private final Shader originalPaint;
-        Swap(Object owner,RuntimeShader original,RuntimeShader replacement,Paint paint){this.owner=owner;this.original=original;this.replacement=replacement;this.paint=paint;originalPaint=paint==null?null:paint.getShader();}
+        private final Shader fill;private final float first,second;private final boolean keepNativeRgb;private final int deviceTint;
+        private Swap previous;private boolean closed;
+        Swap(Object owner,RuntimeShader original,RuntimeShader replacement,Paint paint,Shader fill,int[] slots,boolean keepNativeRgb,int deviceTint){
+            this.owner=owner;this.original=original;this.replacement=replacement;this.paint=paint;originalPaint=paint==null?null:paint.getShader();
+            this.fill=fill;first=slots[0]*5f;second=slots[1]*5f;this.keepNativeRgb=keepNativeRgb;this.deviceTint=deviceTint;
+        }
+        void activate(){previous=LIVE_FILL.get();LIVE_FILL.set(this);}
         void restore(){
+            if(closed)return;closed=true;
             // Do not touch RenderNode properties or a shader that native code replaced during recording.
-            if(QsTileAppearance.field(owner,"shader")==replacement)QsTileAppearance.setField(owner,"shader",original);
-            if(paint!=null&&paint.getShader()==replacement)paint.setShader(originalPaint);
+            try {
+                if(QsTileAppearance.field(owner,"shader")==replacement)QsTileAppearance.setField(owner,"shader",original);
+                if(paint!=null&&paint.getShader()==replacement)paint.setShader(originalPaint);
+            } finally {if(LIVE_FILL.get()==this){if(previous==null)LIVE_FILL.remove();else LIVE_FILL.set(previous);}}
         }
     }
     Swap prepare(Drawable engine,QsTileAppearance.Style style) throws ReflectiveOperationException {
@@ -151,7 +179,8 @@ final class QsNativeGlassFill {
         replacement.setFloatUniform("u_multiBlendParams",cached.blendUniforms);
         for(Object effect:(List<?>)effects)if((!removeOptics||!C17AcrylicMaterial.optical(effect))&&Boolean.TRUE.equals(QsTileAppearance.call(effect,"isEnabled")))QsTileAppearance.invoke(effect,"pushUniforms",replacement);
         cached.fillBounds.left=0;cached.fillBounds.top=0;cached.fillBounds.right=bounds.right-bounds.left;cached.fillBounds.bottom=bounds.bottom-bounds.top;
-        replacement.setInputShader("c17QsFill",QsTileAppearance.shader(style,cached.fillBounds));
+        Shader fillShader=QsTileAppearance.shader(style,cached.fillBounds);
+        replacement.setInputShader("c17QsFill",fillShader);
         replacement.setFloatUniform("c17QsSlots",slots[0]*5f,slots[1]*5f);
         replacement.setIntUniform("c17QsKeepNativeRgb",keepNativeRgb?1:0);
         // The configured active fill wins over the optional C17 inactive acrylic
@@ -159,8 +188,9 @@ final class QsNativeGlassFill {
         int deviceTint=keepNativeRgb?C17HighlightRemoval.deviceFillTint(engine):0;
         replacement.setFloatUniform("c17QsDeviceTint",((deviceTint>>>16)&255)/255f,((deviceTint>>>8)&255)/255f,(deviceTint&255)/255f,(deviceTint>>>24)/255f);
         Object nativePaint=QsTileAppearance.field(engine,"drawableShaderPaint");
-        Swap swap=new Swap(nativeShader,(RuntimeShader)original,replacement,nativePaint instanceof Paint?(Paint)nativePaint:null);
+        Swap swap=new Swap(nativeShader,(RuntimeShader)original,replacement,nativePaint instanceof Paint?(Paint)nativePaint:null,fillShader,slots,keepNativeRgb,deviceTint);
         if(!QsTileAppearance.setField(nativeShader,"shader",replacement))return reject("native shader field unavailable");
+        swap.activate();
         C17HighlightRemoval.preparedCustomMaterial(engine,replacement,removeOptics);
         return swap;
     }

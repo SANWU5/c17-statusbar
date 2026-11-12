@@ -37,6 +37,11 @@ public final class StatusBarFlowLayout {
         int visible(Object state);
         void visible(Object state, int value);
         default void apply(Object state, View child) { }
+        default boolean geometrySupported() { return true; }
+        /** Root-only geometry must not replay native alpha, hidden or add lifecycle. */
+        default void applyGeometry(Object state, View child) { apply(state, child); }
+        /** Commit only the native renderer's icon/dot/hidden state, without a ViewState lifecycle. */
+        default void applyVisibility(Object state, View child) { }
         /** Capture caller-sensitive native flags before its apply call returns. */
         default Object applyContext(Object state) { return null; }
         default void apply(Object state, View child, Object context) { apply(state, child); }
@@ -61,7 +66,28 @@ public final class StatusBarFlowLayout {
     private NativeAccess access;
     private java.util.function.Predicate<View> hintRetention;
     private NetworkSharedSlotLayout sharedSlots;
-    private final Map<ViewGroup, Integer> sharedWidths = new WeakHashMap<>();
+    private final Map<ViewGroup, SharedWidths> sharedWidths = new WeakHashMap<>();
+    /** Per scene: the Wi-Fi + data width last planned with both present, so a missing one is held without a gap when both show.
+     *  Like {@link SharedWidths} it belongs to one screen configuration. */
+    private final Map<ViewGroup, KnownRadios> fullRadios = new WeakHashMap<>();
+    private static final class KnownRadios {
+        final String configuration; final float width;
+        KnownRadios(String configuration, float width) { this.configuration = configuration; this.width = width; }
+    }
+    /** Keep the latest natural width of each alternative, not a lifetime maximum. */
+    /** Wi-Fi and the network label share one slot width. It belongs to one screen configuration: after a rotation or a
+     *  density/font change, a width measured in the old one (e.g. the portrait label while landscape shows Wi-Fi) is stale. */
+    private static final class SharedWidths {
+        final String configuration;
+        int wifi, label;
+        SharedWidths(String configuration) { this.configuration=configuration; }
+        int width() { return Math.max(wifi,label); }
+    }
+    private static String sharedWidthKey(View root) {
+        android.content.res.Configuration configuration = root.getResources().getConfiguration();
+        return root.getResources().getDisplayMetrics().density + ":" + (configuration == null ? "" : configuration.orientation
+                + ":" + configuration.screenWidthDp + ":" + configuration.fontScale);
+    }
     private final Map<ViewGroup, Integer> nativeMeasureRetries = new WeakHashMap<>();
     private final Map<ViewGroup, Runnable> nativeMeasurePosts = new WeakHashMap<>();
     private final Map<View, Boolean> nativeMeasureEligibility = new WeakHashMap<>();
@@ -105,6 +131,11 @@ public final class StatusBarFlowLayout {
         Class<?> display = loader.loadClass("com.android.systemui.statusbar.StatusIconDisplayable");
         Class<?> state = loader.loadClass("com.android.systemui.statusbar.phone.StatusIconContainer$StatusIconState");
         Method slot = display.getMethod("getSlot"), shown = display.getMethod("isIconVisible"), blocked = display.getMethod("isIconBlocked");
+        Method getVisible = null, setVisible = null;
+        try {
+            getVisible = display.getMethod("getVisibleState");
+            setVisible = display.getMethod("setVisibleState", Integer.TYPE, Boolean.TYPE);
+        } catch (NoSuchMethodException unsupportedVisibility) { getVisible = setVisible = null; }
         Class<?> hintIcon=loader.loadClass("com.android.systemui.statusbar.StatusBarIconView");
         Method hintNotification=hintIcon.getMethod("getNotification");
         Method getX = state.getMethod("getXTranslation"), setX = state.getMethod("setXTranslation", Float.TYPE);
@@ -142,6 +173,7 @@ public final class StatusBarFlowLayout {
             shiftAnimation = null;
         }
         final Method nativeShift = shiftAnimation;
+        final Method nativeGetVisible = getVisible, nativeSetVisible = setVisible;
         final Object nativeNoNew = noNewAnimations, nativeFilter = noNewFilter;
         final Field nativeDistance = endDistance, nativeAdded = added, nativeAnimateX = animateX;
         final Field nativeQsTransition = qsTransition;
@@ -165,6 +197,35 @@ public final class StatusBarFlowLayout {
             public int visible(Object object) { try { return visibility.getInt(object); } catch (ReflectiveOperationException e) { return 2; } }
             public void visible(Object object, int value) { try { visibility.setInt(object, value); } catch (ReflectiveOperationException e) { throw new IllegalStateException(e); } }
             public void apply(Object object, View child) { try { apply.invoke(object, child); } catch (ReflectiveOperationException e) { throw new IllegalStateException(e); } }
+            public boolean geometrySupported() { return nativeShift != null && nativeGetVisible != null && nativeSetVisible != null; }
+            public void applyGeometry(Object object, View child) {
+                if (!geometrySupported()) throw new IllegalStateException("Native partial geometry unavailable");
+                try {
+                    float target = x(object);
+                    nativeShift.invoke(object, child, nativeNoNew);
+                    // A root-only commit also replaces the last geometric destination.
+                    // StatusIconState's next ordinary apply reconstructs its start from
+                    // distanceToViewEnd; leaving that history at the old allocation
+                    // jumps a returning Wi-Fi icon through the battery. This is geometry
+                    // bookkeeping only: the add/QS/alpha lifecycle still belongs to OEM.
+                    if (child != null && state(child) == object && container.isInstance(child.getParent())
+                            && !nativeAdded.getBoolean(object) && Float.isFinite(target) && x(object) == target) {
+                        View parent = (View) child.getParent();
+                        float distance = parent.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL
+                                ? target : parent.getWidth() - target - child.getWidth();
+                        if (Float.isFinite(distance)) nativeDistance.setFloat(object, distance);
+                    }
+                }
+                catch (ReflectiveOperationException e) { throw new IllegalStateException(e); }
+            }
+            public void applyVisibility(Object object, View child) {
+                if (!geometrySupported()) throw new IllegalStateException("Native renderer visibility unavailable");
+                try {
+                    int target = visibility.getInt(object);
+                    if (((Number) nativeGetVisible.invoke(child)).intValue() != target)
+                        nativeSetVisible.invoke(child, target, false);
+                } catch (ReflectiveOperationException e) { throw new IllegalStateException(e); }
+            }
             public Object applyContext(Object object) {
                 try { return nativeQsTransition == null ? null : nativeQsTransition.getBoolean(object); }
                 catch (ReflectiveOperationException e) { throw new IllegalStateException(e); }
@@ -289,13 +350,50 @@ public final class StatusBarFlowLayout {
     public boolean internal() { return internal; }
     public void configure(Bundle bundle) {
         StatusBarLayoutSettings.Snapshot next = StatusBarLayoutSettings.Snapshot.parse(bundle);
-        values = bundle == null ? new Bundle() : new Bundle(bundle); settings = next; features = FeatureOptions.from(values); revision++;
+        Bundle nextValues=bundle==null?new Bundle():new Bundle(bundle);FeatureOptions nextFeatures=FeatureOptions.from(nextValues);
+        boolean same=settings.sameGeometry(next)&&sameSizing(values,features,nextValues,nextFeatures);
+        if(settings.wifiLabelShared!=next.wifiLabelShared||!sameNetworkSizing(values,features,nextValues,nextFeatures))sharedWidths.clear();
+        for(Scene scene:scenes.values())if(scene.invalid||scene.nativePass||scene.rebuildRequested){same=false;break;}
+        values=nextValues;settings=next;features=nextFeatures;
+        // Settings refreshes also include unrelated color/plugin changes. Releasing a
+        // valid placement here exposes native positions before the next traversal.
+        if(same)return;
+        revision++;
         nativeMeasureRetries.clear();
         for (Scene scene : new ArrayList<>(scenes.values())) {
             restore(scene);
+            restoreNativeTransaction(scene);
         }
         for (ViewGroup root : new ArrayList<>(roots.keySet())) if (root != null) root.requestLayout();
         if (!wanted()) { scenes.clear(); releaseParentAnimations(); cancelNativeMeasurePosts(); cancelCapsulePosts(); capsuleRoots.clear(); capsuleRanges.clear(); capsuleReportedRanges.clear(); nativeUnmeasured.clear(); nativeMeasureEligibility.clear(); nativeMeasureAttempts.clear(); nativeMeasureOwners.clear(); }
+    }
+    private static boolean sameSizing(Bundle first,FeatureOptions a,Bundle second,FeatureOptions b){
+        if(!sameNetworkSizing(first,a,second,b))return false;
+        for(String token:StatusBarLayoutSettings.TOKENS){String group=StatusBarLayoutSettings.MOBILE.equals(token)?"data":StatusBarLayoutSettings.NOTIFICATION.equals(token)?"notification_icons":token;
+            if(a.size(group)!=b.size(group)||!java.util.Objects.equals(first.get(group+"_scale"),second.get(group+"_scale")))return false;}
+        if(a.enabled("wifi")!=b.enabled("wifi")||a.enabled("label")!=b.enabled("label")||!NetworkDisplaySettings.mode(first).equals(NetworkDisplaySettings.mode(second)))return false;
+        for(String key:new String[]{StatusBarSettings.DATA_ICON_SCALE,StatusBarSettings.BATTERY_WIDTH_SCALE,NativeStatusIcons.MASTER,NativeStatusIcons.SPACING})
+            if(!java.util.Objects.equals(first.get(key),second.get(key)))return false;
+        return true;
+    }
+    /** A hidden alternative cannot be remeasured yet. Drop its old width when
+     * its typography/size changes; color and ordinary radio transitions retain it. */
+    private static boolean sameNetworkSizing(Bundle first,FeatureOptions a,Bundle second,FeatureOptions b){
+        if(a.enabled("wifi")!=b.enabled("wifi")||a.enabled("label")!=b.enabled("label")
+                ||a.size("wifi")!=b.size("wifi")||a.size("label")!=b.size("label")
+                ||a.textStyle("label")!=b.textStyle("label")
+                ||!NetworkDisplaySettings.mode(first).equals(NetworkDisplaySettings.mode(second)))return false;
+        if(a.size("wifi")&&!sameNumber(first,second,StatusBarSettings.WIFI_ICON_SCALE,100f)
+                ||a.size("label")&&!sameNumber(first,second,StatusBarSettings.LABEL_SCALE,100f))return false;
+        if(a.textStyle("label")&&!sameNumber(first,second,StatusBarSettings.FONT_WEIGHT,600f))return false;
+        if(!a.enabled("label"))return true;
+        if(a.enabled("font")!=b.enabled("font"))return false;
+        if(a.enabled("font"))for(String key:new String[]{StatusBarSettings.FONT_MODE,StatusBarSettings.FONT_REVISION,FontScopes.KEY})
+            if(!java.util.Objects.equals(first.get(key),second.get(key)))return false;
+        return true;
+    }
+    private static boolean sameNumber(Bundle first,Bundle second,String key,float fallback){
+        return Float.compare(NumericPolicy.finite(first.get(key),fallback),NumericPolicy.finite(second.get(key),fallback))==0;
     }
     /** Remember native roots before the optional geometry hooks are first requested. */
     public void observed(ViewGroup root) {
@@ -344,7 +442,19 @@ public final class StatusBarFlowLayout {
         if (internal) return;
         measureCallbacks++;
         observed(root);
-        Scene scene = scenes.get(root); if (scene != null) { restore(scene, false); scene.nativeLayout = false; scene.nativePass = true; scene.nativeCallback = true; }
+        Scene scene = scenes.get(root); if (scene != null) {
+            // A visibility/wake traversal can stop after measure. Its already-laid-out
+            // row must finish the same target transaction without waiting for onLayout.
+            scene.measureCommit = !scene.invalid && scene.plan != null && root.getWidth() > 0;
+            restore(scene, false); scene.nativeLayout = false; scene.nativePass = true; scene.nativeCallback = true;
+        }
+    }
+    /** Only the real root measure call may replace native content constraints.
+     * Compose-only remeasurement can still carry our last compact hull size. */
+    NetworkSharedSlotLayout beginNativeContentMeasure(ViewGroup root) {
+        NetworkSharedSlotLayout bridge = sharedSlots;
+        if (bridge != null) bridge.beginNativeMeasure(root);
+        return bridge;
     }
     public void detached(ViewGroup root) {
         Runnable measure = nativeMeasurePosts.remove(root); if (measure != null) root.removeCallbacks(measure);
@@ -353,6 +463,7 @@ public final class StatusBarFlowLayout {
         nativeMeasureOwners.entrySet().removeIf(entry -> entry.getValue().root.get() == root);
         nativeUnmeasured.keySet().removeIf(view -> nativeRoot(view) == root);
         capsuleRoots.remove(root); capsuleTargets.remove(root); capsuleRanges.remove(root); capsuleReportedRanges.remove(root);
+        fullRadios.remove(root);
         Runnable pendingCapsule = capsuleSwitches.remove(root);
         if (pendingCapsule != null) root.removeCallbacks(pendingCapsule); Scene scene = scenes.remove(root); if (scene != null) { restore(scene); restoreNativeTransaction(scene); } sharedWidths.remove(root); nativeMeasureRetries.remove(root); wifiNeighbors.remove(root); iconFrames.entrySet().removeIf(entry -> entry.getValue().root.get() == root); }
 
@@ -365,6 +476,8 @@ public final class StatusBarFlowLayout {
         if (scene != null && !scene.nativeLayout) scene.nativeCallback = false;
         if (!wanted() || internal || !root(root) || access == null || root.getMeasuredWidth() <= 0) return;
         observed(root);
+        if (sharedSlots != null) sharedSlots.nativeMeasured(root);
+        if (scene != null && scene.measureCommit) afterLayout(root);
     }
     /** The hook finally owns this scope even on zero-size, nested or failed calls. */
     public void endNativeCallback(ViewGroup root, boolean active) {
@@ -380,6 +493,14 @@ public final class StatusBarFlowLayout {
             return;
         }
         observed(root);
+        if (sharedSlots != null) sharedSlots.nativeLaidOut(root);
+        if (!access.geometrySupported()) {
+            Scene unavailable = scenes.get(root);
+            if (unavailable == null) { unavailable = new Scene(root, settings); scenes.put(root, unavailable); }
+            restoreNativeTransaction(unavailable);
+            unavailable.invalid = true; unavailable.reason = "native_animation_unavailable";
+            return;
+        }
         Scene previous = scenes.get(root);
         Scene scene = new Scene(root, settings); scenes.put(root, scene);
         internal = true;
@@ -431,6 +552,15 @@ public final class StatusBarFlowLayout {
                             && access.visible(endpoint.state.get()) == 2;
                     endpoint.sortX = endpoint.box.x + nativeTarget.x;
                     endpoint.baselineKnown = true;
+                } else {
+                    // A root can lay out without another icon calculation. A
+                    // hide observed after our last local projection still belongs
+                    // to Seedling until that coordinator actually recalculates it.
+                    for (Endpoint old : previous.endpoints) if (old.view.get() == endpoint.view.get()
+                            && old.state.get() == endpoint.state.get()) {
+                        endpoint.coordinatorHidden = old.coordinatorHidden && access.visible(endpoint.state.get()) == 2;
+                        break;
+                    }
                 }
             }
             if (previous != null && previous.nativeLayout) for (Endpoint next : scene.endpoints) {
@@ -451,7 +581,7 @@ public final class StatusBarFlowLayout {
                 // Retry with the complete native mobile child and no fragments.
                 scene = new Scene(root, settings); scenes.put(root, scene);
                 collect(scene, root, 0f, 0f, 0, new int[]{0});
-                if (scene.invalid || scene.endpoints.isEmpty()) { scene.invalid = true; scene.reason = "unsupported_structure"; return; }
+                if (scene.invalid || scene.endpoints.isEmpty()) { restoreNativeTransaction(previous); scene.invalid = true; scene.reason = "unsupported_structure"; return; }
                 plan(scene); sharedFallback = true;
             }
             applyGeometry(scene);
@@ -460,11 +590,27 @@ public final class StatusBarFlowLayout {
             }
             if (!scene.invalid) holdParentAnimations(scene);
             publish(scene, null);
+            // Native occlusion reads the row's actual screen bounds and icon targets.
+            // Run it only after those two coordinate systems agree, before native apply.
+            coordinateNative(previous);
+            // A later root-only layout may not run the row's coordinator again.
+            // Retain its current hide just as beforeApply does for local updates.
+            for(Endpoint endpoint:scene.endpoints)if(endpoint.icon&&endpoint.visible&&endpoint.stateOwned&&endpoint.appliedVisible!=2){
+                Object state=endpoint.state.get();if(state!=null)endpoint.coordinatorHidden=access.visible(state)==2;
+            }
             trace(scene, null, "layout_flow");
             if (sharedFallback && !scene.invalid) scene.reason = "shared_layout_unavailable";
             if (!scene.invalid) for (Endpoint endpoint : scene.endpoints) {
                 View child = endpoint.view.get(); Object state = endpoint.state.get();
-                if (child != null && state != null) { access.retargetFromCurrent(state, child); nativeHandoffs.remove(child); applyNative(previous, state, child); }
+                if (child != null && state != null) {
+                    access.retargetFromCurrent(state, child); nativeHandoffs.remove(child);
+                    // A planned visibleState does not authorize replaying the
+                    // native alpha/add lifecycle. Full apply belongs only to an
+                    // actual native invocation deferred by this root transaction.
+                    if (previous != null && previous.deferredNative.containsKey(child))
+                        applyNative(previous, state, child);
+                    else { access.applyGeometry(state, child); access.applyVisibility(state, child); }
+                }
             }
             applyUnplannedNative(previous, scene);
             captureInputs(scene);
@@ -499,8 +645,7 @@ public final class StatusBarFlowLayout {
             int height = host.getMeasuredHeight();
             if (height <= 0) continue;
             if (host.getMeasuredWidth() != width) {
-                host.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
+                measureSharedHull(host, width, height);
                 changed = true;
             }
             if (host.getWidth() != width) {
@@ -906,10 +1051,12 @@ public final class StatusBarFlowLayout {
                 }
             }
         }
-        int width = sharedWidths.containsKey(root) ? sharedWidths.get(root) : 0;
-        if (wifi != null) width = Math.max(width, Math.round(wifi.width));
-        if (frame != null) width = Math.max(width, frame.labelWidthPx);
-        if (width > 0) sharedWidths.put(root, width);
+        String configuration=sharedWidthKey(root);
+        SharedWidths measured=sharedWidths.get(root);
+        if(measured==null||!measured.configuration.equals(configuration)){measured=new SharedWidths(configuration);sharedWidths.put(root,measured);}
+        if(wifi!=null)measured.wifi=Math.round(wifi.width);
+        if(frame!=null)measured.label=frame.labelWidthPx;
+        int width=measured.width();
         if (wifi != null) {
             // The native Wi-Fi node owns this slot again. A retained data hull
             // must not constrain the next Compose/ConstraintLayout measurement.
@@ -961,8 +1108,7 @@ public final class StatusBarFlowLayout {
                             || scene.settings.left(StatusBarLayoutSettings.MOBILE) < 0f || scene.settings.right(StatusBarLayoutSettings.MOBILE) < 0f)) {
                 sharedFailure(fragments, width, labelX - start, signalX - start, host.getMeasuredWidth(), sharedSlots.failure()); return false;
             }
-            host.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-                    View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
+            measureSharedHull(host, width, height);
             signal.box.measureOwned = true; signal.box.appliedMeasuredWidth = width;
             if (host.getMeasuredWidth() != width) {
                 sharedFailure(fragments, width, labelX - start, signalX - start, host.getMeasuredWidth(), "native_measure_mismatch"); return false;
@@ -974,6 +1120,18 @@ public final class StatusBarFlowLayout {
             signal.signalInset = Math.round(signalX - start);
         }
         return true;
+    }
+    /** This exact width belongs to our outer hull, not to the native Row's
+     * next content budget. Keep that ownership scoped through native measure. */
+    private void measureSharedHull(View host, int width, int height) {
+        NetworkSharedSlotLayout bridge = sharedSlots;
+        if (bridge != null) bridge.beginHullMeasure(host);
+        try {
+            host.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
+        } finally {
+            if (bridge != null) bridge.endHullMeasure(host);
+        }
     }
     private void sharedFailure(Fragments fragments, int hull, float label, float signal, int measured, String reason) {
         ModuleDiagnostics.fact("radio", "label", "共享位置布局回退", "backend", "native_flow", "reason", reason,
@@ -1025,12 +1183,20 @@ public final class StatusBarFlowLayout {
                 : new StatusBarFlowPlanner.Bounds(start, end, start, end);
         LinkedHashMap<String, Group> grouped = new LinkedHashMap<>();
         scene.endpoints.sort(Comparator.comparingDouble(endpoint -> endpoint.sortX));
+        // A system hint the OEM container itself hides (or reduces to an overflow
+        // dot) draws no icon. It keeps its endpoint, so a later native state
+        // change still rebuilds, but it takes no width or spacing; publishing it
+        // hidden repeats the native decision.
+        List<Endpoint> placed = new ArrayList<>(scene.endpoints.size());
+        for (Endpoint endpoint : scene.endpoints) {
+            if (nativeHiddenHint(endpoint)) { endpoint.visible = false; endpoint.nativeHidden = true; } else placed.add(endpoint);
+        }
         // An unrelated clock/carrier gap must not squeeze the native radio
         // spacing out of the other side. Preserve only measured gaps between
         // untouched, adjacent native endpoints; configured placements have
         // their own explicit spacing and shared fragments have their own hull.
-        for (int index = 0; index + 1 < scene.endpoints.size(); index++) {
-            Endpoint endpoint = scene.endpoints.get(index), next = scene.endpoints.get(index + 1);
+        for (int index = 0; index + 1 < placed.size(); index++) {
+            Endpoint endpoint = placed.get(index), next = placed.get(index + 1);
             if (!endpoint.icon || endpoint.labelFragment || next.labelFragment
                     || customPlacement(scene, endpoint.token) || customPlacement(scene, next.token)||endpoint.hintCustom||next.hintCustom
                     || !nativeSide(endpoint, root).equals(nativeSide(next, root))) continue;
@@ -1040,7 +1206,7 @@ public final class StatusBarFlowLayout {
         }
         Endpoint firstLeft = null, lastRight = null;
         boolean nativeLeft = true, nativeRight = true;
-        for (Endpoint endpoint : scene.endpoints) {
+        for (Endpoint endpoint : placed) {
             String side = nativeSide(endpoint, root), chosen = chosenSide(scene,endpoint,side);
             if (StatusBarLayoutSettings.LEFT.equals(side) && firstLeft == null) firstLeft = endpoint;
             if (StatusBarLayoutSettings.RIGHT.equals(side)) lastRight = endpoint;
@@ -1060,7 +1226,7 @@ public final class StatusBarFlowLayout {
             if (Float.isFinite(gap) && gap > 0f && gap <= root.getWidth()) lastRight.nativeRight += gap;
         }
         int ordinal = 0;
-        for (Endpoint endpoint : scene.endpoints) {
+        for (Endpoint endpoint : placed) {
             String nativeSide = nativeSide(endpoint, root);
             boolean splitHints=StatusBarLayoutSettings.SYSTEM.equals(endpoint.token)&&scene.settings.hintLayoutActive();
             String side=splitHints?chosenSide(scene,endpoint,nativeSide):nativeSide;
@@ -1088,9 +1254,15 @@ public final class StatusBarFlowLayout {
             if (group.token.equals(StatusBarLayoutSettings.SYSTEM) && hintGap > 0f) {
                 for (int i = 0; i + 1 < group.endpoints.size(); i++) { group.endpoints.get(i).nativeRight += hintGap; group.width += hintGap; }
             }
-            group.node = new StatusBarFlowPlanner.Node(group.token, group.side, group.ordinal, group.width, 0, 0,group.sideOverride); nodes.add(group.node);
+            boolean relativePosition=!StatusBarLayoutSettings.WIFI.equals(group.token)
+                    ||features.enabled(group.endpoints.get(0).labelFragment?"label":"wifi");
+            group.node = new StatusBarFlowPlanner.Node(group.token, group.side, group.ordinal, group.width, 0, 0,group.sideOverride,relativePosition); nodes.add(group.node);
         }
-        scene.plan = StatusBarFlowPlanner.plan(bounds, nodes, scene.settings, root.getResources().getDisplayMetrics().density);
+        String radioConfiguration = sharedWidthKey(root);
+        KnownRadios knownRadios = fullRadios.get(root);
+        scene.plan = StatusBarFlowPlanner.plan(bounds, nodes, scene.settings, root.getResources().getDisplayMetrics().density,
+                knownRadios == null || !knownRadios.configuration.equals(radioConfiguration) ? Float.NaN : knownRadios.width);
+        if (Float.isFinite(scene.plan.fullRadios)) fullRadios.put(root, new KnownRadios(radioConfiguration, scene.plan.fullRadios));
         for (Group group : grouped.values()) {
             StatusBarFlowPlanner.Placement placement = scene.plan.find(group.node);
             float cursor = placement.x;
@@ -1102,13 +1274,26 @@ public final class StatusBarFlowLayout {
         }
         scene.reason = scene.plan.overflowCount == 0 ? "ready" : "width_overflow";
     }
+    /** The OEM container hides a shown system hint (or keeps only an overflow dot)
+     * when its own limit is reached, e.g. after another icon appears. Counting its
+     * full width left an empty slot and shifted the following elements whenever an
+     * icon toggled. Hints placed by the hint layout keep their own visibility rules. */
+    static boolean nativeHiddenHint(boolean icon, String token, String hintSlot, int nativeVisible) {
+        return icon && hintSlot == null && StatusBarLayoutSettings.SYSTEM.equals(token) && nativeVisible != 0;
+    }
+    private static boolean nativeHiddenHint(Endpoint endpoint) {
+        return nativeHiddenHint(endpoint.icon, endpoint.token, endpoint.hintSlot, endpoint.nativeVisible);
+    }
     private static String nativeSide(Endpoint endpoint, ViewGroup root) {
         boolean rtl = root.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
         for (ViewParent parent = endpoint.box.parent.get(); parent instanceof View && parent != root; parent = ((View) parent).getParent()) {
             String id = name((View) parent);
-            if (id.startsWith("status_bar_start_side") || id.equals("keyguard_status_bar_contents"))
+            // Device code279: the control-center header has its own containers. Its icons start right after the carrier,
+            // so with a few more icons (Bluetooth after Wi-Fi turns off) the network speed's centre fell left of the
+            // middle and it jumped to the left group, unlike the status bar. The container decides, as it does there.
+            if (id.startsWith("status_bar_start_side") || id.equals("keyguard_status_bar_contents") || id.equals("qs_clock_container"))
                 return rtl ? StatusBarLayoutSettings.RIGHT : StatusBarLayoutSettings.LEFT;
-            if (id.startsWith("status_bar_end_side") || id.equals("status_icon_area"))
+            if (id.startsWith("status_bar_end_side") || id.equals("status_icon_area") || id.equals("quick_qs_status_icons"))
                 return rtl ? StatusBarLayoutSettings.LEFT : StatusBarLayoutSettings.RIGHT;
         }
         float center = endpoint.box.x + endpoint.nativeX + endpoint.width * .5f;
@@ -1148,6 +1333,14 @@ public final class StatusBarFlowLayout {
                 }
             }
             if (Float.isFinite(minimum) && Float.isFinite(maximum)) {
+                // dispatchDraw clips children to the padded viewport, including
+                // hardware-layer headers. Keep that native padding/clip policy:
+                // expand the ancestor's hull around the content, not through it.
+                ViewGroup group = (ViewGroup) view;
+                if (group.getClipToPadding()) {
+                    minimum -= Math.max(0, view.getPaddingLeft());
+                    maximum += Math.max(0, view.getPaddingRight());
+                }
                 // Keep the OEM's row/padding containers intact whenever the
                 // desired contents still fit. Repacking every ancestor into a
                 // tight hull feeds our temporary widths into native layouts.
@@ -1314,6 +1507,22 @@ public final class StatusBarFlowLayout {
         return null;
     }
     /** Publish real layout targets before the native Seedling coordinator adds its animated displacement. */
+    public boolean deferCoordinator(ViewGroup parent,Object controller,Method method,Object location,boolean animate) {
+        if(internal||access==null||controller==null||method==null)return false;
+        Scene scene=scene(parent);
+        if(scene==null||scene.invalid||!scene.nativePass||!(scene.nativeLayout||scene.measureCommit)||!scene.nativeCallback)return false;
+        prepareTargets(parent);
+        scene.coordinators.put(parent,new NativeCoordinator(controller,method,location,animate));
+        return true;
+    }
+    private void coordinateNative(Scene scene){
+        if(scene==null||scene.coordinators.isEmpty())return;
+        Map<ViewGroup,NativeCoordinator> pending=new java.util.LinkedHashMap<>(scene.coordinators);
+        scene.coordinators.clear();
+        boolean wasInternal=internal;internal=true;
+        try{for(Map.Entry<ViewGroup,NativeCoordinator> item:pending.entrySet())item.getValue().run(item.getKey());}
+        finally{internal=wasInternal;}
+    }
     public void prepareTargets(ViewGroup parent) {
         if (internal) return;
         Scene scene = scene(parent); if (scene == null || scene.invalid) return;
@@ -1327,6 +1536,20 @@ public final class StatusBarFlowLayout {
                 if (state != null && Float.isFinite(access.x(state))) scene.nativeTargets.put(child, new NativeTarget(state, access.x(state), access.visible(state)));
             }
         } else if (inputsCurrent(scene)) { publish(scene, parent); trace(scene, parent, "targets_leave"); }
+        else {
+            // A sibling may disappear between complete root traversals. Its old
+            // allocation is no longer reusable, but unchanged surviving children
+            // still have the same verified local frame. Keep those destinations
+            // until the requested root transaction replaces the complete plan;
+            // exposing native X here would move them there for exactly one frame.
+            for (Endpoint endpoint : scene.endpoints) {
+                View child = endpoint.view.get();
+                NativeInput input = scene.inputs.get(child);
+                if (endpoint.icon && endpoint.box.parent.get() == parent && child != null
+                        && access.eligible(parent, child) && input != null && inputCurrent(input, parent, child))
+                    publishEndpoint(scene, endpoint);
+            }
+        }
     }
     public void beforeApply(Object state, View child) {
         if (internal || access == null) return;
@@ -1334,7 +1557,13 @@ public final class StatusBarFlowLayout {
         if (handoff != null && handoff.get() == state) access.retargetFromCurrent(state, child);
         Scene scene = scene(child); if (scene == null || scene.invalid) return;
         access.retargetFromCurrent(state, child);
-        if (scene.nativePass || scene.rebuildRequested) return;
+        if (scene.nativePass) return;
+        for (Endpoint endpoint : scene.endpoints) if (endpoint.view.get() == child && endpoint.state.get() == state
+                && endpoint.stateOwned && endpoint.visible && endpoint.appliedVisible != 2) {
+            endpoint.coordinatorHidden = access.visible(state) == 2;
+            break;
+        }
+        if (scene.rebuildRequested) return;
         NativeInput input = scene.inputs.get(child);
         if (!(child.getParent() instanceof ViewGroup) || input == null
                 || !inputCurrent(input, (ViewGroup) child.getParent(), child)) { requestRebuild(scene); return; }
@@ -1351,7 +1580,7 @@ public final class StatusBarFlowLayout {
         Scene scene = scene(child);
         // Only onLayout guarantees the matching final geometry commit. A
         // native visibility update during onMeasure must not wait for it.
-        if (scene == null || scene.invalid || !scene.nativePass || !scene.nativeLayout || !scene.nativeCallback || access.state(child) != state) return false;
+        if (scene == null || scene.invalid || !scene.nativePass || !(scene.nativeLayout || scene.measureCommit) || !scene.nativeCallback || access.state(child) != state) return false;
         scene.deferredNative.put(child, new NativeApply(state, access.applyContext(state)));
         return true;
     }
@@ -1360,6 +1589,10 @@ public final class StatusBarFlowLayout {
         for (Endpoint endpoint : scene.endpoints) if (endpoint.icon && (filter == null || endpoint.box.parent.get() == filter)) publishEndpoint(scene, endpoint);
     }
     private void publishEndpoint(Scene scene, Endpoint endpoint) {
+        // A natively hidden hint is never written: writing its hidden state back made the
+        // hide outlive the native decision (Bluetooth stayed hidden after reconnecting). The
+        // native container keeps deciding, and showing it relayouts and rebuilds this scene.
+        if (endpoint.nativeHidden) return;
         Object state = endpoint.state.get(); Box parent = scene.boxes.get(endpoint.box.parent.get());
         View child = endpoint.view.get();
         if (state == null || parent == null || child == null || child.getParent() != endpoint.box.parent.get()) return;
@@ -1680,15 +1913,18 @@ public final class StatusBarFlowLayout {
     }
     /** Abort only a proven published layout transaction, preserving the OEM displacement. */
     private void restoreNativeTransaction(Scene scene) {
-        if (scene == null || !scene.nativeLayout || access == null) return;
+        if (scene == null || !(scene.nativeLayout || scene.measureCommit) || access == null) return;
+        List<Endpoint> reverted=new ArrayList<>();
         for (Endpoint endpoint : scene.endpoints) {
             Object state = endpoint.state.get(); View child = endpoint.view.get();
             if (!endpoint.stateOwned || state == null || child == null || child.getParent() != endpoint.box.parent.get()) continue;
             float residual = access.x(state) - endpoint.appliedX;
             if (Float.isFinite(residual)) access.x(state, endpoint.nativeX + residual);
             if (endpoint.appliedVisible >= 0 && access.visible(state) == endpoint.appliedVisible) access.visible(state, endpoint.nativeVisible);
-            endpoint.stateOwned = false; applyNative(scene, state, child);
+            endpoint.stateOwned = false; reverted.add(endpoint);
         }
+        coordinateNative(scene);
+        for(Endpoint endpoint:reverted)applyNative(scene,endpoint.state.get(),endpoint.view.get());
         for (Map.Entry<View, NativeApply> entry : new ArrayList<>(scene.deferredNative.entrySet())) {
             View child = entry.getKey(); Object state = entry.getValue().state.get();
             if (child != null && state != null && access.state(child) == state) applyNative(scene, state, child);
@@ -1738,8 +1974,7 @@ public final class StatusBarFlowLayout {
                 // have replaced height independently, including after boot.
                 if (view != null && box.measureOwned && view.getMeasuredWidth() == box.appliedMeasuredWidth
                         && view.getMeasuredHeight() > 0)
-                    view.measure(View.MeasureSpec.makeMeasureSpec(box.measuredWidth, View.MeasureSpec.EXACTLY),
-                            View.MeasureSpec.makeMeasureSpec(view.getMeasuredHeight(), View.MeasureSpec.EXACTLY));
+                    measureSharedHull(view, box.measuredWidth, view.getMeasuredHeight());
                 box.owned = false;
                 box.measureOwned = false;
             }
@@ -1751,12 +1986,13 @@ public final class StatusBarFlowLayout {
                 View child = endpoint.view.get(); Object state = endpoint.state.get();
                 if (child != null && state != null && child.getParent() == endpoint.box.parent.get()) {
                     access.retargetFromCurrent(state, child);
+                    if (access.geometrySupported()) access.applyVisibility(state, child);
                     nativeHandoffs.put(child, new WeakReference<>(state));
                 }
             }
         } finally { internal = previous; }
     }
-    public void releaseRuntime() { released = true; releaseParentAnimations(); cancelNativeMeasurePosts(); cancelCapsulePosts(); nativeMeasureRetries.clear(); nativeMeasureEligibility.clear(); nativeMeasureAttempts.clear(); nativeMeasureOwners.clear(); nativeUnmeasured.clear(); capsuleRoots.clear(); capsuleRanges.clear(); capsuleReportedRanges.clear(); for (Scene scene : new ArrayList<>(scenes.values())) restore(scene); scenes.clear(); roots.clear(); sharedWidths.clear(); wifiNeighbors.clear(); iconFrames.clear(); }
+    public void releaseRuntime() { released = true; releaseParentAnimations(); cancelNativeMeasurePosts(); cancelCapsulePosts(); nativeMeasureRetries.clear(); nativeMeasureEligibility.clear(); nativeMeasureAttempts.clear(); nativeMeasureOwners.clear(); nativeUnmeasured.clear(); capsuleRoots.clear(); capsuleRanges.clear(); capsuleReportedRanges.clear(); for (Scene scene : new ArrayList<>(scenes.values())) { restore(scene); restoreNativeTransaction(scene); } scenes.clear(); roots.clear(); sharedWidths.clear(); wifiNeighbors.clear(); iconFrames.clear(); }
     private static final class NativeMeasureOwner {
         final WeakReference<ViewParent> parent;
         final WeakReference<ViewGroup> root;
@@ -1834,6 +2070,17 @@ public final class StatusBarFlowLayout {
             this.signal = signal; this.label = label; this.frame = frame;
         }
     }
+    private static final class NativeCoordinator {
+        final WeakReference<Object> controller,location;final Method method;final boolean animate;
+        NativeCoordinator(Object controller,Method method,Object location,boolean animate){
+            this.controller=new WeakReference<>(controller);this.location=new WeakReference<>(location);this.method=method;this.animate=animate;
+        }
+        void run(ViewGroup row){
+            Object owner=controller.get(),where=location.get();if(owner==null||where==null||row==null)return;
+            try{method.invoke(owner,where,row,animate);}
+            catch(ReflectiveOperationException failure){throw new IllegalStateException("Native status-bar occlusion unavailable",failure);}
+        }
+    }
     private static final class Scene {
         final WeakReference<ViewGroup> root;
         final Map<View, Box> boxes = new WeakHashMap<>();
@@ -1842,8 +2089,9 @@ public final class StatusBarFlowLayout {
         final List<WeakReference<ViewGroup>> containers = new ArrayList<>();
         final Map<View, NativeTarget> nativeTargets = new WeakHashMap<>();
         final Map<View, NativeApply> deferredNative = new WeakHashMap<>();
+        final Map<ViewGroup,NativeCoordinator> coordinators=new WeakHashMap<>();
         final Map<View, NativeInput> inputs = new WeakHashMap<>();
-        boolean invalid, nativeLayout, nativePass, nativeCallback, rebuildRequested; String reason = "native"; StatusBarFlowPlanner.Plan plan;
+        boolean invalid, nativeLayout, nativePass, nativeCallback, measureCommit, rebuildRequested; String reason = "native"; StatusBarFlowPlanner.Plan plan;
         /** Full author settings; capsule visibility/animation remains with the native coordinator. */
         final StatusBarLayoutSettings.Snapshot settings;
         Scene(ViewGroup value, StatusBarLayoutSettings.Snapshot active) { root = new WeakReference<>(value); settings = active; }
@@ -1866,7 +2114,7 @@ public final class StatusBarFlowLayout {
         final boolean icon; float nativeX; int nativeVisible;
         float width, paintInset, nativeLeft, nativeRight, target, appliedX, hullWidth, sortX, signalInset;
         float residualX; boolean baselineKnown;
-        int appliedVisible = -1; boolean visible, stateOwned, visibilityOwned, labelFragment, coordinatorHidden;
+        int appliedVisible = -1; boolean visible, stateOwned, visibilityOwned, labelFragment, coordinatorHidden, nativeHidden;
         String hintSlot;int hintOrder;boolean hintPlacement,hintCustom;
         Endpoint(View value, String kind, Box geometry, Object object, float x, int visibility) {
             view = new WeakReference<>(value); state = new WeakReference<>(object); token = kind; box = geometry;

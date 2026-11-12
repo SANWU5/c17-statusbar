@@ -25,7 +25,7 @@ import java.util.Map;
  * polling, screen capture or making a bitmap in a text draw. The surrounding
  * TextView owns its material; these spans supply ordinary coloured coverage. */
 final class BigClockSystemIcon {
-    private static final String PACKAGE="dev.puitheme.iosstatusbar";
+    private static final String PACKAGE=ModuleVariant.PACKAGE;
     private static final ThreadLocal<Boolean> LOOKUP=new ThreadLocal<>();
     private static Context context;
     private static Resources moduleResources;

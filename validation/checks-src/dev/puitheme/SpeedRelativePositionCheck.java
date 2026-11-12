@@ -162,6 +162,9 @@ public final class SpeedRelativePositionCheck {
                 Rig r=new Rig(mode,adjacent,rtl,reserve);
                 r.options.putFloat("speed_offset_x",offset);r.options.putFloat("speed_scale",scale);
                 r.options.putFloat(SpeedPosition.SAFE_GAP,-9f);r.h.configure(r.options);
+                // code284: the page's switch is vertical-only. A native position without a saved
+                // horizontal offset is no horizontal placement, so the speed stays native here.
+                if(SpeedPosition.NATIVE.equals(mode)&&offset==0f&&!adjacent){r.close();continue;}
                 r.state((initial&1)!=0,(initial&2)!=0,initial==2?400:80);
                 float home=r.relativeDistance(),world=r.globalX();
                 String where=" mode="+mode+" gap="+adjacent+" rtl="+rtl+" reserve="+reserve+" offset="+offset+" scale="+scale+" initial="+initial;
@@ -204,8 +207,12 @@ public final class SpeedRelativePositionCheck {
         r.rawSpeedDisplacement=0f;r.state(false,false,0);close(placed,r.source.getXTranslation(),"OEM zero displacement returns to chosen relative frame");
         r.close();
         Rig defaults=new Rig(SpeedPosition.NATIVE,false,false,49.25f);defaults.options.putFloat("speed_offset_x",0f);defaults.h.configure(defaults.options);
-        try(SpeedPosition.Scope scope=defaults.h.begin(defaults.p,true)){check(scope!=null,"native zero offset still activates selected position");}
-        defaults.state(true,true,80);float home=defaults.relativeDistance();defaults.state(false,true,400);close(home,defaults.relativeDistance(),"native zero offset normalises a wider radio");
+        // code284: the page's switch is vertical-only. A native position with no saved horizontal
+        // offset is not horizontal placement and leaves the speed to the native layout.
+        try(SpeedPosition.Scope scope=defaults.h.begin(defaults.p,true)){check(scope==null,"native zero offset leaves the speed to the native layout");}
+        defaults.options.putFloat("speed_offset_x",5f);defaults.h.configure(defaults.options);
+        try(SpeedPosition.Scope scope=defaults.h.begin(defaults.p,true)){check(scope!=null,"a saved legacy horizontal offset still activates its placement");}
+        defaults.state(true,true,80);float home=defaults.relativeDistance();defaults.state(false,true,400);close(home,defaults.relativeDistance(),"a legacy offset still normalises a wider radio");
         defaults.close();
     }
 

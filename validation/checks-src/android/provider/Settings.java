@@ -2,6 +2,7 @@ package android.provider;
 public final class Settings {
     private Settings(){}
     public static final class Global {
+        public static int getInt(android.content.ContentResolver resolver,String key,int fallback){return fallback;}
         public static android.net.Uri getUriFor(String key){return android.net.Uri.parse("content://settings/global/"+key);}
     }
     public static final class System {

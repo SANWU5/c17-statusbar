@@ -30,23 +30,27 @@ final class SingleNetworkLabelPlacement implements NetworkSharedSlotLayout.Backe
     private NetworkSharedSlotLayout.Target appliedTarget;
     private ViewGroup.LayoutParams nativeParent, appliedParent;
     private int nativeLabelLeft, nativeSignalLeft, nativeWidth, nativeParentLeft, labelInset, signalInset;
-    private boolean sharedMeasured, nativeLabelPresent;
+    private boolean sharedMeasured, nativeLabelPresent, awaitingNativeLayout, awaitingNativeMeasure;
     private int measuredLabelWidth, measuredSignalWidth, geometryRevision, appliedGeometryRevision;
     private boolean measuredRoaming;
+    /** Screen configuration the native sample was taken in; a rotation or a density/font change must resample. */
+    private String nativeConfiguration = "";
     private java.util.Set<String> diagnosedFailures;
     private static final int MAX_FAILURE_FACTS = 8;
     SingleNetworkLabelPlacement(TextView view) { text = new WeakReference<>(view); }
     void sharedLayout(NetworkSharedSlotLayout value) {
         if (sharedLayout == value) return;
+        boolean pending = sharedTarget != null || awaitingNativeMeasure || awaitingNativeLayout;
         if (sharedLayout != null) sharedLayout.unregister(this);
-        sharedLayout = value; sharedHost.clear(); sharedMeasured = false;
+        sharedLayout = value; sharedHost.clear(); sharedMeasured = false; awaitingNativeLayout = awaitingNativeMeasure = pending;
     }
     void observeSharedHost() {
         TextView view = text.get();
         View host = sharedLayout == null ? null : sharedLayout.host(view);
         if (host == sharedHost.get()) return;
+        boolean pending = sharedTarget != null || awaitingNativeMeasure || awaitingNativeLayout;
         if (sharedLayout != null) sharedLayout.unregister(this);
-        sharedHost = new WeakReference<>(host); sharedMeasured = false;
+        sharedHost = new WeakReference<>(host); sharedMeasured = false; awaitingNativeLayout = awaitingNativeMeasure = pending;
         if (host != null) sharedLayout.register(host, this);
     }
     void configure(int value, float before, float after) {
@@ -60,10 +64,7 @@ final class SingleNetworkLabelPlacement implements NetworkSharedSlotLayout.Backe
         if (sharedTarget != null) return applyShared();
         TextView view = text.get();
         if (view == null || !(view.getParent() instanceof ViewGroup)) return false;
-        if (owned && appliedDirection == view.getLayoutDirection() && view.getParent() == parentRef.get() && view.getLayoutParams() == appliedText
-                && signal.get() != null && signal.get().getLayoutParams() == appliedSignal
-                && (appliedRoaming == null || roaming.get() != null
-                    && roaming.get().getLayoutParams() == appliedRoaming)) return true;
+        if (appliedDirection == view.getLayoutDirection() && ownsCurrentLayout(view)) return true;
         restore();
         ViewGroup parent = (ViewGroup) view.getParent();
         int id = ResourceIds.get(view.getResources(), "mobile_signal_data_outer", "id", "com.android.systemui");
@@ -154,6 +155,11 @@ final class SingleNetworkLabelPlacement implements NetworkSharedSlotLayout.Backe
         ViewGroup parent = (ViewGroup) view.getParent();
         View icon = sibling(parent, view, "mobile_signal_data_outer"), roam = sibling(parent, view, "mobile_roaming_text");
         if (icon == null || !constraintShape(view, icon, roam)) return null;
+        // Restoring a vanished label's constraints requests a real native
+        // traversal, but another radio/outer-flow callback may arrive first.
+        // Until that traversal finishes, the measured host can still be our
+        // old EXACT data hull. Never adopt it as Wi-Fi-only natural geometry.
+        if (awaitingNativeMeasure || awaitingNativeLayout) return null;
         int parentLeft = NetworkSharedSlotLayout.offset(parent, host);
         if (parentLeft < 0 || icon.getVisibility() == View.GONE || icon.getMeasuredWidth() <= 0) return null;
         boolean present = view.getVisibility() == View.VISIBLE && view.getMeasuredWidth() > 0;
@@ -172,6 +178,7 @@ final class SingleNetworkLabelPlacement implements NetworkSharedSlotLayout.Backe
         if (sharedTarget == null) {
             nativeLabelLeft = parentLeft + view.getLeft(); nativeSignalLeft = parentLeft + signalMin;
             nativeWidth = host.getMeasuredWidth(); nativeParentLeft = parentLeft; nativeLabelPresent = present; sharedMeasured = true;
+            nativeConfiguration = configurationKey(view);
         }
         if (!sharedMeasured || present != nativeLabelPresent || nativeWidth <= 0 || signalMax <= signalMin) return null;
         int currentLabelWidth = present ? view.getMeasuredWidth() : 0, currentSignalWidth = signalMax - signalMin;
@@ -195,7 +202,10 @@ final class SingleNetworkLabelPlacement implements NetworkSharedSlotLayout.Backe
     @Override public boolean target(NetworkSharedSlotLayout.Target value) {
         if (!sharedMeasured || value == null) return rejected("unmeasured", -1, value, null);
         if (!value.signalVisible || value.labelVisible != nativeLabelPresent) return rejected("native_visibility", -1, value, null);
-        if (value.same(sharedTarget) && appliedTarget == sharedTarget && appliedGeometryRevision == geometryRevision) return true;
+        // The destination can stay unchanged while a native binder replaces
+        // the constraints or hands these same leaves to a new parent. Validate
+        // current ownership through applyShared before accepting that target.
+        if (value.same(sharedTarget) && appliedTarget == sharedTarget && appliedGeometryRevision == geometryRevision) return applyShared();
         // Restore only our own LP identities before cloning a different hull.
         restoreOwned(); sharedTarget = value;
         if (!applyShared()) { sharedTarget = null; return false; }
@@ -205,10 +215,7 @@ final class SingleNetworkLabelPlacement implements NetworkSharedSlotLayout.Backe
         if (dropStaleTarget()) return false;
         TextView view = text.get(); View host = sharedHost.get();
         if (view == null || host == null || sharedTarget == null || !(view.getParent() instanceof ViewGroup)) return rejected("missing_host", -1, sharedTarget, null);
-        if (owned && appliedTarget == sharedTarget && appliedGeometryRevision == geometryRevision && view.getLayoutParams() == appliedText
-                && signal.get() != null && signal.get().getLayoutParams() == appliedSignal
-                && (appliedRoaming == null || roaming.get() != null && roaming.get().getLayoutParams() == appliedRoaming)
-                && (appliedParent == null || parentRef.get() != null && parentRef.get().getLayoutParams() == appliedParent)) return true;
+        if (appliedTarget == sharedTarget && appliedGeometryRevision == geometryRevision && ownsCurrentLayout(view)) return true;
         restoreOwned();
         ViewGroup parent = (ViewGroup) view.getParent();
         View icon = sibling(parent, view, "mobile_signal_data_outer"), roam = sibling(parent, view, "mobile_roaming_text");
@@ -296,8 +303,10 @@ final class SingleNetworkLabelPlacement implements NetworkSharedSlotLayout.Backe
         TextView view = text.get();
         if (sharedTarget == null || view == null) return false;
         boolean present = view.getVisibility() == View.VISIBLE && view.getMeasuredWidth() > 0;
-        if (present == sharedTarget.labelVisible) return false;
-        sharedTarget = null; appliedTarget = null; sharedMeasured = false;
+        // The native sample is frozen while a target is applied. A label shown or hidden, or a different screen
+        // configuration (rotation, density, font scale), makes that sample stale: drop the target and sample again.
+        if (present == sharedTarget.labelVisible && configurationKey(view).equals(nativeConfiguration)) return false;
+        sharedTarget = null; appliedTarget = null; sharedMeasured = false; awaitingNativeLayout = awaitingNativeMeasure = true;
         // setLayoutParams restores each owned native identity once and already
         // requests its necessary native layout. No extra host request is added.
         restoreOwned(); return true;
@@ -307,6 +316,15 @@ final class SingleNetworkLabelPlacement implements NetworkSharedSlotLayout.Backe
         clear(params, "leftToRight", "rightToLeft", "rightToRight", "startToStart", "startToEnd", "endToStart", "endToEnd");
         set(params, "leftToLeft", 0); params.leftMargin = position; params.rightMargin = 0;
         params.setMarginStart(Integer.MIN_VALUE); params.setMarginEnd(Integer.MIN_VALUE);
+    }
+    private static String configurationKey(View view) {
+        try {
+            android.content.res.Configuration configuration = view.getResources().getConfiguration();
+            return configuration == null ? "" : configuration.orientation + ":" + configuration.screenWidthDp + ":"
+                    + configuration.densityDpi + ":" + configuration.fontScale;
+        } catch (RuntimeException unavailable) {
+            return "";
+        }
     }
     private static View sibling(ViewGroup parent, TextView view, String name) {
         int id = ResourceIds.get(view.getResources(), name, "id", "com.android.systemui");
@@ -318,6 +336,15 @@ final class SingleNetworkLabelPlacement implements NetworkSharedSlotLayout.Backe
         return params instanceof ViewGroup.MarginLayoutParams && params.getClass().getName().endsWith("ConstraintLayout$LayoutParams")
                 && icon.getLayoutParams() != null && icon.getLayoutParams().getClass() == params.getClass()
                 && (roam == null || roam.getLayoutParams() != null && roam.getLayoutParams().getClass() == params.getClass());
+    }
+    /** Parameter identity alone does not establish that a still-live old
+     * signal/parent is the native binding currently hosting this label. */
+    private boolean ownsCurrentLayout(TextView view) {
+        ViewGroup parent = parentRef.get(); View icon = signal.get(), roam = roaming.get();
+        return owned && parent != null && view.getParent() == parent && view.getLayoutParams() == appliedText
+                && icon != null && icon.getParent() == parent && icon.getLayoutParams() == appliedSignal
+                && (appliedRoaming == null || roam != null && roam.getParent() == parent && roam.getLayoutParams() == appliedRoaming)
+                && (appliedParent == null || parent.getLayoutParams() == appliedParent);
     }
     private static void clear(Object params, String... fields) throws ReflectiveOperationException {
         for (String name : fields) {
@@ -337,8 +364,11 @@ final class SingleNetworkLabelPlacement implements NetworkSharedSlotLayout.Backe
     @Override public void restore() {
         boolean changed = sharedTarget != null; sharedTarget = null; appliedTarget = null;
         restoreOwned();
+        if (changed) { sharedMeasured = false; awaitingNativeLayout = awaitingNativeMeasure = true; }
         View host = sharedHost.get(); if (changed && host != null) host.requestLayout();
     }
+    @Override public void nativeMeasured() { awaitingNativeMeasure = false; }
+    @Override public void nativeLaidOut() { if (!awaitingNativeMeasure) awaitingNativeLayout = false; }
     private void restoreOwned() {
         if (!owned) return;
         TextView view = text.get(); View target = signal.get(), roamingView = roaming.get();

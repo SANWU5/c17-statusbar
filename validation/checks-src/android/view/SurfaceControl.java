@@ -1,6 +1,8 @@
 package android.view;
 
 import android.graphics.Rect;
+import android.os.IBinder;
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -13,6 +15,7 @@ public class SurfaceControl {
     public static int buildCallsForCheck,failBuildAtForCheck;
     public static int borrowedMutationAttemptsForCheck;
     public static boolean rejectBlurRegionsForCheck;
+    public static boolean allowShaderForCheck;
     private static int nextTransaction;
 
     public final String name;
@@ -38,6 +41,13 @@ public class SurfaceControl {
         createdForCheck.add(this);
     }
     public boolean isValid() { return valid; }
+    public static IBinder registerShader(String name,String program) {
+        if(!allowShaderForCheck)return null;
+        return (IBinder)Proxy.newProxyInstance(IBinder.class.getClassLoader(),new Class<?>[]{IBinder.class},(proxy,method,args)->null);
+    }
+    public static void unregisterShader(IBinder shader) { }
+    public int layerIdForCheck;
+    public int getLayerId() { return layerIdForCheck; }
     public SurfaceControl sameLayerForCheck;
     public boolean isSameSurface(SurfaceControl other) {return other!=null&&(other==this||sameLayerForCheck==other||other.sameLayerForCheck==this||sameLayerForCheck!=null&&sameLayerForCheck==other.sameLayerForCheck);}
     public void release() {
@@ -46,7 +56,7 @@ public class SurfaceControl {
     }
     public static void resetForCheck() {
         createdForCheck.clear();operationsForCheck.clear();transactionsForCheck.clear();
-        failNextBuildForCheck=rejectBlurRegionsForCheck=false;buildCallsForCheck=failBuildAtForCheck=borrowedMutationAttemptsForCheck=0;nextTransaction=0;
+        failNextBuildForCheck=rejectBlurRegionsForCheck=allowShaderForCheck=false;buildCallsForCheck=failBuildAtForCheck=borrowedMutationAttemptsForCheck=0;nextTransaction=0;
     }
     private static void requireOwned(SurfaceControl target) {
         if(target==null||!target.owned) {
@@ -104,9 +114,18 @@ public class SurfaceControl {
         public Transaction setLayer(SurfaceControl target,int value) {return add("layer",target,null,value);}
         public Transaction reparent(SurfaceControl target,SurfaceControl parent) {return add("reparent",target,parent,null);}
         public Transaction setMatrix(SurfaceControl target,android.graphics.Matrix matrix,float[] scratch) {android.graphics.Matrix copy=new android.graphics.Matrix();copy.set(matrix);return add("matrix",target,null,copy);}
+        public Transaction setMatrix(SurfaceControl target,float dsdx,float dtdx,float dtdy,float dsdy) {
+            android.graphics.Matrix matrix=new android.graphics.Matrix();
+            matrix.setValues(new float[]{dsdx,dtdx,0f,dtdy,dsdy,0f,0f,0f,1f});
+            return add("matrix",target,null,matrix);
+        }
         public Transaction setCrop(SurfaceControl target,Rect value) {return add("crop",target,null,new Rect(value));}
         public Transaction setPosition(SurfaceControl target,float x,float y) {return add("position",target,null,new float[]{x,y});}
         public Transaction setBackgroundBlurRadius(SurfaceControl target,int value) {return add("blur",target,null,value);}
+        public Transaction setCornerRadius(SurfaceControl target,float value) {return add("corner",target,null,value);}
+        public Transaction setPostProcess(SurfaceControl target,IBinder shader,byte[] packet,int sampleMode) {
+            return add("shader",target,null,packet.clone());
+        }
         public Transaction setBlurRegions(SurfaceControl target,float[][] value) {
             if(rejectBlurRegionsForCheck&&value.length>0)throw new IllegalStateException("compositor blur unavailable");
             return add("regions",target,null,value);
@@ -129,6 +148,7 @@ public class SurfaceControl {
                     case "crop": target.crop=new Rect((Rect)op.value);break;
                     case "position": target.x=((float[])op.value)[0];target.y=((float[])op.value)[1];break;
                     case "blur": target.blurRadius=(Integer)op.value;break;
+                    case "corner": case "shader": break; // Recorded above without rasterizing the effect.
                     case "regions": target.blurRegions=(float[][])op.value;break;
                     case "color": target.color=((float[])op.value).clone();break;
                     case "alpha": target.alpha=(Float)op.value;break;

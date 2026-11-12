@@ -2,20 +2,12 @@
 // Copyright (C) 2026 aiingjie
 package dev.puitheme
 
-import android.graphics.drawable.ColorDrawable
-import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import io.github.suqi8.coui.kmp.theme.COUITheme
@@ -31,69 +23,45 @@ import top.yukonga.miuix.kmp.theme.LocalContentColor as MiuixContentColor
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.TextStyles as MiuixTextStyles
 
-/** Selects the settings app's component family; status bar hooks never read this local. */
-val LocalC17Coui = staticCompositionLocalOf { false }
-
 /**
  * Real COUI 1.1.0 theme with a Miuix bridge for existing content and the liquid navigation bar.
- * C17Theme owns dark-mode resolution and the single application of the user's font scale.
+ * C17Theme owns dark-mode resolution, the component-family local and the single application of the user's font scale.
  *
  * Native colours and text metrics come from https://github.com/suqi8/coui (Apache-2.0).
  * Colour schemes, wallpaper colours and published palettes remain independently selectable.
  */
 @Composable
-fun C17CouiTheme(ui: UiSettings, dark: Boolean, content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    val preset = ui.scheme(ui.scheme)
-    val published = preset.theme
-    val paletteStyle = if (published != null) CouiPaletteStyle.TonalSpot else when (ui.paletteStyle) {
+internal fun C17CouiTheme(request: C17ThemeRequest, content: @Composable () -> Unit) {
+    val dark = request.dark
+    val paletteStyle = when (request.paletteStyle) {
         1 -> CouiPaletteStyle.Vibrant
         2 -> CouiPaletteStyle.Neutral
         else -> CouiPaletteStyle.TonalSpot
     }
-    val systemKey = if (preset.dynamic && ui.dynamicSupported && ui.paletteStyle != 0)
-        runCatching { Color(context.getColor(android.R.color.system_accent1_500)) }.getOrNull() else null
-    val monet = preset.key != null || preset.dynamic && ui.dynamicSupported
-    val mode = if (monet) {
+    val mode = if (request.monet) {
         if (dark) CouiColorSchemeMode.MonetDark else CouiColorSchemeMode.MonetLight
     } else {
         if (dark) CouiColorSchemeMode.Dark else CouiColorSchemeMode.Light
     }
-    val key = if (published != null) published.palette(dark).primary else if (preset.dynamic) systemKey else preset.key
-    val controller = remember(mode, preset.id, paletteStyle, key) {
-        CouiThemeController(colorSchemeMode = mode, keyColor = key, paletteStyle = paletteStyle)
+    val controller = remember(mode, request.schemeId, paletteStyle, request.key) {
+        CouiThemeController(colorSchemeMode = mode, keyColor = request.key, paletteStyle = paletteStyle)
     }
     // Classic blue preserves native COUI surfaces; vivid/muted only changes its accent family.
-    val stockStyled = preset.key == null && !preset.dynamic && ui.paletteStyle != 0
-    val accentController = remember(dark, paletteStyle, stockStyled) {
-        if (!stockStyled) null else CouiThemeController(
+    val accentController = remember(dark, paletteStyle, request.stockStyled) {
+        if (!request.stockStyled) null else CouiThemeController(
             colorSchemeMode = if (dark) CouiColorSchemeMode.MonetDark else CouiColorSchemeMode.MonetLight,
-            keyColor = Color(0xFF0066FF), paletteStyle = paletteStyle,
+            keyColor = COUI_STOCK_BLUE, paletteStyle = paletteStyle,
         )
     }
+    // The controllers remember their palettes, so identity changes only with a real palette change. Contrast searches
+    // and both theme bridges therefore run once per change instead of on every recomposition of the theme root.
     val stock = controller.currentColors()
     val accent = accentController?.currentColors()
-    // Dynamic palettes may be returned as new objects. Compare their complete role values so
-    // navigation/input recompositions do not rerun contrast searches or rebuild both theme bridges.
-    val darkLevel = ui.darkLevel
-    val colors = remember(stock.c17RoleKey(), accent?.c17RoleKey(), published, dark, darkLevel) {
-        val base = if (accent == null) stock else stock.copy(
-            primary = accent.primary, onPrimary = accent.onPrimary, primaryVariant = accent.primaryVariant,
-            onPrimaryVariant = accent.onPrimaryVariant, primaryContainer = accent.primaryContainer,
-            onPrimaryContainer = accent.onPrimaryContainer, disabledPrimary = accent.disabledPrimary,
-            disabledOnPrimary = accent.disabledOnPrimary, disabledPrimaryButton = accent.disabledPrimaryButton,
-            disabledOnPrimaryButton = accent.disabledOnPrimaryButton, disabledPrimarySlider = accent.disabledPrimarySlider,
-        )
-        // UiPalette has one implementation shared by both UI families; keep published roles exact at default.
-        val themed = if (published == null) base else published.palette(dark).overlay(base.toMiuixColors()).toCouiColors()
-        val adjusted = if (dark) themed.tuneC17Dark(darkLevel) else themed
-        if (published == null || dark && darkLevel != 50) adjusted.withC17ReadableText() else adjusted
-    }
+    val colors = remember(stock, accent, request) { c17CouiColors(stock, accent, request) }
     val textStyles = remember { couiDefaultTextStyles().withC17TextMetrics() }
     val bridgeColors = remember(colors) { colors.toMiuixColors() }
     val bridgeText = remember(textStyles) { textStyles.toMiuixTextStyles() }
     CompositionLocalProvider(
-        LocalC17Coui provides true,
         // Both libraries' colors overloads leave LocalContentColor unchanged; set the two roots explicitly.
         CouiContentColor provides colors.onBackground,
         MiuixContentColor provides colors.onBackground,
@@ -103,25 +71,27 @@ fun C17CouiTheme(ui: UiSettings, dark: Boolean, content: @Composable () -> Unit)
             COUITheme(colors = colors, textStyles = textStyles, content = content)
         }
     }
-    ApplyCouiSystemBars(dark, colors.surface)
+    ApplyC17SystemBars(dark, colors.surface)
 }
 
-/** Includes every bridged role: an accent, disabled state or system palette change invalidates the cache. */
-private fun CouiColors.c17RoleKey(): List<Color> = listOf(
-    primary, onPrimary, primaryVariant, onPrimaryVariant,
-    error, onError, errorContainer, onErrorContainer,
-    disabledPrimary, disabledOnPrimary, disabledPrimaryButton, disabledOnPrimaryButton, disabledPrimarySlider,
-    primaryContainer, onPrimaryContainer,
-    secondary, onSecondary, secondaryVariant, onSecondaryVariant,
-    disabledSecondary, disabledOnSecondary, disabledSecondaryVariant, disabledOnSecondaryVariant,
-    secondaryContainer, onSecondaryContainer, secondaryContainerVariant, onSecondaryContainerVariant,
-    tertiaryContainer, onTertiaryContainer, tertiaryContainerVariant,
-    background, onBackground, onBackgroundVariant,
-    surface, onSurface, surfaceVariant, onSurfaceSecondary, onSurfaceVariantSummary, onSurfaceVariantActions, disabledOnSurface,
-    surfaceContainer, onSurfaceContainer, onSurfaceContainerVariant,
-    surfaceContainerHigh, onSurfaceContainerHigh, surfaceContainerHighest, onSurfaceContainerHighest,
-    outline, dividerLine, windowDimming, sliderKeyPoint, sliderKeyPointForeground, sliderBackground,
-)
+/** COUI's own stock blue: the key a vivid or muted classic blue is derived from, and the classic swatch colour. */
+internal val COUI_STOCK_BLUE = Color(0xFF0066FF)
+
+/** Pure palette derivation, shared by the theme and the desktop checks: accent, published theme, dark level, ink. */
+internal fun c17CouiColors(stock: CouiColors, accent: CouiColors?, request: C17ThemeRequest): CouiColors {
+    val base = if (accent == null) stock else stock.copy(
+        primary = accent.primary, onPrimary = accent.onPrimary, primaryVariant = accent.primaryVariant,
+        onPrimaryVariant = accent.onPrimaryVariant, primaryContainer = accent.primaryContainer,
+        onPrimaryContainer = accent.onPrimaryContainer, disabledPrimary = accent.disabledPrimary,
+        disabledOnPrimary = accent.disabledOnPrimary, disabledPrimaryButton = accent.disabledPrimaryButton,
+        disabledOnPrimaryButton = accent.disabledOnPrimaryButton, disabledPrimarySlider = accent.disabledPrimarySlider,
+    )
+    val published = request.theme
+    // UiPalette has one implementation shared by every UI family; keep published roles exact at default.
+    val themed = if (published == null) base else published.palette(request.dark).overlay(base.toMiuixColors()).toCouiColors()
+    val adjusted = if (request.dark) themed.tuneC17Dark(request.darkLevel) else themed
+    return if (published == null || request.dark && request.darkLevel != 50) adjusted.withC17ReadableText() else adjusted
+}
 
 /** Lossless role bridge, also usable before UiPalette.overlay or the shared dark-background adjustment. */
 fun CouiColors.toMiuixColors(): MiuixColors = MiuixColors(
@@ -317,16 +287,4 @@ fun CouiColors.tuneC17Dark(level: Int): CouiColors {
         surfaceVariant = container(surfaceVariant), surfaceContainer = container(surfaceContainer),
         surfaceContainerHigh = container(surfaceContainerHigh), surfaceContainerHighest = container(surfaceContainerHighest),
     )
-}
-
-/** COUI pages and Android system bars use the same resolved dark state and page surface. */
-@Composable
-private fun ApplyCouiSystemBars(dark: Boolean, surface: Color) {
-    val activity = LocalContext.current as? ComponentActivity ?: return
-    SideEffect {
-        val clear = android.graphics.Color.TRANSPARENT
-        val style = if (dark) SystemBarStyle.dark(clear) else SystemBarStyle.light(clear, clear)
-        runCatching { activity.enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style) }
-        runCatching { activity.window.setBackgroundDrawable(ColorDrawable(surface.toArgb())) }
-    }
 }

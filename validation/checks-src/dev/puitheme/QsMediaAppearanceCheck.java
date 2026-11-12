@@ -44,7 +44,7 @@ public final class QsMediaAppearanceCheck {
         public final Cover coverImg=new Cover();
         public final View bg=body;
         public Drawable bgDrawable,themeBgDrawable,transitionDrawable;
-        public boolean defaultCover;
+        public boolean defaultCover,isLaunchingAnimating;
         public float coverCornerRadius=8;
         static int resourceReads,ownerGetters;
         boolean deferPosts;
@@ -513,5 +513,83 @@ public final class QsMediaAppearanceCheck {
         software.eraseColor(0x00ffffff);check(QsMediaColor.sample(software)==0,"fully transparent artwork never invents a native or gray replacement color");
     }
 
-    public static void main(String[] args)throws Throwable {steadyAndChanges();fills();staleAndUnsupported();nativeWallpaperBranch();nativeFailureRecovery();pointValues();trailingDebounce();staleDebounceAndCancellation();debouncedSubEffects();nativeRebindingDebounce();lightweightCrossfade();crossfadeCancellation();transitionWeights();System.out.println("QsMediaAppearanceCheck passed: "+checks+" (native material and real pixels, immediate new-artwork color + trailing 1000ms preparation + cached 240ms blur fade and immediate cancellation)");}
+    static void nativeDetailReturn() throws Throwable {
+        Queue clock=new Queue();QsMediaAppearance appearance=new QsMediaAppearance(clock,clock);
+        Card card=new Card();AutoBlurDrawable blur=material(card);BitmapDrawable artwork=image(card,0xff3388aa);
+        card.coverImg.setImageDrawable(artwork);appearance.configure(values(true));appearance.onNativeUpdate(card,"bindCoverImg");clock.run();
+        RuntimeShader ready=draw(appearance,card,blur);Bitmap retained=((BitmapShader)ready.inputs.get("c17MediaCover")).bitmap;
+        int copies=Bitmap.scales,reads=Bitmap.reads;
+        for(int pass=0;pass<2;pass++){
+            // The real OEM detail animation hides the original cover/background
+            // while a GhostView draws them, and restores them only after settle.
+            card.isLaunchingAnimating=true;card.coverImg.setVisibility(View.INVISIBLE);card.bg.setBackground(null);
+            card.coverImg.width=12;card.coverImg.height=12;appearance.onNativeUpdate(card,"onLayout");
+            clock.advance(50);card.coverImg.width=32;card.coverImg.height=32;appearance.onNativeUpdate(card,"onLayout");
+            clock.run();RuntimeShader during=draw(appearance,card,blur);
+            check(during.inputs.containsKey("c17MediaCover")&&((BitmapShader)during.inputs.get("c17MediaCover")).bitmap==retained,
+                    "native detail ghost keeps the identical artwork material past the quiet/fade deadline "+pass);
+            card.coverImg.setVisibility(View.VISIBLE);card.bg.setBackground(blur);card.isLaunchingAnimating=false;
+            appearance.onNativeUpdate(card,"resetView");clock.run();RuntimeShader restored=draw(appearance,card,blur);
+            check(((BitmapShader)restored.inputs.get("c17MediaCover")).bitmap==retained,
+                    "detail return reuses the committed blur without a solid-color restart "+pass);
+        }
+        check(Bitmap.scales==copies&&Bitmap.reads==reads,"two unchanged detail animations never resample or reblur artwork");
+        // The same cover can really be hidden once the native animation ends.
+        card.isLaunchingAnimating=true;card.coverImg.setVisibility(View.INVISIBLE);appearance.onNativeUpdate(card,"onLayout");clock.run();
+        card.isLaunchingAnimating=false;appearance.onNativeUpdate(card,"resetView");clock.run();
+        check(draw(appearance,card,blur)==blur.viewBlurProxy.actual.blurDrawable.drawableShader.shader,
+                "ending animation while cover remains hidden restores native material");
+        card.coverImg.setVisibility(View.VISIBLE);appearance.onNativeUpdate(card,"bindCoverImg");clock.run();
+        card.isLaunchingAnimating=true;card.coverImg.setVisibility(View.INVISIBLE);draw(appearance,card,blur);clock.run();
+        card.isLaunchingAnimating=false;draw(appearance,card,blur);clock.run();
+        check(draw(appearance,card,blur)==blur.viewBlurProxy.actual.blurDrawable.drawableShader.shader,
+                "draw-only animation end invalidates temporary retention without a native reset callback");
+        card.coverImg.setVisibility(View.VISIBLE);appearance.onNativeUpdate(card,"bindCoverImg");clock.run();
+        card.coverImg.setVisibility(View.INVISIBLE);appearance.onNativeUpdate(card,"resetCoverImg");
+        card.isLaunchingAnimating=true;appearance.onNativeUpdate(card,"onLayout");clock.run();
+        check(draw(appearance,card,blur)==blur.viewBlurProxy.actual.blurDrawable.drawableShader.shader,
+                "launching after a real disappearance never revives the previous accepted artwork");appearance.releaseRuntime();
+
+        // The phone uses a shorter quiet interval than the default. An animation may
+        // legitimately need a different geometry cache, but must never restart via null/solid.
+        Queue shortClock=new Queue();QsMediaAppearance shortWait=new QsMediaAppearance(shortClock,shortClock);
+        Card moving=new Card();AutoBlurDrawable movingBlur=material(moving);Bundle shortSettings=values(true);
+        shortSettings.putFloat(QsMediaAppearance.SETTLE,100f);shortWait.configure(shortSettings);
+        moving.coverImg.setImageDrawable(image(moving,0xff3388aa));shortWait.onNativeUpdate(moving,"bindCoverImg");shortClock.run();
+        moving.isLaunchingAnimating=true;moving.coverImg.setVisibility(View.INVISIBLE);moving.bg.setBackground(null);
+        moving.coverImg.width=12;moving.coverImg.height=12;shortWait.onNativeUpdate(moving,"onLayout");shortClock.run();
+        RuntimeShader resized=draw(shortWait,moving,movingBlur);
+        check(resized.inputs.containsKey("c17MediaCover")&&backgroundBitmap(resized).getWidth()>1,
+                "an animated size held beyond the phone's quiet interval retains a blurred material");
+        moving.coverImg.setVisibility(View.VISIBLE);moving.coverImg.width=32;moving.coverImg.height=32;
+        moving.bg.setBackground(movingBlur);moving.isLaunchingAnimating=false;shortWait.onNativeUpdate(moving,"resetView");
+        RuntimeShader immediate=draw(shortWait,moving,movingBlur);
+        check(immediate.inputs.containsKey("c17MediaCover")&&backgroundBitmap(immediate).getWidth()>1,
+                "restoring full size immediately keeps blur instead of restarting with a solid fill");
+        shortClock.run();RuntimeShader settled=draw(shortWait,moving,movingBlur);
+        check(backgroundBitmap(settled).getWidth()>1&&(pixel(settled)&0xffffff)==0x3388aa,
+                "after a real geometry preparation the same artwork still owns the material");shortWait.releaseRuntime();
+
+        for(int action=0;action<12;action++){
+            Queue worker=new Queue();QsMediaAppearance current=new QsMediaAppearance(worker,worker);Card owner=new Card();AutoBlurDrawable nativeBlur=material(owner);
+            BitmapDrawable original=image(owner,0xff229944);owner.coverImg.setImageDrawable(original);current.configure(values(true));current.onNativeUpdate(owner,"bindCoverImg");worker.run();draw(current,owner,nativeBlur);
+            owner.isLaunchingAnimating=action!=0;owner.coverImg.setVisibility(action==1?View.GONE:View.INVISIBLE);
+            if(action==2)owner.defaultCover=true;
+            if(action==3)owner.coverImg.setImageDrawable(null);
+            if(action==4)owner.coverImg.setImageDrawable(image(owner,0xffdd2200));
+            if(action==5)original.getBitmap().eraseColor(0xffdd2200);
+            if(action==8)original.getBitmap().recycle();
+            if(action==10)original.setLevel(1);
+            if(action==11)original.setState(new int[]{1});
+            current.onNativeUpdate(owner,"onLayout");
+            if(action==6)current.configure(values(false));
+            if(action==7){owner.attached=false;current.detach(owner);}
+            if(action==9){Bundle settings=values(true);settings.putBoolean(QsMediaAppearance.BACKGROUND,false);settings.putBoolean(QsMediaAppearance.GLOW,false);current.configure(settings);}
+            worker.run();check(draw(current,owner,nativeBlur)==nativeBlur.viewBlurProxy.actual.blurDrawable.drawableShader.shader,
+                    "animation retention cannot mask hidden/default/missing/replaced/mutated/disabled/detached/recycled/state-changed artwork "+action);
+            current.releaseRuntime();
+        }
+    }
+
+    public static void main(String[] args)throws Throwable {steadyAndChanges();fills();staleAndUnsupported();nativeWallpaperBranch();nativeFailureRecovery();pointValues();trailingDebounce();staleDebounceAndCancellation();debouncedSubEffects();nativeRebindingDebounce();lightweightCrossfade();crossfadeCancellation();transitionWeights();nativeDetailReturn();System.out.println("QsMediaAppearanceCheck passed: "+checks+" (native material and real pixels, immediate new-artwork color + trailing 1000ms preparation + cached 240ms blur fade and immediate cancellation)");}
 }

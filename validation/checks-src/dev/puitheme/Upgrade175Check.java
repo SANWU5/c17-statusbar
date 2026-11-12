@@ -22,8 +22,8 @@ public final class Upgrade175Check {
     }
     private static String document(String key,String raw){return "{\"package\":\""+ConfigTransfer.PACKAGE_NAME+"\",\"schema\":1,\"settings\":{\""+key+"\":"+raw+"}}";}
     private static void registration(Bundle full){
-        equal(48,SettingsFrameworkMirror.VERSION,"current wire schema");equal(1,ConfigTransfer.SCHEMA_VERSION,"portable JSON stays schema1");
-        equal(979,full.keySet().size(),"complete snapshot");equal(966,ConfigTransfer.types().size(),"portable snapshot");
+        equal(52,SettingsFrameworkMirror.VERSION,"current wire schema");equal(1,ConfigTransfer.SCHEMA_VERSION,"portable JSON stays schema1");
+        equal(1000,full.keySet().size(),"complete snapshot");equal(987,ConfigTransfer.types().size(),"portable snapshot");
         equal(additions(),Upgrade175.DEFAULTS,"exact frozen four Boolean defaults");equal(additions(),FeatureGroups.BOOLEANS,"parent registry matches frozen batch");
         equal(KEYS[0],FeatureGroups.LAYOUT,"layout key");equal(KEYS[1],FeatureGroups.STACKS,"stack key");equal(KEYS[2],FeatureGroups.CLEAR,"clear key");equal(KEYS[3],FeatureGroups.LOCK,"lock key");
         equal(6,Upgrade173.DEFAULTS.size(),"published173 batch remains frozen");equal(1,Upgrade174.DEFAULTS.size(),"published174 batch remains frozen");
@@ -87,7 +87,7 @@ public final class Upgrade175Check {
             checks++;try{ConfigTransfer.prepare(document(key,raw),true);throw new AssertionError("accepted non-Boolean parent");}catch(IOException expected){}
         }
         Map<String,Object> saved=values(full);saved.putAll(children());saved.remove("private_note");for(String key:KEYS)saved.put(key,false);
-        ConfigTransfer.PreparedImport complete=ConfigTransfer.prepare(ConfigTransfer.exportJson(saved),true);equal(966,complete.count,"complete local export keeps all portable fields");
+        ConfigTransfer.PreparedImport complete=ConfigTransfer.prepare(ConfigTransfer.exportJson(saved),true);equal(987,complete.count,"complete local export keeps all portable fields");
         for(String key:KEYS)equal(false,complete.values().get(key),"full export carries explicit disabled parents");
         Map<String,Object> exportBefore=new LinkedHashMap<>(saved);ActivationGuardPreferencesCheck.MemoryPreferences local=new ActivationGuardPreferencesCheck.MemoryPreferences();
         equal(true,ConfigTransfer.commit(local,complete),"full local import commits");equal(exportBefore,saved,"export does not mutate source");

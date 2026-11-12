@@ -60,7 +60,7 @@ public final class RootPerformanceModuleCheck {
         equal(false, parse(0, HEADER.replace("manager=KernelSU", "manager=$(bad)") + END).success);
         equal("未识别", parse(0, HEADER.replace("manager=KernelSU", "manager=unknown") + END).snapshot.manager);
         equal("Magisk", parse(0, HEADER.replace("manager=KernelSU", "manager=Magisk") + END).snapshot.manager);
-        equal(true, parse(0, HEADER.replace("disabled=0", "disabled=1") + END).message.contains("已停用"));
+        equal(true, parse(0, HEADER.replace("disabled=0", "disabled=1") + END).message.contains("已暂停"));
         equal(true, parse(0, HEADER.replace("remove=0", "remove=1") + END).message.contains("标记卸载"));
         equal(true, parse(0, HEADER.replace("installed=1", "installed=0").replace("pending=0", "pending=1") + END).message.contains("开机注册待更新"));
         equal(true, parse(0, HEADER.replace("installed=1", "installed=0") + END).message.contains("尚未安装"));
@@ -71,10 +71,10 @@ public final class RootPerformanceModuleCheck {
         equal(0L, bounded.time); equal(0L, bounded.compiled); equal(0L, bounded.packages); equal("none", bounded.error);
         equal(0L, RootPerformanceModule.number("9223372036854775808", Long.MAX_VALUE));
         // Action messages and exit codes.
-        equal(true, RootPerformanceModule.parse(0, HEADER + END, RootPerformanceModule.Action.RUN).message.contains("手动优化已提交"));
-        equal(true, RootPerformanceModule.parse(0, HEADER + END, RootPerformanceModule.Action.INSTALL).message.contains("已自动开始"));
+        equal(true, RootPerformanceModule.parse(0, HEADER + END, RootPerformanceModule.Action.RUN).message.contains("已提交优化"));
+        equal(true, RootPerformanceModule.parse(0, HEADER + END, RootPerformanceModule.Action.INSTALL).message.contains("安装已提交"));
         equal(true, RootPerformanceModule.parse(27, HEADER + END.replace("C17_DONE:0", "C17_DONE:27"), RootPerformanceModule.Action.RUN).message.contains("已停用或待卸载"));
-        equal(true, RootPerformanceModule.parse(25, "", RootPerformanceModule.Action.INSTALL).message.contains("KernelSU"));
+        equal(true, RootPerformanceModule.parse(25, "", RootPerformanceModule.Action.INSTALL).message.contains("未找到支持的 Root 管理器"));
         // Command targets: only this module, the old cache-backup id only for its removal, quoted zip, no newline injection.
         String install = RootPerformanceModule.command(RootPerformanceModule.Action.INSTALL, "/data/local/tmp/a'b.zip");
         equal(true, install.contains("module install '/data/local/tmp/a'\\''b.zip'"));
@@ -90,31 +90,31 @@ public final class RootPerformanceModuleCheck {
         RootPerformanceModule.Snapshot oldModule = parse(0, HEADER + "C17_PERF:module_version=1.0\nC17_PERF:module_version_code=1\n" + RECORD + END).snapshot;
         equal("1.0", oldModule.moduleVersion); equal(1L, oldModule.moduleVersionCode); equal(true, oldModule.outdated); equal(false, oldModule.currentBoot);
         String boot = "00000000-0000-4000-8000-000000000107";
-        String metadata = "C17_PERF:module_version=1.7\nC17_PERF:module_version_code=8\nC17_PERF:boot=" + boot + "\n";
+        String metadata = "C17_PERF:module_version=2.3\nC17_PERF:module_version_code=14\nC17_PERF:boot=" + boot + "\n";
         String bootRecord = "C17_PERF:last_boot=" + boot + "\nC17_PERF:last_mode=boot\n";
         RootPerformanceModule.Result thisBoot = parse(0, HEADER + metadata + RECORD + bootRecord + END);
         equal(false, thisBoot.snapshot.outdated); equal(true, thisBoot.snapshot.currentBoot); equal("boot", thisBoot.snapshot.trigger);
-        equal(true, thisBoot.message.startsWith("本次开机：")); equal(true, thisBoot.message.contains("自然重新加载"));
+        equal(true, thisBoot.message.contains("本次开机：")); equal(true, thisBoot.message.contains("自然重新加载"));
         equal(false, parse(0, HEADER + metadata + RECORD + bootRecord.replace("000000000107", "000000000106") + END).snapshot.currentBoot);
         equal(true, parse(0, HEADER + metadata + RECORD.replace("state=ok", "state=waiting") + bootRecord + END).message.contains("等待启动完成"));
         equal("unknown", parse(0, HEADER + metadata + RECORD + bootRecord.replace("mode=boot", "mode=$(boom)") + END).snapshot.trigger);
-        equal(0L, parse(0, HEADER + metadata.replace("module_version_code=8", "module_version_code=999999999") + RECORD + END).snapshot.moduleVersionCode);
-        equal("未知", parse(0, HEADER + metadata.replace("module_version=1.7", "module_version=$(boom)") + RECORD + END).snapshot.moduleVersion);
+        equal(0L, parse(0, HEADER + metadata.replace("module_version_code=14", "module_version_code=1299999999") + RECORD + END).snapshot.moduleVersionCode);
+        equal("未知", parse(0, HEADER + metadata.replace("module_version=2.3", "module_version=$(boom)") + RECORD + END).snapshot.moduleVersion);
         String pending = HEADER.replace("installed=1", "installed=0").replace("pending=0", "pending=1");
         equal(true, parse(0, pending + metadata + RECORD + bootRecord + END).message.contains("已预编译 2/2"));
         // The home card reports activation independently from optimization completion.
         equal("Status C17 附属模块", RootPerformanceModule.DISPLAY_NAME);
-        equal(8L, RootPerformanceModule.VERSION_CODE);
+        equal(14L, RootPerformanceModule.VERSION_CODE);
         equal("已安装", oldModule.homeStatus());
         equal("已安装", thisBoot.snapshot.homeStatus()); // V2 success from this boot cannot prove the new script ran.
-        String proof = "C17_PERF:last_module_version_code=8\nC17_PERF:last_reused=1\nC17_PERF:last_verified=2\n"
+        String proof = "C17_PERF:last_module_version_code=14\nC17_PERF:last_reused=1\nC17_PERF:last_verified=2\n"
                 + "C17_PERF:last_deferred=0\nC17_PERF:last_verification=verified\nC17_PERF:last_priority=background\n";
         String modernRecord = RECORD.replace("compiled=2", "compiled=1");
         String modern = HEADER + metadata + modernRecord + bootRecord + proof;
         RootPerformanceModule.Result optimized = parse(0, modern + END);
         equal("已激活", optimized.snapshot.homeStatus()); equal(1L, optimized.snapshot.compiled);
         equal(1L, optimized.snapshot.reused); equal(2L, optimized.snapshot.verified); equal(2L, optimized.snapshot.ready);
-        equal(0L, optimized.snapshot.deferred); equal(8L, optimized.snapshot.recordVersionCode);
+        equal(0L, optimized.snapshot.deferred); equal(14L, optimized.snapshot.recordVersionCode);
         equal("verified", optimized.snapshot.verification); equal("background", optimized.snapshot.priority);
         equal(true, optimized.message.contains("本轮编译 1 个、复用 1 个"));
         equal(true, optimized.message.contains("核对系统当前编译状态：2/2"));
@@ -122,10 +122,10 @@ public final class RootPerformanceModuleCheck {
         equal("待查询", new RootPerformanceModule.Snapshot(new java.util.LinkedHashMap<>(), false).homeStatus());
         for (String flag : new String[]{"disabled", "remove", "pending"})
             equal("已安装", parse(0, modern.replace(flag + "=0", flag + "=1") + END).snapshot.homeStatus());
-        equal("已安装", parse(0, modern.replace("last_module_version_code=8", "last_module_version_code=2") + END).snapshot.homeStatus());
+        equal("已安装", parse(0, modern.replace("last_module_version_code=14", "last_module_version_code=2") + END).snapshot.homeStatus());
         equal("已安装", parse(0, modern.replace("last_boot=" + boot, "last_boot=00000000-0000-4000-8000-000000000106") + END).snapshot.homeStatus());
         equal(true, parse(0, modern.replace("last_boot=" + boot, "last_boot=00000000-0000-4000-8000-000000000106") + END).snapshot.verificationMessage().contains("本次开机尚未确认"));
-        equal(true, parse(0, modern.replace("C17_PERF:module_version_code=8", "C17_PERF:module_version_code=9") + END).snapshot.verificationMessage().contains("新版本尚未确认"));
+        equal(true, parse(0, modern.replace("C17_PERF:module_version_code=14", "C17_PERF:module_version_code=15") + END).snapshot.verificationMessage().contains("新版本尚未确认"));
         for (String state : new String[]{"waiting", "deferred", "failed", "current"})
             equal("已激活", parse(0, modern.replace("state=ok", "state=" + state) + END).snapshot.homeStatus());
         String runningRecord = modern.replace("state=ok", "state=running");
@@ -135,8 +135,8 @@ public final class RootPerformanceModuleCheck {
         // Historical, old-version, malformed-mode or absent-module records cannot claim a current optimization.
         equal("已安装", parse(0, runningRecord.replace("last_boot=" + boot,
                 "last_boot=00000000-0000-4000-8000-000000000106") + END).snapshot.homeStatus());
-        equal("已安装", parse(0, runningRecord.replace("last_module_version_code=8", "last_module_version_code=2") + END).snapshot.homeStatus());
-        equal("已安装", parse(0, runningRecord.replace("C17_PERF:module_version_code=8", "C17_PERF:module_version_code=9") + END).snapshot.homeStatus());
+        equal("已安装", parse(0, runningRecord.replace("last_module_version_code=14", "last_module_version_code=2") + END).snapshot.homeStatus());
+        equal("已安装", parse(0, runningRecord.replace("C17_PERF:module_version_code=14", "C17_PERF:module_version_code=15") + END).snapshot.homeStatus());
         equal("已安装", parse(0, runningRecord.replace("mode=boot", "mode=uninstall") + END).snapshot.homeStatus());
         equal("已安装", parse(0, runningRecord.replace("mode=boot", "mode=future_mode") + END).snapshot.homeStatus());
         equal("未安装", parse(0, runningRecord.replace("installed=1", "installed=0") + END).snapshot.homeStatus());
@@ -164,7 +164,7 @@ public final class RootPerformanceModuleCheck {
             equal("待查询", RootPerformanceModule.homeStatus(flagged, true, true, RootPerformanceModule.Action.RUN));
             equal("处理中", RootPerformanceModule.homeStatus(flagged, true, false, RootPerformanceModule.Action.INSTALL));
         }
-        RootPerformanceModule.Snapshot oldRunning = parse(0, runningRecord.replace("C17_PERF:module_version_code=8",
+        RootPerformanceModule.Snapshot oldRunning = parse(0, runningRecord.replace("C17_PERF:module_version_code=14",
                 "C17_PERF:module_version_code=3") + END).snapshot;
         equal("待更新", RootPerformanceModule.homeStatus(oldRunning, false, false, null));
         equal("待更新", RootPerformanceModule.homeStatus(oldRunning, true, false, RootPerformanceModule.Action.RUN));
@@ -180,7 +180,7 @@ public final class RootPerformanceModuleCheck {
                 .replace("error=none", "error=device_hot").replace("deferred=0", "deferred=1") + END);
         equal(1L, postponed.snapshot.deferred); equal(true, postponed.message.contains("55℃"));
         equal(true, postponed.message.contains("待处理 1 个"));
-        equal(true, parse(0, modern.replace("C17_PERF:module_version_code=8", "C17_PERF:module_version_code=3") + END).snapshot.outdated);
+        equal(true, parse(0, modern.replace("C17_PERF:module_version_code=14", "C17_PERF:module_version_code=3") + END).snapshot.outdated);
         RootPerformanceModule.Result manualUnsupported = parse(0, modern.replace("state=ok", "state=deferred")
                 .replace("mode=boot", "mode=run").replace("error=none", "error=art_cancel_unavailable") + END);
         equal(true, manualUnsupported.message.contains("手动优化本次未执行"));
@@ -189,8 +189,8 @@ public final class RootPerformanceModuleCheck {
         equal(true, parse(0, modern.replace("error=none", "error=battery_low") + END).snapshot.errorMessage().contains("15%"));
         // V3 manual records could fail environmental checks; do not relabel them as automatic runs.
         for (String problem : new String[]{"device_hot", "battery_low", "thermal_unknown"}) {
-            String legacyManual = modern.replace("module_version=1.7", "module_version=1.2")
-                    .replace("version_code=8", "version_code=3").replace("mode=boot", "mode=run")
+            String legacyManual = modern.replace("module_version=2.3", "module_version=1.2")
+                    .replace("version_code=14", "version_code=3").replace("mode=boot", "mode=run")
                     .replace("state=ok", "state=deferred").replace("error=none", "error=" + problem);
             String detail = parse(0, legacyManual + END).snapshot.errorMessage();
             equal(true, detail.startsWith("该次优化") && detail.contains("当前自动") && detail.contains("手动"));
@@ -292,6 +292,71 @@ public final class RootPerformanceModuleCheck {
         equal(true, planned.contains("state=scheduled\nnext_after=1791858000\n"));
         equal(true, planned.contains("plan >/dev/null 2>&1 || :"));
         equal(false, RootPerformanceModule.command(RootPerformanceModule.Action.CHECK, null).contains("plan()"));
+        String diagnosticText="编译失败\nFinal Status: FAILED\nC17_PERF:installed=0";
+        equal(diagnosticText, RootPerformanceModule.decodeLog(RootPerformanceModule.encodeLog(diagnosticText),2048));
+        equal("",RootPerformanceModule.decodeLog("0g",2048));equal("",RootPerformanceModule.decodeLog("f",2048));
+        equal("",RootPerformanceModule.decodeLog("4142",1));
+        RootPerformanceModule.Snapshot logged=parse(0,modern+"C17_PERF:trace_hex="+RootPerformanceModule.encodeLog(diagnosticText)+"\n"+END).snapshot;
+        equal(diagnosticText,logged.executionLog);equal(true,logged.installed);
+        for (int size : new int[] {512, 513, 2048}) {
+            char[] chars = new char[size]; java.util.Arrays.fill(chars, 'x');
+            String value = new String(chars);
+            RootPerformanceModule.Result large = parse(0, modern + "C17_PERF:trace_hex=" + RootPerformanceModule.encodeLog(value) + "\n" + END);
+            equal(true, large.success); equal(value, large.snapshot.executionLog);
+        }
+        equal(true, RootPerformanceModule.decodeLog("e4b8", 2048).contains("日志编码不完整"));
+        for (String hex : new String[] {"g0", "0", "<script>", new String(new char[4098]).replace('\0', 'a')}) {
+            RootPerformanceModule.Result optional = parse(0, modern + "C17_PERF:trace_hex=" + hex + "\n" + END);
+            equal(true, optional.success); equal("", optional.snapshot.executionLog);
+        }
+        RootPerformanceModule.Snapshot unsupported = parse(0, tasks + "C17_PERF:lock_available=0\n" + END).snapshot;
+        equal(false, unsupported.lockAvailable); equal(true, unsupported.taskBlocked);
+        equal(true, unsupported.webStatus().contains("lock_available=0\n"));
+        equal(true, parse(0, tasks + END).snapshot.lockAvailable);
+        equal(true, RootPerformanceModule.parse(28, "", RootPerformanceModule.Action.RUN).message.contains("暂不支持启动优化"));
+        equal(true, RootPerformanceModule.parse(0, HEADER + END, RootPerformanceModule.Action.DISABLE).message.contains("当前优化继续"));
+        String cache = "C17_PERF:cache_running=1\nC17_PERF:cache_protocol=1\nC17_PERF:cache_bytes=2097152\n"
+                + "C17_PERF:cache_limit=67108864\nC17_PERF:cache_entries=8\nC17_PERF:cache_hits=20\n"
+                + "C17_PERF:cache_misses=4\nC17_PERF:cache_disk_hits=3\nC17_PERF:cache_oom_adj=-600\n"
+                + "C17_PERF:cache_memory_low=16777216\n";
+        RootPerformanceModule.Snapshot cached = parse(0, HEADER + RECORD + cache + END).snapshot;
+        equal(true,cached.cacheRunning); equal(true,cached.cacheProtected); equal(true,cached.cacheCoreProtected);
+        equal(2097152L,cached.cacheBytes); equal(8L,cached.cacheEntries); equal(20L,cached.cacheHits);
+        equal(true,cached.cacheMessage().contains("内存命中 17 次"));
+        equal(true,cached.webStatus().contains("cache_memory_low=16777216\n"));
+        equal(false,parse(0, HEADER.replace("disabled=0","disabled=1") + RECORD + cache + END).snapshot.cacheProtected);
+        equal(false,parse(0, HEADER + RECORD + cache.replace("cache_protocol=1","cache_protocol=2") + END).snapshot.cacheRunning);
+        equal(false,parse(0, HEADER + RECORD + cache.replace("cache_memory_low=16777216","cache_memory_low=unsupported") + END).snapshot.cacheCoreProtected);
+        equal(0L,parse(0, HEADER + RECORD + cache.replace("cache_bytes=2097152","cache_bytes=999999999999") + END).snapshot.cacheBytes);
+        equal(0L,parse(0, HEADER + RECORD + cache + "C17_PERF:cache_hits=99\n" + END).snapshot.cacheHits);
+        equal(false,parse(0, HEADER + RECORD + END).snapshot.cacheRunning);
+        String rescue="C17_PERF:rescue_enabled=1\nC17_PERF:rescue_state=waiting_unlock\nC17_PERF:rescue_error=user_locked\nC17_PERF:rescue_time=1793850000\n";
+        RootPerformanceModule.Snapshot rescueReport=parse(0,modern+rescue+END).snapshot;
+        equal(true,rescueReport.rescueAvailable);equal(true,rescueReport.rescueEnabled);
+        equal("waiting_unlock",rescueReport.rescueState);equal(1793850000L,rescueReport.rescueTime);
+        equal(true,rescueReport.rescueMessage().contains("首次解锁"));
+        equal(true,rescueReport.webStatus().contains("rescue_enabled=1\n"));
+        equal("ok",rescueReport.lastState);equal("none",rescueReport.error); // Recovery never replaces the ART ledger.
+        equal(false,parse(0,modern+END).snapshot.rescueAvailable);
+        equal(false,parse(0,modern.replace("module_version_code=14","module_version_code=11")+rescue+END).snapshot.rescueAvailable);
+        RootPerformanceModule.Snapshot previousRescue=parse(0,modern.replace("module_version_code=14","module_version_code=12")+rescue+END).snapshot;
+        equal(true,previousRescue.outdated);equal(true,previousRescue.rescueAvailable); // Rescue status protocol starts at 12 independently of the current module UI version.
+        equal(true,parse(0,modern+END).snapshot.rescueMessage().contains("更新附属模块"));
+        for(String rescueBroken:new String[]{rescue.replace("enabled=1","enabled=yes"),rescue.replace("waiting_unlock","$(bad)"),
+                rescue.replace("user_locked","arbitrary_shell_text"),rescue.replace("1793850000","-1"),rescue+"C17_PERF:rescue_enabled=0\n"}) {
+            RootPerformanceModule.Result parsed=parse(0,modern+rescueBroken+END);
+            equal(true,parsed.success);equal(false,parsed.snapshot.rescueAvailable);equal(false,parsed.snapshot.rescueEnabled);
+            equal(false,parsed.snapshot.webStatus().contains("rescue_enabled="));
+        }
+        equal(false,parse(0,modern+rescue.replace("enabled=1","enabled=0")+END).snapshot.rescueEnabled);
+        equal(true,parse(0,modern.replace("disabled=0","disabled=1")+rescue+END).snapshot.rescueMessage().contains("模块已停用"));
+        for(RootPerformanceModule.Action action:new RootPerformanceModule.Action[]{RootPerformanceModule.Action.RESCUE_ENABLE,RootPerformanceModule.Action.RESCUE_DISABLE}) {
+            String operation=RootPerformanceModule.command(action,null).split("operate\\(\\) \\{ ",2)[1].split(" \\}; operate;",2)[0];
+            equal(true,operation.contains("boot-rescue.sh"));equal(true,operation.contains(action==RootPerformanceModule.Action.RESCUE_ENABLE?"--enable":"--disable"));
+            equal(false,operation.contains("launch "));equal(false,operation.contains("--trigger"));equal(false,operation.contains("pm clear"));
+            equal(false,operation.contains("lockcheck"));
+        }
+        equal(true,RootPerformanceModule.parse(0,modern+rescue+END,RootPerformanceModule.Action.RESCUE_ENABLE).message.contains("没有清理数据"));
         System.out.println("RootPerformanceModuleCheck passed " + checks + " checks");
     }
 }

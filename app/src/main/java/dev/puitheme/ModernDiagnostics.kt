@@ -42,7 +42,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -69,9 +68,9 @@ private fun span(first: Long, last: Long): String {
     val minutes = ((last - first) / 60000L).coerceAtLeast(0L)
     return when {
         minutes < 1L -> "不到 1 分钟"
-        minutes < 60L -> "共 $minutes 分钟"
-        minutes < 24L * 60L -> "共 ${minutes / 60} 小时 ${minutes % 60} 分"
-        else -> "共 ${minutes / (24 * 60)} 天 ${minutes % (24 * 60) / 60} 小时"
+        minutes < 60L -> trf("共 %s 分钟", minutes)
+        minutes < 24L * 60L -> trf("共 %1\$s 小时 %2\$s 分", minutes / 60, minutes % 60)
+        else -> trf("共 %1\$s 天 %2\$s 小时", minutes / (24 * 60), minutes % (24 * 60) / 60)
     }
 }
 
@@ -112,11 +111,11 @@ fun DiagnosticsPage(app: ModernMainActivity) {
                     UiGroupCard {
                         UiRow("时间范围", if (stats == null || stats.first == 0L) "还没有记录" else span(stats.first, stats.last),
                             if (stats == null || stats.first == 0L) "—" else "${short.format(Date(stats.first))} → ${short.format(Date(stats.last))}")
-                        UiRow("内容", "事件按条、日志文件按行", if (stats == null) "—" else "${stats.events} 条 · ${stats.lines} 行")
-                        UiRow("文件大小", if (stats == null) "" else "导出的报告约 ${bytes(stats.exportBytes)}", if (stats == null) "—" else bytes(stats.fileBytes))
+                        UiRow("内容", "事件按条、日志文件按行", if (stats == null) "—" else trf("%1\$s 条 · %2\$s 行", stats.events, stats.lines))
+                        UiRow("文件大小", if (stats == null) "" else trf("导出的报告约 %s", bytes(stats.exportBytes)), if (stats == null) "—" else bytes(stats.fileBytes))
                         val worry = result?.findings?.filter { it.severity == HookHealth.Severity.ERROR || it.severity == HookHealth.Severity.WARN } ?: emptyList()
                         UiRow("可能的问题", if (result == null) "正在分析…" else if (worry.isEmpty()) "没有发现明显问题" else worry.take(3).joinToString("、") { it.title },
-                            if (result == null) "—" else "${worry.size} 项")
+                            if (result == null) "—" else trf("%s 项", worry.size))
                     }
                 }
                 if (result != null) {
@@ -128,7 +127,7 @@ fun DiagnosticsPage(app: ModernMainActivity) {
                     UiGroupCard {
                         val rows = HookHealth.table(hooks)
                         val bad = rows.count { it[2] == "未就绪" || it[2] == "失败" }
-                        UiRow("系统界面里的挂钩", if (hooks == null) "还没有拿到系统界面的回应，点下方刷新" else "共 ${rows.size} 组，$bad 组未就绪",
+                        UiRow("系统界面里的挂钩", if (hooks == null) "还没有拿到系统界面的回应，点下方刷新" else trf("共 %1\$s 组，%2\$s 组未就绪", rows.size, bad),
                             if (hooksOpen) "收起" else "展开") { hooksOpen = !hooksOpen }
                         if (hooksOpen) rows.forEach { row ->
                             val color = when (row[2]) { "未就绪", "失败" -> errorColor; "按需", "未启用" -> MiuixTheme.colorScheme.onSurfaceVariantSummary; else -> Good }
@@ -183,7 +182,7 @@ fun DiagnosticsPage(app: ModernMainActivity) {
                     }
                 }
                 if (result != null && result.entries.size >= DiagnosticCenter.MAX_ENTRIES) item {
-                    Text("只显示最近 ${filtered.size} 条；完整记录在导出的报告里。", Modifier.padding(horizontal = 4.dp), fontSize = 12.sp,
+                    Text(trf("只显示最近 %s 条；完整记录在导出的报告里。", filtered.size), Modifier.padding(horizontal = 4.dp), fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
             }
@@ -214,7 +213,7 @@ private fun Summary(result: DiagnosticCenter.Result?, loading: Boolean, errorCol
         Box(Modifier.size(14.dp).clip(CircleShape).background(color))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text(if (result == null) "读取日志并询问系统界面" else "${result.errors} 条错误 · ${result.warnings} 条警告 · ${result.entries.size} 条记录",
+            Text(if (result == null) "读取日志并询问系统界面" else trf("%1\$s 条错误 · %2\$s 条警告 · %3\$s 条记录", result.errors, result.warnings, result.entries.size),
                 fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
     }

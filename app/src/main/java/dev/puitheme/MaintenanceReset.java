@@ -22,8 +22,14 @@ public final class MaintenanceReset {
     /** Run on a worker after closing prepared font/image imports and disabling new submissions. */
     public static synchronized Result reset(Context context) {
         requireOwn(context);
+        // Disable reversible overlays before clearing the user's base preferences. If the
+        // library cannot be committed, leave the existing configuration transaction untouched.
+        try { new CustomPluginRepository(context).setAllDisabled(); }
+        catch(Exception unavailable) {
+            return new Result(false,false,0,"无法停用扩展插件插件，原配置尚未删除，请重试");
+        }
         SettingsSnapshot.ResetResult settings=SettingsSnapshot.resetForMaintenance(context);
-        if(!settings.primaryReset)return new Result(false,settings.frameworkSynced,0,settings.message);
+        if(!settings.primaryReset)return new Result(false,settings.frameworkSynced,0,settings.message+"；扩展插件插件已停用并保留");
         int removed=0;
         try {
             File files=context.createDeviceProtectedStorageContext().getFilesDir();
@@ -32,9 +38,9 @@ public final class MaintenanceReset {
             removed+=IconPackRepository.clear(context);
             ShadeWallpaperRepository.clear(context);
         } catch(IOException unavailable) {
-            return new Result(false,settings.frameworkSynced,removed,"配置已恢复默认，但导入资源未全部删除，请重试");
+            return new Result(false,settings.frameworkSynced,removed,"配置已恢复默认，扩展插件插件已停用并保留，但导入资源未全部删除，请重试");
         }
-        return new Result(settings.localSuccess(),settings.frameworkSynced,removed,settings.message);
+        return new Result(settings.localSuccess(),settings.frameworkSynced,removed,settings.message+"；扩展插件插件已停用并保留");
     }
 
     public static void clearLogs(Context context) throws IOException {

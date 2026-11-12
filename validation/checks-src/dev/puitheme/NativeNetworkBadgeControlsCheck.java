@@ -27,7 +27,18 @@ public final class NativeNetworkBadgeControlsCheck {
     }
     private static final class Native implements NativeNetworkBadgeControls.Access {
         final Map<Integer,Weight> weights=new HashMap<>();final Map<String,Family> families=new HashMap<>();
+        final Map<Long,Integer> colorValues=new HashMap<>();final Map<Integer,Long> packedColors=new HashMap<>();
         int translations,drawings,createdWeights,createdFamilies;boolean fail,partsSupported=true;
+        boolean colorSupported=true,colorFailure;long nextColor=0x3600000000000000L;
+        public boolean supportsColor(){return colorSupported;}
+        public int argb(long value)throws ReflectiveOperationException{
+            if(colorFailure||!colorValues.containsKey(value))throw new ReflectiveOperationException("Color conversion unavailable");
+            return colorValues.get(value);
+        }
+        public long packed(int value)throws ReflectiveOperationException{
+            if(colorFailure)throw new ReflectiveOperationException("Color conversion unavailable");
+            Long packed=packedColors.get(value);if(packed==null){packed=++nextColor;packedColors.put(value,packed);colorValues.put(packed,value);}return packed;
+        }
         public boolean supportsParts(){return partsSupported;}
         public Object drawing(Object base,Object token)throws ReflectiveOperationException{if(fail)throw new ReflectiveOperationException();drawings++;return new Drawing((Modifier)base,token);}
         public boolean modifier(Object value){return value instanceof Modifier;}
@@ -57,6 +68,8 @@ public final class NativeNetworkBadgeControlsCheck {
      * supplied dirty pair can shift the later remembered ComposableLambda into a TextUnit. */
     private static int changedSlots(int dirty,int mask){int slots=0;for(int i=0;i<10;i++)if((dirty&(3<<(1+3*i)))==0&&(mask&(1<<i))==0)slots++;return slots;}
     public static void main(String[] ignored)throws Exception{
+        if(ignored.length>0&&"color-compose".equals(ignored[0])){composeColors();System.out.println("Native badge Compose color checks passed: "+checks);return;}
+        if(ignored.length>0&&"color-views".equals(ignored[0])){nativeTextViewColors();System.out.println("Native badge TextView color checks passed: "+checks);return;}
         for(boolean onPaint:new boolean[]{false,true}){
             android.graphics.Paint.fontVariationOnPaint=onPaint;FontWeight.release();
             android.graphics.Typeface face=new android.graphics.Typeface();face.variableWeight=true;face.weight=450;face.italic=true;
@@ -131,6 +144,8 @@ public final class NativeNetworkBadgeControlsCheck {
         optionalCapabilities();
         nativeTextViews();
         nativeTextViewMovement();
+        composeColors();
+        nativeTextViewColors();
         System.out.println("NativeNetworkBadgeControls checks passed: "+checks);
     }
     private static Object[] span(Object[] lower,int part){
@@ -346,6 +361,8 @@ public final class NativeNetworkBadgeControlsCheck {
     }
     private static android.text.TextPaint nativePaint(android.widget.TextView view,int run){
         android.text.TextPaint paint=new android.text.TextPaint();paint.set(view.getPaint());
+        // TextView.onDraw supplies the current native ColorStateList tint to Layout.
+        paint.setColor(view.getCurrentTextColor());
         android.text.Spanned text=(android.text.Spanned)view.getText();int start=run==0?0:2,end=run==0?2:text.length();
         for(android.text.style.MetricAffectingSpan span:text.getSpans(start,end,android.text.style.MetricAffectingSpan.class))
             if(!(span instanceof android.text.style.ReplacementSpan))span.updateMeasureState(paint);
@@ -459,5 +476,86 @@ public final class NativeNetworkBadgeControlsCheck {
         h.configure(b);h.refreshTextViews();equal(7f,view.getTranslationX());equal(-2f,view.getTranslationY());equal(true,parent.getClipChildren());
         b.putFloat(NativeNetworkBadgeSettings.key(1,"offset_x"),-1000f);h.configure(b);h.refreshTextViews();equal(false,parent.getClipChildren());
         h.releaseRuntime();equal(7f,view.getTranslationX());equal(-2f,view.getTranslationY());equal(true,parent.getClipChildren());
+    }
+    private static Bundle colorSettings(){
+        Bundle b=settings(true,0,0,100,400);b.putBoolean("label_color_enabled",true);
+        b.putInt("label_color_light",0x80ff0000);b.putInt("label_color_dark",0x200000ff);return b;
+    }
+    private static void composeColors()throws Exception{
+        Native n=new Native();NativeNetworkBadgeControls h=new NativeNetworkBadgeControls(n);
+        Bundle b=colorSettings();h.configure(b);Object owner=new Object();
+        Object[] original=args(n,new Object(),new Modifier.Element());original[1]=n.packed(0x55000000);
+        Object[] styled=nativeContent(h,owner,original,2);
+        equal(0x55ff0000,n.argb((Long)styled[1]));equal(0x55000000,n.argb((Long)original[1]));
+        equal(original[11],styled[11]);equal(original[12],styled[12]);
+        for(int i=0;i<128;i++){
+            Object[] callback=savedRestart(styled);styled=h.adjustText(callback,2,null);
+            equal(0x55ff0000,n.argb((Long)styled[1]));equal(callback[11],styled[11]);equal(callback[12],styled[12]);
+        }
+        // Another SIM and a fresh system tint update keep independent native baselines.
+        Object[] secondary=args(n,new Object(),new Modifier.Element());secondary[1]=n.packed(0x99ffffff);
+        Object[] secondaryStyled=nativeContent(h,new Object(),secondary,2);equal(0x990000ff,n.argb((Long)secondaryStyled[1]));
+        Object[] fresh=original.clone();fresh[1]=n.packed(0x44808080);
+        styled=nativeContent(h,owner,fresh,2);equal(0x447f0080,n.argb((Long)styled[1]));
+        // A native lower restart can bring a new tint while retaining our modifier/family.
+        Object[] nativeRestart=savedRestart(styled);nativeRestart[1]=n.packed(0x33000000);
+        styled=h.adjustText(nativeRestart,2,null);equal(0x33ff0000,n.argb((Long)styled[1]));
+        for(String key:new String[]{NativeNetworkBadgeControls.MASTER,"label_color_enabled","label_enabled",StatusBarSettings.SAFE_MODE}){
+            Bundle off=new Bundle(b);off.putBoolean(key,!NativeNetworkBadgeControls.MASTER.equals(key)&&!"label_color_enabled".equals(key));
+            h.configure(off);Object[] restored=h.adjustText(savedRestart(styled),2,null);
+            equal(0x33000000,n.argb((Long)restored[1]));
+            for(int repeat=0;repeat<16;repeat++){
+                equal(0x33000000,n.argb((Long)h.adjustText(savedRestart(styled),2,null)[1]));
+                equal(0x99ffffff,n.argb((Long)h.adjustText(savedRestart(secondaryStyled),2,null)[1]));
+            }
+            h.configure(b);styled=h.adjustText(savedRestart(restored),2,null);equal(0x33ff0000,n.argb((Long)styled[1]));
+        }
+        b.putBoolean(StatusBarSettings.alphaKey("label_color_light"),true);b.putBoolean(StatusBarSettings.alphaKey("label_color_dark"),true);
+        equal(true,h.configure(b));styled=h.adjustText(savedRestart(styled),2,null);equal(0x80ff0000,n.argb((Long)styled[1]));
+        Object[] dark=nativeContent(h,new Object(),secondary,2);equal(0x200000ff,n.argb((Long)dark[1]));
+        b.putBoolean(StatusBarSettings.alphaKey("label_color_light"),false);b.putBoolean(StatusBarSettings.alphaKey("label_color_dark"),false);
+        b.putInt("label_color_light",0x11000000);b.putInt("label_color_dark",0x22ffffff);h.configure(b);
+        Object[] defaults=h.adjustText(savedRestart(styled),2,null);equal(0x33000000,n.argb((Long)defaults[1]));
+        // Default colours preserve the original packed representation without a conversion.
+        Object[] wide=original.clone();wide[1]=0x5f0123456789abcdL;n.colorFailure=true;
+        equal(wide[1],nativeContent(h,owner,wide,2)[1]);
+        h.configure(colorSettings());n.colorFailure=false;n.colorSupported=false;
+        equal(original[1],nativeContent(h,owner,original,2)[1]);
+        n.colorSupported=true;n.colorFailure=true;
+        equal(original[1],nativeContent(h,owner,original,2)[1]);
+        n.colorFailure=false;styled=nativeContent(h,owner,original,2);equal(0x55ff0000,n.argb((Long)styled[1]));
+        h.releaseRuntime();
+    }
+    private static void nativeTextViewColors(){
+        NativeNetworkBadgeControls h=new NativeNetworkBadgeControls();Bundle b=colorSettings();h.configure(b);
+        android.content.Context context=new android.content.Context();android.widget.TextView primary=new android.widget.TextView(context),secondary=new android.widget.TextView(context);
+        primary.setText(nativeText("5G","+",12,9));secondary.setText(nativeText("5G","",12,9));
+        primary.setTextColor(0x55000000);secondary.setTextColor(0x99ffffff);
+        h.onTextViewNativeUpdated(primary,"5G","+",1);h.onTextViewNativeUpdated(secondary,"5G","",2);
+        android.graphics.Canvas canvas=new android.graphics.Canvas();
+        for(int run=0;run<2;run++){drawNativeRun(primary,run,canvas);equal(0x55ff0000,canvas.textColor);equal(0x55,canvas.textAlpha);}
+        drawNativeRun(secondary,0,canvas);equal(0x990000ff,canvas.textColor);
+        equal(0x55000000,primary.getCurrentTextColor());equal(0x99ffffff,secondary.getCurrentTextColor());
+        // Native tint changes do not require capturing/replacing the view's ColorStateList.
+        primary.setTextColor(0x44808080);drawNativeRun(primary,0,canvas);equal(0x447f0080,canvas.textColor);
+        equal(0x44808080,primary.getCurrentTextColor());
+        b.putBoolean(StatusBarSettings.alphaKey("label_color_light"),true);b.putBoolean(StatusBarSettings.alphaKey("label_color_dark"),true);
+        equal(true,h.configure(b));h.refreshTextViews();drawNativeRun(primary,0,canvas);equal(0x507f0080,canvas.textColor);
+        drawNativeRun(secondary,0,canvas);equal(0x200000ff,canvas.textColor);
+        android.text.style.ReplacementSpan cached=replacement(primary,0);CharSequence cachedText=primary.getText();
+        for(String key:new String[]{NativeNetworkBadgeControls.MASTER,"label_color_enabled","label_enabled",StatusBarSettings.SAFE_MODE}){
+            Bundle off=new Bundle(b);off.putBoolean(key,!NativeNetworkBadgeControls.MASTER.equals(key)&&!"label_color_enabled".equals(key));h.configure(off);
+            android.text.TextPaint nativePaint=nativePaint(primary,0);
+            cached.draw(canvas,cachedText,0,2,10,0,20,30,nativePaint);equal(0x44808080,canvas.textColor);
+            h.refreshTextViews();equal(0x44808080,primary.getCurrentTextColor());equal(0x99ffffff,secondary.getCurrentTextColor());
+            h.configure(b);h.onTextViewNativeUpdated(primary,"5G","+",1);h.onTextViewNativeUpdated(secondary,"5G","",2);h.refreshTextViews();
+            cached=replacement(primary,0);cachedText=primary.getText();
+        }
+        b.putInt("label_color_light",0xff000000);b.putInt("label_color_dark",0xffffffff);
+        b.putBoolean(StatusBarSettings.alphaKey("label_color_light"),false);b.putBoolean(StatusBarSettings.alphaKey("label_color_dark"),false);
+        h.configure(b);h.refreshTextViews();drawNativeRun(primary,0,canvas);equal(0x44808080,canvas.textColor);
+        h.beforeNativeTextViewUpdate(primary);primary.setText(nativeText("5G","+",12,9));primary.setTextColor(0x77000000);
+        h.onTextViewNativeUpdated(primary,"5G","+",1);h.configure(colorSettings());h.refreshTextViews();drawNativeRun(primary,0,canvas);equal(0x77ff0000,canvas.textColor);
+        h.releaseRuntime();equal(0x77000000,primary.getCurrentTextColor());equal(0x99ffffff,secondary.getCurrentTextColor());
     }
 }

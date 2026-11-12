@@ -3,11 +3,13 @@ public class Matrix {
     public int inversionsForCheck;
     private final float[] values={1,0,0,0,1,0,0,0,1};
     public void setScale(float x,float y){values[0]=x;values[4]=y;}
+    public void setScale(float x,float y,float px,float py){java.util.Arrays.fill(values,0);values[0]=x;values[4]=y;values[8]=1;values[2]=px-x*px;values[5]=py-y*py;}
     /** What the last setRotate call asked for, for checks. */
     public float rotationDegreesForCheck,rotationPivotX,rotationPivotY;
     public void setRotate(float degrees,float px,float py){rotationDegreesForCheck=degrees;rotationPivotX=px;rotationPivotY=py;}
     public boolean postTranslate(float x,float y){values[2]+=x;values[5]+=y;return true;}
     public void getValues(float[] output){System.arraycopy(values,0,output,0,9);}
+    public void setValues(float[] input){System.arraycopy(input,0,values,0,9);}
     public void mapPoints(float[] points){for(int i=0;i+1<points.length;i+=2){float x=points[i],y=points[i+1];float divisor=values[6]*x+values[7]*y+values[8];points[i]=(values[0]*x+values[1]*y+values[2])/divisor;points[i+1]=(values[3]*x+values[4]*y+values[5])/divisor;}}
     public void set(Matrix matrix){System.arraycopy(matrix.values,0,values,0,9);}
     public void setTranslate(float x,float y){for(int i=0;i<9;i++)values[i]=0;values[0]=values[4]=values[8]=1;values[2]=x;values[5]=y;}

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "name": "C17 扩展插件",
+  "description": "官方插件规范与分发目录。当前无可安装插件，templates 仅供开发。",
+  "updatedAt": "2026-11-03",
+  "readmeUrl": "https://github.com/SANWU5/c17-plugins/blob/main/README.md",
+  "changesUrl": "https://github.com/SANWU5/c17-plugins/blob/main/CHANGELOG.md",
+  "plugins": []
+}

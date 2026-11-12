@@ -21,6 +21,11 @@ public final class ChargeCycle {
 
     public boolean isCharging() { return charging; }
 
+    /** When this cycle began; meaningful only while charging. */
+    public long started() { return started; }
+    /** Runs in step with another battery that is already charging, so every battery fades at the same moment. */
+    public void alignWith(ChargeCycle other) { if (charging && other != null && other.charging) started = other.started; }
+
     private long position(long uptime) {
         long period = 2 * (hold + fade);
         return period == 0 ? 0 : Math.max(0, uptime - started) % period;

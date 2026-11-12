@@ -6,7 +6,7 @@
 
 原生 `StatClock.onMeasure` 直接改 Paint，而 `TextView.setTextSize` 在字号相同时不会清理已有 Layout。二次 super 测量前通过缓存的 `TextView.nullLayouts()` 清理旧文字布局及 BoringLayout，避免完整格式沿用旧省略结果；只在开启的自定义 StatClock 测量中调用，不在 draw 或时间调度器中反复调用。自定义开启时拥有并关闭该时钟的 ellipsize/auto-size，关闭时恢复其原始策略。原生像素基准、一次比例应用和有证据的旧值兼容保持不变。
 
-新增诊断为 `layoutCacheRebuilt`、`desiredWidth`、`outgoingWidth`、`nativePx` 和 `appliedPx`。不再提供 `fitScale` 或 `requestedWidth`；完整文本占位可能超过父容器剩余空间，不宣称取消物理屏幕边界。见 [当前版本说明](RELEASE-1.8.3.zh-CN.md)。
+新增诊断为 `layoutCacheRebuilt`、`desiredWidth`、`outgoingWidth`、`nativePx` 和 `appliedPx`。不再提供 `fitScale` 或 `requestedWidth`；完整文本占位可能超过父容器剩余空间，不宣称取消物理屏幕边界。见 [code74 修复说明](LOCAL-CODE74.zh-CN.md)。
 
 以下保留 code70–73 的排查证据与历史方案。涉及“预算上限”“自动适配”“自身裁切”的段落已被本节取代，不是当前行为。
 
@@ -107,7 +107,7 @@
 
 没有可确认的外层分配、未知父结构、纵向父链及首轮未分配布局继续由原生 MeasureSpec 约束。新增回归包含真实资源 ID 的四层嵌套、100%/200%/400% 连续扩大缩小、通知零宽及重叠子 View、当前测量已缩小但旧 layout 宽更大、相对 margin、RTL 与未知结构回退，以及 PJZ110 的 `666 - 78 - 230` 预算。原生测量收到 `AT_MOST 0`、`AT_MOST 1` 和 `EXACTLY 0` 时，该特定链连续 300 次恢复合理正宽；真实预算 0、未知容器、未分配外层和纵向链仍保持硬零限制。
 
-本次本地检查通过 `StatClockSizingCheck` 13264 项、`TextControlsCheck` 12014 项和 `NativeClockMeasurementCheck` 7 项。它们验证原生约定、字号与宽度预算；未代替新包安装后的实际动画和视觉检查。原始 dump、截图、配置与 logcat 不随公开仓库分发；公开复核入口见[验证说明](../VALIDATION.md)。
+本次本地检查通过 `StatClockSizingCheck` 13264 项、`TextControlsCheck` 12014 项和 `NativeClockMeasurementCheck` 7 项。它们验证原生约定、字号与宽度预算；未代替新包安装后的实际动画和视觉检查。原始 dump、截图、配置与 logcat 保存在 `.local-private/device71`，含私人内容，不应上传公开仓库。
 
 ## code72：通知溢出挤占时间的修复
 

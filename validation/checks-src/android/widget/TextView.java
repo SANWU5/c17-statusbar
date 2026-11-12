@@ -24,6 +24,12 @@ public class TextView extends android.view.View {
     private android.text.TextUtils.TruncateAt ellipsize;
     public int layoutRebuilds, layoutClears;
     public TextView(Context context){super(context);paint.setTypeface(Typeface.DEFAULT);paint.setTextSize(size);}
+    @Override protected boolean setFrame(int left,int top,int right,int bottom){
+        int oldWidth=getWidth(),oldHeight=getHeight();boolean changed=super.setFrame(left,top,right,bottom);
+        if(changed&&(oldWidth!=getWidth()||oldHeight!=getHeight()))nativeFrameChangedForCheck();return changed;
+    }
+    /** Native TextView.setFrame calls restartMarqueeIfNeeded after a real size change. */
+    protected void nativeFrameChangedForCheck(){}
     public CharSequence getText(){return text;}
     public void setText(CharSequence value){checkMeasuredRelayout();text=value;layout=null;if(strictMeasuredRelayout&&nativeLayoutBuilt)requestLayout();}
     public void setText(CharSequence value,BufferType type){setText(value);}

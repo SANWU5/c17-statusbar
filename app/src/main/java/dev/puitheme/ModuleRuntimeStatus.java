@@ -28,12 +28,13 @@ import io.github.libxposed.api.XposedInterface;
 /** A new challenge must be answered by the current injected SystemUI process. */
 public final class ModuleRuntimeStatus {
     public static final String SYSTEM_UI = "com.android.systemui";
-    public static final String ACTION_PING = "dev.puitheme.iosstatusbar.PING_RUNTIME_STATUS";
+    public static final String ACTION_PING = ModuleVariant.PACKAGE + ".PING_RUNTIME_STATUS";
     public static final String METHOD_BEGIN = "begin_runtime_probe";
     public static final String METHOD_QUERY = "query_runtime_status";
     public static final String METHOD_REPORT = "report_runtime_status";
-    // Change this whenever distributing a build whose runtime gate must replace an earlier build.
-    public static final String BUILD_TOKEN = "c17-runtime-20261018-1.8.3-code192";
+    // Keep the version/code aligned with app/build.gradle: plugin compatibility advertises this identity.
+    public static final String BUILD_TOKEN = ModuleVariant.DABING ? "dabing-runtime-20261102-1.1.0-code4"
+            : "c17-runtime-20261112-2.1.0-code293";
     public static final String KEY_NONCE = "nonce";
     public static final String KEY_PID = "pid";
     public static final String KEY_UPTIME = "uptime_ms";
@@ -43,8 +44,8 @@ public final class ModuleRuntimeStatus {
     public static final String KEY_FRAMEWORK_VERSION = "framework_version";
     public static final String KEY_ACTIVE = "active";
     public static final long PROBE_TIMEOUT_MS = 2500L;
-    private static final String URI = "content://dev.puitheme.iosstatusbar.settings/values";
-    public static final String RUNTIME_URI = "content://dev.puitheme.iosstatusbar.settings/runtime_status";
+    private static final String URI = "content://" + ModuleVariant.PACKAGE + ".settings/values";
+    public static final String RUNTIME_URI = "content://" + ModuleVariant.PACKAGE + ".settings/runtime_status";
     private static final Object LOCK = new Object();
     private static final ScheduledThreadPoolExecutor WORK = new ScheduledThreadPoolExecutor(1);
     private static final AtomicInteger GENERATION = new AtomicInteger();
@@ -66,7 +67,7 @@ public final class ModuleRuntimeStatus {
         if (source == null || !PERFORMANCE_SIGNAL.compareAndSet(false, true)) return;
         WORK.execute(() -> {
             try {
-                android.content.pm.ApplicationInfo owner = source.getPackageManager().getApplicationInfo("dev.puitheme.iosstatusbar", 0);
+                android.content.pm.ApplicationInfo owner = source.getPackageManager().getApplicationInfo(ModuleVariant.PACKAGE, 0);
                 // Respect force-stop: only explicitly reopening C17 should resume app scheduling.
                 if ((owner.flags & android.content.pm.ApplicationInfo.FLAG_STOPPED) != 0) return;
                 source.getContentResolver().call(Uri.parse(URI), "performance_schedule", event, null);

@@ -47,6 +47,11 @@ public final class IconAssetDecoder {
         Decoded decoded=decode(asset,bytes,size,remainingPixels);Bitmap source=decoded.bitmap;IconVisibleBounds bounds=decoded.visibleBounds;
         int left=bounds.left,top=bounds.top,right=bounds.right,bottom=bounds.bottom;
         if(sharedCanvas){left=Math.max(0,(int)Math.floor((source.getWidth()-decoded.canvasWidth)*.5f));top=Math.max(0,(int)Math.floor((source.getHeight()-decoded.canvasHeight)*.5f));right=Math.min(source.getWidth(),(int)Math.ceil((source.getWidth()+decoded.canvasWidth)*.5f));bottom=Math.min(source.getHeight(),(int)Math.ceil((source.getHeight()+decoded.canvasHeight)*.5f));}
+        return preview(decoded,new android.graphics.Rect(left,top,right,bottom));
+    }
+    /** Takes ownership of the decoded bitmap, preserving the runtime's selected source frame. */
+    static Bitmap preview(Decoded decoded,android.graphics.Rect frame)throws IOException{
+        Bitmap source=decoded.bitmap;int left=frame.left,top=frame.top,right=frame.right,bottom=frame.bottom;
         if(left==0&&top==0&&right==source.getWidth()&&bottom==source.getHeight())return source;
         try{Bitmap cropped=Bitmap.createBitmap(source,left,top,right-left,bottom-top);if(cropped!=source)source.recycle();return cropped;}
         catch(RuntimeException|OutOfMemoryError failure){source.recycle();throw new IOException("图标管理：预览裁剪失败",failure);}

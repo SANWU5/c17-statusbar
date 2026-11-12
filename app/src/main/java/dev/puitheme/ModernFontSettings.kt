@@ -36,9 +36,9 @@ internal fun FontSettingsPanel(app: ModernMainActivity) {
                 }
             }
         }
-        Text("建议统一字体，混用可能造成文字宽度和对齐不一致。作用范围只覆盖模块已支持的文字；对应功能未开启时保留原状。",
+        Text(tr("建议统一字体，混用可能造成文字宽度和对齐不一致。作用范围只覆盖模块已支持的文字；对应功能未开启时保留原状。"),
             fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        if (assignments.size < FontScopes.SCOPES.size) Text("尚未分配的范围继续沿用原有字体选择。各功能原有的独立设置仍保留。",
+        if (assignments.size < FontScopes.SCOPES.size) Text(tr("尚未分配的范围继续沿用原有字体选择。各功能原有的独立设置仍保留。"),
             fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         FontLicenseFooter(app)
     }
@@ -57,9 +57,9 @@ internal fun FontCatalogDialog(app: ModernMainActivity) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item { UiGroupCard {
-                    FontSourceRow(app, "跟随系统", "保留系统字体家族\n${app.fontUsage("system")}",
+                    FontSourceRow(app, "跟随系统", trf("保留系统字体家族\n%s", app.fontUsage("system")),
                         assignments.containsValue("system")) { app.selectFontScopes("system", "跟随系统") }
-                    FontSourceRow(app, "苹方", "内置可变字体，粗细100–900；缺字由系统补齐\n${app.fontUsage("pingfang")}",
+                    FontSourceRow(app, "苹方", trf("内置可变字体，粗细100–900；缺字由系统补齐\n%s", app.fontUsage("pingfang")),
                         assignments.containsValue("pingfang")) { app.selectFontScopes("pingfang", "苹方") }
                     UiRow("导入字体", "TTF / OTF / TTC；入库后选择作用范围", "导入", Icons.Outlined.FileUpload,
                         enabled = allowed) { app.chooseFont() }
@@ -67,7 +67,7 @@ internal fun FontCatalogDialog(app: ModernMainActivity) {
                 items(app.fontLibraryEntries.filter { it.catalog == null }, key = { "import-${it.revision}" }) { entry ->
                     val source = FontScopes.source("custom", entry.revision)
                     UiGroupCard {
-                        FontSourceRow(app, entry.name, "已导入 · 字重支持取决于文件\n${app.fontUsage(source)}",
+                        FontSourceRow(app, entry.name, trf("已导入 · 字重支持取决于文件\n%s", app.fontUsage(source)),
                             assignments.containsValue(source), entry, canRename = true) { app.selectLibraryFont(entry) }
                     }
                 }
@@ -76,7 +76,7 @@ internal fun FontCatalogDialog(app: ModernMainActivity) {
                     val source = FontScopes.source("custom", entry.sha256)
                     UiGroupCard {
                         FontSourceRow(app, stored?.name ?: entry.displayName,
-                            "${entry.coverage}\n粗细${entry.minWeight}–${entry.maxWeight} · %.1f MB · ${if (stored == null) "需下载" else "已下载"}\n${app.fontUsage(source)}"
+                            trf("%1\$s\n粗细%2\$s–%3\$s · %%.1f MB · %4\$s\n%5\$s", entry.coverage, entry.minWeight, entry.maxWeight, if (stored == null) tr("需下载") else tr("已下载"), app.fontUsage(source))
                                 .format(Locale.ROOT, entry.bytes / 1048576.0),
                             assignments.containsValue(source), stored) {
                             if (stored == null) app.downloadFont(entry) else app.selectLibraryFont(stored)
@@ -99,10 +99,10 @@ private fun FontSourceRow(app: ModernMainActivity, title: String, summary: Strin
             if (selected) Icon(Icons.Outlined.Check, "已分配作用范围", tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
             if (stored != null) {
                 if (canRename) C17IconButton(enabled = app.canEdit && !app.busy, onClick = { app.fontCatalogOpen = false; app.fontRenameTarget = stored }) {
-                    Icon(Icons.Outlined.Edit, "重命名 $title", modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.Edit, trf("重命名 %s", title), modifier = Modifier.size(20.dp))
                 }
                 C17IconButton(enabled = app.canEdit && !app.busy, onClick = { app.fontCatalogOpen = false; app.deleteLibraryFont(stored) }) {
-                    Icon(Icons.Outlined.DeleteOutline, "删除 $title", modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.DeleteOutline, trf("删除 %s", title), modifier = Modifier.size(20.dp))
                 }
             }
         })
@@ -135,14 +135,14 @@ internal fun FontScopeDialog(app: ModernMainActivity, selection: FontScopeSelect
                         fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
                 if (!app.bool(FeatureOptions.masterKey("font"))) item {
-                    Text("字体功能关闭时，应用后只启用本次勾选范围。", fontSize = 12.sp,
+                    Text(tr("字体功能关闭时，应用后只启用本次勾选范围。"), fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
-                if (selected.isEmpty()) item { Text("至少选择一个作用范围。", fontSize = 13.sp, color = MiuixTheme.colorScheme.primary) }
+                if (selected.isEmpty()) item { Text(tr("至少选择一个作用范围。"), fontSize = 13.sp, color = MiuixTheme.colorScheme.primary) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 C17TextButton(text = "取消", enabled = !app.busy, modifier = Modifier.weight(1f), onClick = app::cancelFontScopeSelection)
-                C17TextButton(text = if (app.busy) "正在应用…" else "应用到 ${selected.size} 个范围", enabled = allowed && selected.isNotEmpty(),
+                C17TextButton(text = if (app.busy) "正在应用…" else trf("应用到 %s 个范围", selected.size), enabled = allowed && selected.isNotEmpty(),
                     modifier = Modifier.weight(1f), onClick = { app.applyFontScopes(selection, selected) })
             }
         }
@@ -174,7 +174,7 @@ internal fun FontLicenseFooter(app: ModernMainActivity) {
             FontCatalog.entries().forEach { entry ->
                 C17ArrowPreference(title = entry.displayName, summary = entry.licenseName,
                     onClick = { app.openUrl(entry.sourceUrl) }, endActions = {
-                        C17IconButton(onClick = { app.openUrl(entry.licenseUrl) }) { Icon(Icons.Outlined.Article, "查看 ${entry.displayName} 许可", modifier = Modifier.size(20.dp)) }
+                        C17IconButton(onClick = { app.openUrl(entry.licenseUrl) }) { Icon(Icons.Outlined.Article, trf("查看 %s 许可", entry.displayName), modifier = Modifier.size(20.dp)) }
                     })
             }
             UiRow("导入字体", "字体文件保存在本机；请确认拥有使用权限。可变粗细由文件支持范围决定。")

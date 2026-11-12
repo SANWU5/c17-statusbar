@@ -75,18 +75,28 @@ public final class ConfigScopeCheck {
         ConfigScope.Section clock = ConfigScope.section("notification_big_clock");
         check(clock != null && clock.keys().contains(NotificationBigClockSettings.REBOUND_FADE), "the big clock owns the rebound fade");
         check(ConfigScope.section("no_such_page") == null, "unknown page");
-        check(ConfigScope.section("network") == null, "the retired merged network page is not a share section");
+        ConfigScope.Section network=ConfigScope.section("network");
+        check(network!=null&&network.keys().contains(StatusBarSettings.WIFI_ICON_SCALE)
+                &&network.keys().contains(StatusBarSettings.LABEL_SCALE)
+                &&network.keys().contains(NativeNetworkBadgeSettings.key(1,"scale")),"one network share section contains all three real control families");
         ConfigScope.Section wifi = ConfigScope.section("wifi"), label = ConfigScope.section("label"), speed = ConfigScope.section("speed");
-        check(wifi != null && label != null && speed != null, "released Wi-Fi, label and speed have separate share sections");
+        check(wifi != null && label != null && speed != null, "old Wi-Fi and label export selections remain readable as exact subsets");
+        check(!all.contains(wifi)&&!all.contains(label),"the current checklist does not duplicate old network pages");
         check(wifi.keys().contains(StatusBarSettings.WIFI_OFFSET_X) && !wifi.keys().contains(StatusBarSettings.LABEL_OFFSET_X),
                 "Wi-Fi shares only its released independent position");
         check(label.keys().contains(StatusBarSettings.LABEL_OFFSET_X) && label.keys().contains(StatusBarSettings.SLOT_WIDTH)
                 && !label.keys().contains(StatusBarSettings.WIFI_OFFSET_X), "label shares its own position and reserved width");
         check(!label.keys().contains(RadioState.BOTH_VISIBLE), "the newer dual option is absent from the public label section");
+        check(ConfigScope.keys(Collections.singletonList("wifi")).equals(wifi.keys()),"old Wi-Fi selection exports only its previous subset");
+        check(ConfigScope.keys(Arrays.asList("network","wifi","label")).equals(network.keys()),"mixed new and restored old selections deduplicate every network key");
         check(speed.keys().contains(NetworkSpeedControls.INTERVAL_MILLIS), "speed owns its original sampling control");
         // A page's feature switches (they make its values count) travel with the page, not with the unpaged remainder.
         ConfigScope.Section rest = ConfigScope.section(ConfigScope.OTHER_ID);
         for (Map.Entry<String, String> owner : FeatureOptions.GROUP_BY_KEY.entrySet()) {
+            if("network".equals(owner.getValue())) {
+                check(rest!=null&&rest.keys().contains(owner.getKey()),"retired hidden network switch retains its portable remainder ownership: "+owner.getKey());
+                continue;
+            }
             ConfigScope.Section page = ConfigScope.section(owner.getValue());
             if (page != null && ConfigTransfer.types().containsKey(owner.getKey()))
                 check(page.keys().contains(owner.getKey()) && (rest == null || !rest.keys().contains(owner.getKey())), "feature switch " + owner.getKey() + " is on its page");

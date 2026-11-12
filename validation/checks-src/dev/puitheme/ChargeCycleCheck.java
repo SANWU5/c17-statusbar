@@ -50,6 +50,21 @@ public final class ChargeCycleCheck {
             float value=cycle.boltOpacity(uptime);equal(1,value>=0&&value<=1&&!Float.isNaN(value)?1:0);
             equal(1,cycle.nextDelay(uptime)>0?1:0);
         }
+        // Two batteries share one phase: the one that starts later adopts the running cycle, so both fade
+        // in the same frames instead of redrawing both windows twice as often.
+        ChargeCycle first = new ChargeCycle(), second = new ChargeCycle();
+        first.setCharging(true, 1000); second.setCharging(true, 2700);
+        equal(2700, second.started()); near(1, second.boltOpacity(4100)); near(.5f, first.boltOpacity(4500));
+        second.alignWith(first);
+        equal(1000, second.started());
+        for (long uptime = 1000; uptime <= 40000; uptime += 37) {
+            near(first.boltOpacity(uptime), second.boltOpacity(uptime)); equal(first.nextDelay(uptime), second.nextDelay(uptime));
+        }
+        ChargeCycle idle = new ChargeCycle();
+        idle.alignWith(first); equal(0, idle.started()); near(0, idle.boltOpacity(5000));
+        ChargeCycle stopped = new ChargeCycle(); stopped.setCharging(true, 300); stopped.setCharging(false, 400);
+        second.alignWith(stopped); equal(1000, second.started());
+        second.alignWith(null); equal(1000, second.started());
         System.out.println("ChargeCycleCheck passed: " + checks);
     }
 }

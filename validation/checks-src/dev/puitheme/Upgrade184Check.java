@@ -30,8 +30,8 @@ public final class Upgrade184Check {
         return "{\"package\":\"" + ConfigTransfer.PACKAGE_NAME + "\",\"schema\":1,\"settings\":{\"" + key + "\":" + raw + "}}";
     }
     private static void registration(Bundle full) {
-        equal(48, SettingsFrameworkMirror.VERSION, "current mirror schema"); equal(1, ConfigTransfer.SCHEMA_VERSION, "portable JSON unchanged");
-        equal(979, full.keySet().size(), "complete settings count"); equal(966, ConfigTransfer.types().size(), "portable count");
+        equal(52, SettingsFrameworkMirror.VERSION, "current mirror schema"); equal(1, ConfigTransfer.SCHEMA_VERSION, "portable JSON unchanged");
+        equal(1000, full.keySet().size(), "complete settings count"); equal(987, ConfigTransfer.types().size(), "portable count");
         equal(additions(), Upgrade184.DEFAULTS, "exact four Float additions"); equal(4, Upgrade184.DEFAULTS.size(), "184 batch frozen");
         equal(FluidCloudStyle.BACKGROUND_GRADIENT_RANGE, "fluid_cloud_background_gradient_range", "the end is the pre-existing range key");
         for (int i = 0; i < KEYS.length; i++) {
@@ -107,7 +107,7 @@ public final class Upgrade184Check {
         saved.put(START, 15.5f); saved.put(FluidCloudStyle.BACKGROUND_GRADIENT_RANGE, 72.25f); saved.put(MID, 30f); saved.put(STRENGTH, 120f); saved.put(OPACITY, 65f);
         Map<String, Object> sourceBefore = new LinkedHashMap<>(saved);
         ConfigTransfer.PreparedImport prepared = ConfigTransfer.prepare(ConfigTransfer.exportJson(saved), true);
-        equal(966, prepared.count, "full portable count"); equal(sourceBefore, saved, "export leaves source unchanged");
+        equal(987, prepared.count, "full portable count"); equal(sourceBefore, saved, "export leaves source unchanged");
         equal(15.5f, prepared.values().get(START), "start exact"); equal(72.25f, prepared.values().get(FluidCloudStyle.BACKGROUND_GRADIENT_RANGE), "end exact");
         equal(30f, prepared.values().get(MID), "mid exact"); equal(120f, prepared.values().get(STRENGTH), "strength exact"); equal(65f, prepared.values().get(OPACITY), "opacity exact");
     }

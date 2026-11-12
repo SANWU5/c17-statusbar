@@ -28,11 +28,23 @@ final class BitmapRasterForCheck {
     void scale(float x,float y){graphics.scale(x,y);}
     void rotate(float degrees){graphics.rotate(Math.toRadians(degrees));}
     void clip(Path path){graphics.clip(path.rasterPath);}
+    void clipOut(Path path){
+        Shape clip=graphics.getClip();
+        if(clip==null)try{clip=graphics.getTransform().createInverse().createTransformedShape(new Rectangle(0,0,width,height));}
+        catch(NoninvertibleTransformException invalid){return;}
+        Area area=new Area(clip);area.subtract(new Area(path.rasterPath));graphics.setClip(area);
+    }
     void clip(float l,float t,float r,float b){graphics.clip(new Rectangle2D.Float(l,t,r-l,b-t));}
     void concat(Matrix matrix){float[] v=new float[9];matrix.getValues(v);graphics.transform(new AffineTransform(v[0],v[3],v[1],v[4],v[2],v[5]));}
     void path(Path path,Paint paint){
         graphics.setComposite(AlphaComposite.SrcOver);
         graphics.setColor(new java.awt.Color((paint.getColor()&0xffffff)|(paint.getAlpha()<<24),true));
+        if(paint.getShader() instanceof LinearGradient){
+            LinearGradient gradient=(LinearGradient)paint.getShader();
+            java.awt.Color[] colors=new java.awt.Color[gradient.colors.length];
+            for(int i=0;i<colors.length;i++)colors[i]=new java.awt.Color((gradient.colors[i]&0xffffff)|((gradient.colors[i]>>>24)*paint.getAlpha()/255<<24),true);
+            graphics.setPaint(new LinearGradientPaint(gradient.left,gradient.top,gradient.right,gradient.bottom,gradient.positions,colors));
+        }
         if(paint.getStyle()!=Paint.Style.FILL){int cap=paint.getStrokeCap()==Paint.Cap.ROUND?BasicStroke.CAP_ROUND:paint.getStrokeCap()==Paint.Cap.SQUARE?BasicStroke.CAP_SQUARE:BasicStroke.CAP_BUTT;
             int join=paint.getStrokeJoin()==Paint.Join.ROUND?BasicStroke.JOIN_ROUND:paint.getStrokeJoin()==Paint.Join.BEVEL?BasicStroke.JOIN_BEVEL:BasicStroke.JOIN_MITER;
             graphics.setStroke(new BasicStroke(paint.getStrokeWidth(),cap,join,paint.getStrokeMiter()));graphics.draw(path.rasterPath);}

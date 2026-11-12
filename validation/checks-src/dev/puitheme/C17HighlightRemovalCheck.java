@@ -62,7 +62,20 @@ public final class C17HighlightRemovalCheck {
     private static Object privateField(Object object, String name) throws Exception {
         Field field = object.getClass().getDeclaredField(name); field.setAccessible(true); return field.get(object);
     }
+    private static void fluidRowSpotlight(){
+        C17HighlightRemoval helper=new C17HighlightRemoval();
+        com.oplus.systemui.statusbar.notification.customcard.OplusCustomRow row=new com.oplus.systemui.statusbar.notification.customcard.OplusCustomRow();
+        View body=new com.android.systemui.statusbar.notification.row.NotificationBackgroundView();row.addView(body);
+        helper.setFluidNotificationBackground(body,true,false);helper.configure(settings(true));
+        equal(true,helper.skipSpotlight(row));equal(false,helper.skipSpotlight(new android.widget.FrameLayout(null)));
+        helper.setFluidNotificationBackground(body,true,true);equal(false,helper.skipSpotlight(row));
+        helper.setFluidNotificationBackground(body,true,false);Bundle disabled=settings(true);disabled.putBoolean(C17HighlightRemoval.NOTIFICATION_ENABLED,false);helper.configure(disabled);equal(false,helper.skipSpotlight(row));
+        helper.configure(settings(true));equal(true,helper.skipSpotlight(row));row.removeView(body);equal(false,helper.skipSpotlight(row));
+        row.addView(body);helper.setFluidNotificationBackground(body,true,false);helper.forgetFluidNotificationBackground(body);equal(false,helper.skipSpotlight(row));
+        helper.release();equal(false,helper.skipSpotlight(row));
+    }
     public static void main(String[] arguments) throws Throwable {
+        fluidRowSpotlight();
         equal(false, StatusBarSettings.BOOLEAN_DEFAULTS.get(C17HighlightRemoval.ENABLED));
         SettingsCatalog.Group group = SettingsCatalog.group("c17_highlight_removal");
         equal(C17HighlightRemoval.ENABLED, group.masterKey);

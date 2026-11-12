@@ -10,4 +10,8 @@
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
     </style>
+    <!-- Android 8-11 use the native starting window; content replaces it immediately. -->
+    <style name="C17LaunchTheme" parent="AppTheme">
+        <item name="android:windowBackground">@drawable/c17_launch_background</item>
+    </style>
 </resources>

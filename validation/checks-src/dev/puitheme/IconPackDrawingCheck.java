@@ -201,8 +201,7 @@ public final class IconPackDrawingCheck {
         for(int percent:new int[]{0,1,2,0}) {
             android.provider.Settings.System.values.put("display_power_percent",percent);drawing.syncBattery(owner,null);
             int before=assets.batteryCalls;IconPackDrawing.BatteryScope selected=drawing.beginBattery(b);
-            if(percent==0){same(null,selected);eq(before,assets.batteryCalls);restored(b,original);}
-            else {yes(selected!=null);selected.close();restored(b,original);}
+            yes(selected!=null);eq(before+1,assets.batteryCalls);selected.close();restored(b,original);
         }
         android.provider.Settings.System.values.put("display_power_percent",1);drawing.syncBattery(owner,null);
         IconPackDrawing.BatteryScope scope=drawing.beginBattery(b);drawing.releaseRuntime();restored(b,original);scope.close();restored(b,original);
@@ -217,7 +216,7 @@ public final class IconPackDrawingCheck {
         try(IconPackDrawing.BatteryScope scope=drawing.beginBattery(privateGlyph)){yes(scope!=null);privateGlyph.draw(canvas);}
         yes(assets.charging);eq(80,assets.level);eq(1,canvas.bitmapDraws);same(face,privateGlyph.percentInPaint.getTypeface());eq("84",canvas.text);
         restored(privateGlyph,original);eq(0,assets.observed.size());
-        drawing.syncInlineBattery(privateGlyph,false,false);same(null,drawing.beginBattery(privateGlyph));restored(privateGlyph,original);
+        drawing.syncInlineBattery(privateGlyph,false,false);try(IconPackDrawing.BatteryScope scope=drawing.beginBattery(privateGlyph)){yes(scope!=null);privateGlyph.draw(canvas);}eq(2,canvas.bitmapDraws);restored(privateGlyph,original);
         drawing.releaseRuntime();same(null,drawing.beginBattery(privateGlyph));
     }
     public static void main(String[] args){android.provider.Settings.System.values.put("display_power_percent",1);signals();hints();batteries();ownedInlineBattery();System.out.println("IconPackDrawingCheck: "+checks+" checks passed");}

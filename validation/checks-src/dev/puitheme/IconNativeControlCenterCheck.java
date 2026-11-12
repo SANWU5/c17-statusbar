@@ -129,6 +129,78 @@ public final class IconNativeControlCenterCheck {
         view.animating=true;adapter.onVolumeState(view,state);equal(2,view.listeners.size());adapter.configure(false);equal(1,view.listeners.size());equal(original,view.getDrawable());
         adapter.configure(true);adapter.onVolumeState(view,state);view.finish();adapter.releaseRuntime();view.runPostedForCheck();equal(original,view.getDrawable());equal(0,view.attachListeners.size());
     }
+    private static com.oplus.systemui.qs.base.tile.QSLottieAnimationView.ColorfulConfig palette(int start,int end,float alpha){
+        return new com.oplus.systemui.qs.base.tile.QSLottieAnimationView.ColorfulConfig(.3f,alpha,start,end);
+    }
+    private static OplusQsVolumeIconView.IconStateForCheck lottieState(OplusQsVolumeIconView view,com.airbnb.lottie.LottieDrawable source,
+            int route,int level,boolean above,boolean muted,String asset,int start,int end,float speed,
+            com.oplus.systemui.qs.base.tile.QSLottieAnimationView.ColorfulConfig config){
+        OplusQsVolumeIconView.IconStateForCheck icon=route==1?new OplusQsVolumeIconView.bluetoothRouteIconState$1(view):new OplusQsVolumeIconView.normalRouteIconState$1(view);
+        icon.lastLevel=level;icon.aboveThreshold=above;icon.isMuted=muted;icon.currentAsset=asset;icon.currentStartFrame=start;icon.currentEndFrame=end;icon.currentSpeed=speed;icon.colorfulConfig=config;
+        view.currentIconState=icon;view.nativeState(new VolumeState(route,level,160,false));view.animating=false;view.setAlpha(config.getEndAlpha());
+        view.lottieForCheck(source,config,asset,speed<0?start:end,speed);view.minFrameForCheck=start;view.maxFrameForCheck=end+.99f;return icon;
+    }
+    private static void volumeLottie(){
+        Port port=new Port();IconNativeControlCenter adapter=new IconNativeControlCenter(port);adapter.configure(true);
+        OplusQsVolumeIconView view=new OplusQsVolumeIconView();com.airbnb.lottie.LottieDrawable source=new com.airbnb.lottie.LottieDrawable();
+        String open="volumeui/ic_qs_volume_media_bt_open_night.json",close="volumeui/ic_qs_volume_media_bt_close_night.json";
+        int mute=0x4dffffff,blue=0xff0066ff;
+        OplusQsVolumeIconView.IconStateForCheck icon=lottieState(view,source,1,50,true,false,open,17,27,1f,palette(mute,blue,1f));
+        adapter.onVolumeUpdated(view);equal("slider.volume.bluetooth.unmute",role(view.getDrawable()));equal(blue,((Wrapped)view.getDrawable()).tint);
+        equal(null,source.getColorFilter());equal(255,source.getAlpha());equal(1f,view.getAlpha());equal(mute,icon.colorfulConfig.getStartColor());
+        int wraps=port.wraps,tints=port.tints,requests=port.requests;
+        for(int i=0;i<100;i++)adapter.onVolumeUpdated(view);
+        equal(wraps,port.wraps);equal(tints,port.tints);equal(requests,port.requests);
+        // Reverse open ends on startFill; Lottie replaces palette alpha with its
+        // own opacity, while QSLottieAnimationView already owns the view alpha.
+        icon=lottieState(view,source,1,5,false,false,open,17,27,-1f,palette(mute,blue,.3f));
+        adapter.onVolumeUpdated(view);equal(0xffffffff,((Wrapped)view.getDrawable()).tint);equal(.3f,view.getAlpha());equal(255,source.getAlpha());
+        icon=lottieState(view,source,1,0,false,true,close,0,17,1f,palette(blue,mute,.3f));
+        adapter.onVolumeUpdated(view);equal("slider.volume.bluetooth.mute",role(view.getDrawable()));equal(0xffffffff,((Wrapped)view.getDrawable()).tint);equal(.3f,view.getAlpha());
+        icon=lottieState(view,source,1,4,false,false,open,0,16,1f,palette(mute,mute,.3f));
+        adapter.onVolumeUpdated(view);equal(0xffffffff,((Wrapped)view.getDrawable()).tint);
+        // Palette values, not a hard-coded accent: native theme colors vary.
+        icon=lottieState(view,source,1,70,true,false,open,17,27,1f,palette(0x33112233,0x7f9abcde,.7f));
+        adapter.onVolumeUpdated(view);equal(0xff9abcde,((Wrapped)view.getDrawable()).tint);equal(.7f,view.getAlpha());
+        // The normal speaker uses startFill below its threshold and when muted.
+        for(int level:new int[]{0,4,50}){
+            boolean above=level==50;String asset=level==0?"volumeui/ic_qs_volume_media_grade_3_to_0_gauss_night.json":"volumeui/ic_qs_volume_media_gauss_night.json";
+            icon=lottieState(view,source,2,level,above,level==0,asset,level==0?0:36,level==0?36:46,level==4?-1f:1f,palette(0x33112233,0xffabcdef,above?1f:.3f));
+            adapter.onVolumeUpdated(view);equal(above?0xffabcdef:0xff112233,((Wrapped)view.getDrawable()).tint);equal(above?1f:.3f,view.getAlpha());
+        }
+        // Lottie clamps a JSON out-point of 36 to 35.99, whose public int
+        // getFrame() is 35. It is still the genuinely completed native frame.
+        String muted="volumeui/ic_qs_volume_media_grade_3_to_0_gauss_night.json";
+        icon=lottieState(view,source,2,0,false,true,muted,0,36,1f,palette(mute,blue,.3f));
+        view.lottieForCheck(source,icon.colorfulConfig,muted,35,1f);view.maxFrameForCheck=35.99f;
+        adapter.onVolumeUpdated(view);equal("slider.volume.normal.mute",role(view.getDrawable()));equal(0xffffffff,((Wrapped)view.getDrawable()).tint);
+        // Live animations retain the OEM drawable and listeners; only the
+        // genuine finished state can receive the replacement afterward.
+        icon=lottieState(view,source,1,50,true,false,open,17,27,1f,palette(mute,blue,1f));
+        view.animating=true;view.queuePostedForCheck=true;adapter.onVolumeUpdated(view);equal(source,view.getDrawable());equal(1,view.listeners.size());
+        view.finish();equal(source,view.getDrawable());view.runPostedForCheck();equal(blue,((Wrapped)view.getDrawable()).tint);equal(0,view.listeners.size());
+        // Missing/stale contracts leave the original Lottie visible. They must
+        // neither default to white nor reuse the previous state's tint.
+        for(int invalid=0;invalid<10;invalid++){
+            icon=lottieState(view,source,1,50,true,false,open,17,27,1f,palette(mute,blue,1f));
+            if(invalid==0)icon.colorfulConfig=palette(mute,blue,1f);
+            if(invalid==1)icon.this$0=new OplusQsVolumeIconView();
+            if(invalid==2)icon.currentAsset=close;
+            if(invalid==3)icon.isGlobalTheme=true;
+            if(invalid==4)icon.lastLevel=49;
+            if(invalid==5)icon.aboveThreshold=null;
+            if(invalid==6)view.lottieForCheck(source,icon.colorfulConfig,open,22,1f);
+            if(invalid==7)view.lottieForCheck(new com.airbnb.lottie.LottieDrawable(),icon.colorfulConfig,open,27,1f);
+            if(invalid==8)view.currentIconState=new Object();
+            if(invalid==9)icon.isMuted=true;
+            view.setImageDrawable(source);adapter.onVolumeUpdated(view);equal(source,view.getDrawable());equal(null,source.getColorFilter());
+        }
+        icon=lottieState(view,source,1,50,true,false,open,17,27,1f,palette(mute,blue,1f));adapter.onVolumeUpdated(view);
+        icon.colorfulConfig=null;adapter.onVolumeUpdated(view);equal(source,view.getDrawable());
+        // Static vector color filters keep their existing priority and alpha.
+        Native vector=new Native();vector.filter=new PorterDuffColorFilter(mute,PorterDuff.Mode.SRC_IN);view.setImageDrawable(vector);adapter.onVolumeUpdated(view);
+        equal(mute,((Wrapped)view.getDrawable()).tint);equal(187,vector.alpha);adapter.releaseRuntime();equal(vector,view.getDrawable());equal(0,view.attachListeners.size());
+    }
     private static void footer(){
         Port port=new Port();IconNativeControlCenter adapter=new IconNativeControlCenter(port);adapter.configure(true);OplusQSFooterImpl panel=new OplusQSFooterImpl();
         Native settings=new Native(),more=new Native(),avatar=new Native();panel.mSettingsButtonIcon.setImageDrawable(settings);panel.mMoreIcon.setImageDrawable(more);panel.mMultiUserAvatar.setImageDrawable(avatar);
@@ -196,5 +268,5 @@ public final class IconNativeControlCenterCheck {
         adapter.releaseRuntime();equal(nextFrame,card.p.f.getDrawable());equal(pad,rectangle.p.f.getDrawable());equal(s,square.m.getDrawable());equal(w,wide.p.getDrawable());equal(0,card.p.f.attachListeners.size());
         adapter.onDeviceIcon(card.p,700);equal(nextFrame,card.p.f.getDrawable());
     }
-    public static void main(String[] args)throws Exception{brightness();nativeMetadata();runtimeMetadata();volume();footer();media();devices();System.out.println("IconNativeControlCenter checks passed: "+checks);}
+    public static void main(String[] args)throws Exception{brightness();nativeMetadata();runtimeMetadata();volume();volumeLottie();footer();media();devices();System.out.println("IconNativeControlCenter checks passed: "+checks);}
 }

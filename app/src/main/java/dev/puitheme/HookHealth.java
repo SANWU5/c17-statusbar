@@ -78,6 +78,7 @@ final class HookHealth {
         group("mini_stack", "同应用小堆叠", "同应用通知小堆叠");
 
         lazy("statusbar_flow_layout", "状态栏排序布局", "状态栏排序（实验性）与左右间距");
+        lazy("privacy_indicator", "隐私小点", "去除隐私小点与摄像头处的使用中胶囊");
         lazy("status_hint_child_index", "提示图标布局", "系统提示图标的数量、间距与排序");
         lazy("network_order_child_index", "网络图标顺序", "Wi-Fi、蜂窝、数据图标的顺序");
         lazy("network_shared_native_placement", "网络共用位置", "网络图标的共用位置");
@@ -107,6 +108,20 @@ final class HookHealth {
         copy.putStringArrayList(GROUPS, entries(source.getStringArrayList(GROUPS), "[a-z][a-z0-9_]{0,31}=[0-9]{1,5}"));
         copy.putStringArrayList(COMPLETE, entries(source.getStringArrayList(COMPLETE), "[a-z][a-z0-9_]{0,31}"));
         copy.putStringArrayList(LAZY, entries(source.getStringArrayList(LAZY), "[a-z][a-z0-9_]{0,47}=(on|off|failed)"));
+        for (String key : new String[]{"custom_plugin_requested","custom_plugin_resolved","custom_plugin_installed","custom_plugin_unavailable"})
+            if (source.containsKey(key)) copy.putInt(key,Math.max(0,Math.min(64,source.getInt(key,0))));
+        for (String key : new String[]{"custom_plugin_revision","custom_plugin_hits"})
+            if (source.containsKey(key)) copy.putLong(key,Math.max(0L,source.getLong(key,0L)));
+        if (source.containsKey("custom_plugin_active")) copy.putBoolean("custom_plugin_active",source.getBoolean("custom_plugin_active",false));
+        for (String key : new String[]{"custom_plugin_runtime_requested","custom_plugin_runtime_loaded",
+                "custom_plugin_runtime_hooks","custom_plugin_runtime_pending","custom_plugin_runtime_retained_guards"})
+            if (source.containsKey(key)) copy.putInt(key,Math.max(0,source.getInt(key,0)));
+        for (String key : new String[]{"custom_plugin_runtime_revision","custom_plugin_runtime_errors","custom_plugin_runtime_hits"})
+            if (source.containsKey(key)) copy.putLong(key,Math.max(0L,source.getLong(key,0L)));
+        if (source.containsKey("custom_plugin_runtime_active"))
+            copy.putBoolean("custom_plugin_runtime_active",source.getBoolean("custom_plugin_runtime_active",false));
+        String runtimeError = source.getString("custom_plugin_runtime_last_error");
+        if (runtimeError != null) copy.putString("custom_plugin_runtime_last_error",runtimeError.substring(0,Math.min(1024,runtimeError.length())));
         return copy;
     }
 
@@ -182,6 +197,32 @@ final class HookHealth {
             StringBuilder detail = new StringBuilder("这些按需挂钩在需要时安装失败：");
             for (String name : failed) detail.append("\n· ").append(label(name)).append("：").append(effect(name));
             result.add(new Finding("lazy_failed", Severity.WARN, failed.size() + " 个按需挂钩安装失败", detail.toString()));
+        }
+        int pluginRequested = report.getInt("custom_plugin_requested",0);
+        if (pluginRequested > 0) {
+            int missing = report.getInt("custom_plugin_unavailable",pluginRequested);
+            if (!report.getBoolean("custom_plugin_active",false))
+                result.add(new Finding("custom_plugins_paused",Severity.INFO,"扩展插件系统规则已暂停","安全模式或模块停用时已恢复原生外观。"));
+            else if (missing > 0)
+                result.add(new Finding("custom_plugins_missing",Severity.WARN,"扩展插件有 " + missing + " 条规则未就绪",
+                        "共 " + pluginRequested + " 条规则；请核对插件要求的系统版本与类名、方法。未匹配的规则保留原生行为。"));
+            else result.add(new Finding("custom_plugins_ready",Severity.INFO,"扩展插件系统规则已加载",
+                    pluginRequested + " 条规则，" + report.getInt("custom_plugin_installed",0) + " 个挂钩；回调累计命中 "
+                            + report.getLong("custom_plugin_hits",0L) + " 次。实际外观仍需在对应界面确认。"));
+        }
+        int runtimeRequested = report.getInt("custom_plugin_runtime_requested",0);
+        if (runtimeRequested > 0) {
+            int loaded = report.getInt("custom_plugin_runtime_loaded",0);
+            if (!report.getBoolean("custom_plugin_runtime_active",false))
+                result.add(new Finding("custom_plugin_runtime_paused",Severity.INFO,"扩展插件运行已暂停","安全模式或模块停用时，宿主停止插件并调用其清理逻辑。"));
+            else if (loaded < runtimeRequested) {
+                String error = report.getString("custom_plugin_runtime_last_error","");
+                result.add(new Finding("custom_plugin_runtime_pending",error.isEmpty() ? Severity.INFO : Severity.WARN,
+                        "扩展插件已运行 " + loaded + "/" + runtimeRequested,
+                        error.isEmpty() ? "资源可能仍在后台加载；稍后刷新。如持续未运行，请检查插件与系统版本。"
+                                : "插件运行未完成：" + error));
+            } else result.add(new Finding("custom_plugin_runtime_ready",Severity.INFO,"扩展插件运行已加载",
+                    loaded + " 个插件，" + report.getInt("custom_plugin_runtime_hooks",0) + " 个受管理挂钩。实际交互仍需在对应界面确认。"));
         }
         return result;
     }

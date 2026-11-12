@@ -2,8 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     package="dev.puitheme.iosstatusbar"
-    android:versionCode="192"
-    android:versionName="1.8.3">
+    android:versionCode="59"
+    android:versionName="1.6.1">
 
     <!-- miuix-blur is minSdk 33; the settings app only composes it on Android 13+. -->
     <uses-sdk tools:overrideLibrary="top.yukonga.miuix.kmp.blur" />
@@ -20,6 +20,7 @@
         </intent>
     </queries>
     <application
+        android:localeConfig="@xml/locales_config"
         android:allowBackup="false"
         android:hasFragileUserData="false"
         android:fullBackupContent="@xml/backup_rules"
@@ -33,8 +34,12 @@
 
         <activity
             android:name="dev.puitheme.ModernMainActivity"
+            android:theme="@style/C17LaunchTheme"
             android:exported="false" />
         <activity android:name="dev.puitheme.PerformanceWebActivity" android:exported="false" />
+        <activity android:name="dev.puitheme.CustomPluginNativeSettingsActivity" android:exported="false" />
+        <service android:name="dev.puitheme.CustomPluginService" android:exported="false"
+            android:isolatedProcess="true" android:process=":c17_plugins" android:stopWithTask="true" />
         <!-- Root managers can open the fixed local page; this entry never starts an optimization. -->
         <activity-alias android:name="dev.puitheme.PerformanceControlActivity"
             android:targetActivity="dev.puitheme.PerformanceWebActivity" android:exported="true" />
@@ -42,6 +47,13 @@
             android:permission="android.permission.BIND_JOB_SERVICE" />
         <receiver android:name="dev.puitheme.PerformanceScheduleReceiver" android:exported="false">
             <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <receiver android:name="dev.puitheme.CustomPluginBootReceiver" android:directBootAware="true" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
@@ -86,7 +98,10 @@
             android:authorities="dev.puitheme.iosstatusbar.settings"
             android:directBootAware="true"
             android:exported="true"
-            android:grantUriPermissions="false" />
+            android:grantUriPermissions="false">
+            <!-- Visibility only: this exact marker never exposes settings or files. -->
+            <grant-uri-permission android:path="/custom-plugins/visibility" />
+        </provider>
         <provider
             android:name="dev.puitheme.DiagnosticFileProvider"
             android:authorities="dev.puitheme.iosstatusbar.diagnostics"

@@ -1,0 +1,11 @@
+{
+  "id": "dev.c17.ui-spacing",
+  "name": "时钟垂直间距示例",
+  "version": "1.0.0",
+  "versionCode": 1,
+  "apiVersion": 1,
+  "description": "按 ROM 核验后，微调原生 Clock 的垂直平移。",
+  "author": "C17 examples",
+  "capabilities": ["systemui"],
+  "entry": "main.js"
+}

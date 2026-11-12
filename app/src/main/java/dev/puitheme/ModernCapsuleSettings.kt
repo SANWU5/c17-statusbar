@@ -19,7 +19,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 摄像头区域流体云的跑马灯：预设用一行摘要加弹窗里的色条网格选择，自定义颜色用一排圆点，不再占满一整页。 */
@@ -63,7 +62,7 @@ fun MarqueeColorsRow(app: ModernMainActivity, enabled: Boolean, note: String) {
     val colors = customColors(app)
     val shown = if (preset == "comet") 1 else customCount(app)
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("自定义颜色", fontSize = 16.sp)
+        Text(tr("自定义颜色"), fontSize = 16.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             for (i in 0 until shown) {
                 val key = FluidCloudCapsule.MARQUEE_COLOR_KEYS[i]

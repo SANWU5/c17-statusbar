@@ -54,6 +54,7 @@ class Fixture:
             "id": "printf '0\\n'\n",
             "getprop": '''case "$1" in
   ro.build.fingerprint) printf '%s\\n' "${C17_FIXTURE_BUILD:-oplus/PJZ110/17.0.1}";;
+  ro.product.cpu.abi) printf 'arm64-v8a\\n';;
   sys.boot_completed)
     if [ -n "$C17_FIXTURE_BOOT_AFTER" ]; then
       count=$(cat "$C17_FIXTURE_LOG.boot-count" 2>/dev/null || printf '0')
@@ -101,6 +102,8 @@ case "$*" in
     printf 'package:/system_ext/app/SystemUIPlugin/evil.apk=com.bad;touch${IFS}/tmp/x\\n'
     printf 'package:/data/app/~~x/dev.puitheme.iosstatusbar-y/base.apk=dev.puitheme.iosstatusbar\\n'
     printf 'package:/system/app/Other/Other.apk=com.example.other\\n';;
+  "package list packages -U")
+    printf 'package:com.android.systemui uid:10160\\npackage:com.android.launcher uid:10120\\npackage:dev.puitheme.iosstatusbar uid:10400\\npackage:com.other uid:10500\\n';;
   "package path "*) printf 'package:/system_ext/x/%s.apk\\n' "$3";;
   "package art dump "*)
     package=$4
@@ -120,6 +123,12 @@ case "$*" in
     touch "$C17_FIXTURE_LOG.cancelled"
     printf 'Job cancelled\\n';;
   "package compile "*)
+    if [ "$C17_FIXTURE_REJECT_PRIVATE_STDOUT" = 1 ] && [ -f /dev/stdout ]; then
+      printf 'cmd: Failure calling service package: Failed transaction (2147483646)\\n'; exit 2
+    fi
+    if [ "$C17_FIXTURE_CHECK_FD" = 1 ]; then
+      if [ -e "/proc/$$/fd/9" ]; then printf 'inherited\\n'; else printf 'closed\\n'; fi >> "$C17_FIXTURE_LOG.fd9"
+    fi
     for package; do :; done
     case "$*" in *' -f --primary-dex '*) restoring=1;; *) restoring=0;; esac
     if [ "$restoring" = 1 ]; then
@@ -158,10 +167,33 @@ case "$*" in
 esac
 ''',
         }
+        # Git Bash ships Perl's real OS flock, but no flock executable. Duplicate the
+        # inherited descriptor just like toybox/util-linux; never fake lock success.
+        commands["flock"] = '''[ "$C17_FIXTURE_NO_FLOCK" != 1 ] || exit 2
+exec /usr/bin/perl -MFcntl=:flock -e '
+my ($shared,$unlock,$nonblock,$fd)=(0,0,0,undef);
+for (@ARGV) { if ($_ eq "-s") {$shared=1} elsif ($_ eq "-u") {$unlock=1} elsif ($_ eq "-n") {$nonblock=1} elsif (/^[0-9]+$/) {$fd=$_} else {exit 2} }
+defined($fd) or exit 2; open(my $h, "<&=$fd") or exit 2;
+my $mode=$unlock ? LOCK_UN : ($shared ? LOCK_SH : LOCK_EX); $mode |= LOCK_NB if $nonblock;
+exit(flock($h,$mode) ? 0 : 1);
+' -- "$@"
+''' if os.name == "nt" else '''[ "$C17_FIXTURE_NO_FLOCK" != 1 ] || exit 2
+exec /usr/bin/flock "$@"
+'''
         for name, text in commands.items():
             file = self.bin / name
             file.write_text("#!/bin/sh\n" + text, encoding="utf-8", newline="\n")
             file.chmod(0o755)
+        native = self.module / "bin/c17cached-arm64-v8a"
+        native.parent.mkdir()
+        native.write_text('''#!/bin/sh
+case "$1" in
+  --serve) if [ -e /proc/$$/fd/9 ]; then echo inherited; else echo closed; fi > "$C17_FIXTURE_LOG.cache-fd9"; touch "$C17_FIXTURE_LOG.cache-running";;
+  --stop) rm -f "$C17_FIXTURE_LOG.cache-running"; printf 'OK\\n';;
+  --status) if [ -f "$C17_FIXTURE_LOG.cache-running" ]; then printf 'cache_running=1\\ncache_protocol=1\\n'; else printf 'cache_running=0\\n'; exit 1; fi;;
+esac
+''', encoding="utf-8", newline="\n")
+        native.chmod(0o755)
         subprocess.run([bash, "-c", 'chmod 755 "$1"/*.sh "$2"/*; chmod 644 "$1/module.prop"; chmod 700 "$1"', "fixture",
                         self.posix + "/data/adb/modules/c17_performance", self.posix + "/bin"], check=True)
 
@@ -180,7 +212,9 @@ esac
                    self.posix + "/data/adb/modules/c17_performance/" + script]
         if mode:
             command.append(mode)
-        return subprocess.run(command, env=self.env(**flags), text=True, encoding="utf-8", capture_output=True, timeout=60)
+        # The unchanged 300 boot probes take >60s on MSYS (measured 62.469s, and
+        # slower under concurrent JVM work); only the host process budget differs.
+        return subprocess.run(command, env=self.env(**flags), text=True, encoding="utf-8", capture_output=True, timeout=180 if os.name == "nt" else 60)
 
     def commands(self):
         return self.log.read_text(encoding="utf-8").splitlines() if self.log.exists() else []
@@ -193,7 +227,9 @@ esac
         return values
 
     def wait_complete(self, expected=None, mode=None):
-        deadline = time.monotonic() + 15
+        # MSYS process creation is slower under concurrent JVM checks; keep the
+        # detached-worker test bounded without mistaking a completed job for failure.
+        deadline = time.monotonic() + (60 if os.name == "nt" else 15)
         while time.monotonic() < deadline:
             try:
                 values = self.status()
@@ -224,7 +260,7 @@ def scripts(base, bash):
     equal(0, result.returncode, "first boot exit " + result.stdout + result.stderr)
     equal(["com.android.systemui", "com.oplus.systemui.plugins"], compiles(f.commands()), "first boot compiles only SystemUI/plugin")
     status = f.status()
-    for key, value in dict(state="ok", compiled="2", reused="0", packages="2", verified="2", deferred="0", verification="verified", priority="background", module_version_code="8", error="none", mode="boot").items():
+    for key, value in dict(state="ok", compiled="2", reused="0", packages="2", verified="2", deferred="0", verification="verified", priority="background", module_version_code="14", error="none", mode="boot").items():
         equal(value, status[key], "first boot " + key)
     equal("00000000-0000-4000-8000-000000000107", status["boot"], "current boot")
     for package in compiles(f.commands()):
@@ -232,7 +268,7 @@ def scripts(base, bash):
         equal(True, (f.data / ("managed." + package)).is_file(), "only attempted target marked for restore")
     prop = (f.module / "module.prop").read_text(encoding="utf-8")
     contains(prop, "name=Status C17 附属模块", "module rename")
-    contains(prop, "version=1.7\nversionCode=8\n", "root version")
+    contains(prop, "version=2.3\nversionCode=14\n", "root version")
     contains(prop, "description=已就绪\n", "concise ready state")
     equal(True, (f.data / "status").read_bytes().endswith(b"\n"), "status final LF")
     equal(False, any("com.bad" in line or "com.example.other" in line for line in f.commands() if "compile" in line), "only trusted native targets")
@@ -447,10 +483,14 @@ def scripts(base, bash):
     (f.data / ".lock/boot").write_text(f.boot_id.read_text(), encoding="utf-8")
     owner = subprocess.Popen([bash, "-c", "printf '%s\\n' $$; exec /usr/bin/sleep 60"], stdout=subprocess.PIPE, text=True)
     try:
-        (f.data / ".lock/pid").write_text(owner.stdout.readline(), encoding="utf-8")
+        pid = owner.stdout.readline().strip()
+        (f.data / ".lock/pid").write_text(pid, encoding="utf-8")
         equal(23, f.run(mode="run").returncode, "live lock respected")
     finally:
-        owner.terminate(); owner.wait(timeout=5)
+        # Git's Windows launcher is a parent of the actual MSYS process. Signal the
+        # PID emitted by this exact fixture, then reap the launcher as well.
+        subprocess.run([bash, "-c", 'kill -TERM "$1" 2>/dev/null || :', "fixture", pid], check=True)
+        owner.communicate(timeout=5)
     shutil.rmtree(f.data / ".lock")
 
     for failure in ("fail", "false_success", "success_exit_failure"):
@@ -480,7 +520,7 @@ def scripts(base, bash):
     (legacy.data / "status").write_text("state=ok\ncompiled=2\npackages=2", encoding="utf-8")
     result = legacy.run(C17_FIXTURE_ART="speed")
     equal(2, len(list(legacy.data.glob("managed.*"))), "old aggregate successes migrate for future restore")
-    equal("8", legacy.status()["module_version_code"], "new execution distinguishable from old records")
+    equal("14", legacy.status()["module_version_code"], "new execution distinguishable from old records")
     equal(0, legacy.run("uninstall.sh", None).returncode, "legacy migrated cleanup")
     equal(True, all("-r install -f --primary-dex" in line for line in legacy.commands() if "compile" in line), "unknown legacy policy delegated to ROM install defaults")
     interrupted_legacy = Fixture(base, bash, "legacy-running")
@@ -514,7 +554,7 @@ def scripts(base, bash):
     equal([], compiles(g.commands()), "no compile through link")
     h = Fixture(base, bash, "foreign")
     moved = h.path / "data/adb/modules/other"; shutil.copytree(h.module, moved)
-    result = subprocess.run([bash, "-c", 'export PATH="$1/bin:/usr/bin:/bin"; exec bash "$2" run', "fixture", h.posix, str(moved / "common.sh")], env=h.env(), text=True, capture_output=True, timeout=60)
+    result = subprocess.run([bash, "-c", 'export PATH="$1/bin:/usr/bin:/bin"; exec bash "$2" run', "fixture", h.posix, str(moved / "common.sh")], env=h.env(), text=True, capture_output=True, timeout=180 if os.name == "nt" else 60)
     equal(20, result.returncode, "foreign module path refused")
 
 
@@ -533,6 +573,158 @@ def status_descriptions(base, bash):
         prop = (f.module / "module.prop").read_text(encoding="utf-8")
         contains(prop, message, "manager shows exact new policy " + name)
         equal(False, error in prop, "manager does not expose raw error code " + name)
+
+
+def locking(base, bash):
+    """Real inherited-descriptor flock; all signals/paths belong to these fixtures."""
+    # Git Bash does not reproduce Android mksh's close-on-exec descriptor policy.
+    # Keep the explicit inheritance contract for every native implementation; the
+    # mksh behavior itself also requires the isolated Android directory-FD probe.
+    source = (ASSETS / "common.sh").read_text(encoding="utf-8")
+    wrapper = source.split("flock_call() {", 1)[1].split("\n}", 1)[0]
+    for implementation in ('flock "$@"', '/system/bin/toybox flock "$@"', '"$FLOCK_BIN" flock "$@"'):
+        contains(wrapper, implementation + ' 9<&9;;', "native flock explicitly inherits FD9 " + implementation)
+    old_boot = "00000000-0000-4000-8000-000000000001\n"
+    for name, contents, old_time, expected in (
+        ("empty-old-boot", {}, True, 0),
+        ("pid-only-old-boot", {"pid": "1\n"}, True, 0),
+        ("boot-only-old-boot", {"boot": old_boot}, False, 0),
+        ("complete-old-boot", {"boot": old_boot, "pid": "1\n"}, False, 0),
+        ("empty-current-legacy", {}, False, 29),
+        ("boot-only-current-legacy", {"boot": "current"}, False, 29),
+        ("pid-only-dead", {"pid": "99999999\n"}, False, 0),
+        ("modern-empty-owner", {"generation": "10\n"}, False, 0),
+        ("modern-boot-only", {"generation": "10\n", "boot": "current"}, False, 0),
+    ):
+        f = Fixture(base, bash, "lock-" + name)
+        lock = f.data / ".lock"; lock.mkdir(parents=True)
+        for key, value in contents.items():
+            (lock / key).write_text(f.boot_id.read_text() if value == "current" else value, encoding="utf-8")
+        if old_time: os.utime(lock, (1, 1))
+        marker = f.boot_id.read_text() + "unknown\n"
+        (f.data / "active-job").write_text(marker, encoding="utf-8")
+        result = f.run(mode="enable")
+        equal(expected, result.returncode, "lock recovery " + name + result.stderr)
+        equal(marker, (f.data / "active-job").read_text(), "lock recovery never erases ART evidence " + name)
+        equal(expected != 0, lock.exists(), "only proven orphan removed " + name)
+
+    # A live PID must be distinguished from the different process that reused it.
+    owner = subprocess.Popen([bash, "-c", "printf '%s\\n' $$; exec /usr/bin/sleep 120"], stdout=subprocess.PIPE, text=True)
+    try:
+        pid = owner.stdout.readline().strip()
+        for reused in (False, True):
+            f = Fixture(base, bash, "lock-pid-reuse-" + str(reused))
+            lock = f.data / ".lock"; lock.mkdir(parents=True)
+            (lock / "pid").write_text(pid, encoding="utf-8")
+            (lock / "boot").write_text(f.boot_id.read_text(), encoding="utf-8")
+            if reused: (lock / "start").write_text("1\n", encoding="utf-8")
+            equal(0 if reused else 23, f.run(mode="enable").returncode, "PID start time determines liveness")
+            equal(False if reused else True, lock.exists(), "live PID owner remains protected")
+    finally:
+        subprocess.run([bash, "-c", 'kill -TERM "$1" 2>/dev/null || :', "fixture", pid], check=True)
+        owner.communicate(timeout=5)
+
+    f = Fixture(base, bash, "lock-no-capability")
+    f.data.mkdir(parents=True)
+    (f.data / "status").write_text("old trusted evidence\n", encoding="utf-8")
+    for mode in ("run", "enable", "uninstall", "lockcheck"):
+        result = f.run(mode=mode, C17_FIXTURE_NO_FLOCK="1")
+        equal(28, result.returncode, "unsupported kernel lock explicit " + mode)
+        contains(result.stdout, "error=lock_unavailable", "unsupported reason")
+    equal("old trusted evidence\n", (f.data / "status").read_text(), "unsupported never overwrites old evidence")
+    equal([], compiles(f.commands()), "unsupported never compiles")
+    contains(f.run("webui.sh", "status", C17_FIXTURE_NO_FLOCK="1").stdout, "lock_available=0", "manager can explain unsupported")
+    equal(28, f.run("webui.sh", "run", C17_FIXTURE_NO_FLOCK="1").returncode, "manager refuses unsupported submission")
+
+    def start(fixture, mode="enable", **flags):
+        return subprocess.Popen([bash, "-c", 'export PATH="$1/bin:/usr/bin:/bin"; exec bash "$2" "$3"',
+                                 "fixture", fixture.posix, fixture.posix + "/data/adb/modules/c17_performance/common.sh", mode],
+                                env=fixture.env(**flags), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
+    def wait_file(path):
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            if path.is_file(): return
+            time.sleep(0.03)
+        raise AssertionError("fixture barrier not reached: " + str(path))
+
+    for point in ("LOCKED=1\n", "printf '10\\n' > \"$DATA/.lock/generation\" || return 1\n"):
+        f = Fixture(base, bash, "lock-initialization-" + str(len(point)))
+        script = f.module / "common.sh"
+        pause = '''if [ "$C17_FIXTURE_PAUSE" = 1 ]; then
+printf '%s\\n' "$$" > "$C17_FIXTURE_LOG.owner"
+touch "$C17_FIXTURE_LOG.ready"
+while [ ! -f "$C17_FIXTURE_LOG.release" ]; do /usr/bin/sleep 0.03 9<&-; done
+fi
+'''
+        original = script.read_text(encoding="utf-8")
+        equal(1, original.count(point), "barrier is a unique real initialization boundary")
+        script.write_text(original.replace(point, point + pause), encoding="utf-8", newline="\n")
+        worker = start(f, C17_FIXTURE_PAUSE="1")
+        try:
+            wait_file(Path(str(f.log) + ".ready"))
+            equal("1", f.run(mode="lockstatus").stdout.strip(), "read-only status sees initialization as busy")
+            equal(23, f.run(mode="enable").returncode, "competing initializer never steals an incomplete new lock")
+            if "generation" in point:
+                pid = Path(str(f.log) + ".owner").read_text().strip()
+                subprocess.run([bash, "-c", 'kill -KILL "$1"', "fixture", pid], check=True)
+                worker.communicate(timeout=10)
+                equal(0, f.run(mode="enable").returncode, "process death releases native guard and partial metadata recovers")
+            else:
+                Path(str(f.log) + ".release").touch()
+                stdout, stderr = worker.communicate(timeout=20)
+                equal(0, worker.returncode, "initializer finishes intact " + stdout + stderr)
+        finally:
+            Path(str(f.log) + ".release").touch()
+            if worker.poll() is None: worker.communicate(timeout=20)
+        equal(False, (f.data / ".lock").exists(), "no orphan after initialization lifecycle")
+
+    # Concurrent recovery claims share the real kernel lock; critical sections cannot overlap.
+    f = Fixture(base, bash, "lock-concurrent-recovery")
+    (f.data / ".lock").mkdir(parents=True)
+    (f.data / ".lock/boot").write_text(old_boot, encoding="utf-8")
+    script = f.module / "common.sh"
+    text = script.read_text(encoding="utf-8").replace("trap cleanup EXIT\n", 'trap cleanup EXIT\nprintf "begin %s\\n" "$$" >> "$C17_FIXTURE_LOG.critical"\n/usr/bin/sleep 0.15 9<&-\n')
+    text = text.replace('if [ "$GUARDED" = 1 ]; then flock_call', 'if [ "$GUARDED" = 1 ]; then printf "end %s\\n" "$$" >> "$C17_FIXTURE_LOG.critical"; flock_call')
+    script.write_text(text, encoding="utf-8", newline="\n")
+    workers = [start(f) for _ in range(6)]
+    for worker in workers:
+        worker.communicate(timeout=60)
+        equal(True, worker.returncode in (0, 23), "concurrent claimant completes or reports busy")
+    active = None
+    for line in Path(str(f.log) + ".critical").read_text().splitlines():
+        event, pid = line.split()
+        if event == "begin": equal(None, active, "kernel critical sections never overlap"); active = pid
+        else: equal(pid, active, "only own critical section released"); active = None
+    equal(None, active, "all critical sections closed")
+    equal(False, (f.data / ".lock").exists(), "concurrent recovery leaves no lock")
+
+    f = Fixture(base, bash, "lock-art-owner-death")
+    # Hold the fake operation long enough to kill its owner at the actual ART marker boundary.
+    # Production uses 180s; only this copied fixture's shortened 2s deadline grows.
+    script = f.module / "common.sh"
+    script.write_text(script.read_text(encoding="utf-8").replace("OPERATION_SECONDS=2\n", "OPERATION_SECONDS=60\n"), encoding="utf-8", newline="\n")
+    worker = start(f, mode="run", C17_FIXTURE_COMPILE="hang", C17_FIXTURE_CHECK_FD="1")
+    try:
+        deadline = time.monotonic() + 45
+        while time.monotonic() < deadline:
+            marker = (f.data / "active-job").read_text() if (f.data / "active-job").is_file() else ""
+            if "12345678-1234-4234-8234-123456789abc" in marker: break
+            time.sleep(0.03)
+        else: raise AssertionError("ART fixture did not publish its real job marker")
+        pid = (f.data / ".lock/pid").read_text().strip()
+        equal(["closed"], Path(str(f.log) + ".fd9").read_text().splitlines(), "long ART client does not inherit kernel lock descriptor")
+        subprocess.run([bash, "-c", 'kill -KILL "$1"', "fixture", pid], check=True)
+        worker.communicate(timeout=10)
+        equal("0", f.run(mode="lockstatus").stdout.strip(), "dead owner frees guard while ART client still exists")
+        equal(marker, (f.data / "active-job").read_text(), "read/recovery probe does not erase active ART evidence")
+        result = f.run(mode="run")
+        equal(0, result.returncode, "next worker cancels previous job before proceeding")
+        equal("ok", f.status()["state"], "post-crash run completes")
+        equal(False, (f.data / "active-job").exists(), "confirmed cancellation and success close ART marker")
+    finally:
+        # Only this fake ART job waits on this exact signal; never cancel a device job.
+        Path(str(f.log) + ".cancelled").touch()
+        if worker.poll() is None: worker.communicate(timeout=30)
 
 
 def on_demand(base, bash):
@@ -599,7 +791,7 @@ def on_demand(base, bash):
     f.run(mode="run")
     result = f.run("webui.sh", "status")
     equal(0, result.returncode, "web status read succeeds")
-    for marker in ("C17_WEB:begin", "C17_WEB:end", "record_present=1", "module_version_code=8", "busy=0", "active_job=0", "last_diagnostic=none", "total_compiles=2", "total_wall_ms=3000"):
+    for marker in ("C17_WEB:begin", "C17_WEB:end", "record_present=1", "module_version_code=12", "busy=0", "active_job=0", "last_diagnostic=none", "total_compiles=2", "total_wall_ms=3000"):
         contains(result.stdout, marker, "fixed real web status field " + marker)
     equal(20, f.run("webui.sh", "run;id").returncode, "web command injection rejected")
     result = f.run("webui.sh", "disable")
@@ -613,7 +805,7 @@ def on_demand(base, bash):
 
 
 def app_commands(base, bash, javabin, classpath):
-    java = [javabin, "-Xms16m", "-Xmx128m", "-XX:+UseSerialGC", "-cp", classpath, "dev.puitheme.RootPerformanceModuleCheck"]
+    java = [javabin, "-Dfile.encoding=UTF-8", "-Xms16m", "-Xmx128m", "-XX:+UseSerialGC", "-cp", classpath, "dev.puitheme.RootPerformanceModuleCheck"]
     out = base / "commands"; out.mkdir()
     subprocess.run(java + [str(out)], check=True, capture_output=True)
     f = Fixture(base, bash, "app")
@@ -625,8 +817,8 @@ def app_commands(base, bash, javabin, classpath):
     legacy = f.path / "data/adb/modules/c17_resident_cache"
     legacy.mkdir(parents=True)
     (legacy / "module.prop").write_text("id=c17_resident_cache\n", encoding="utf-8")
-    subprocess.run(["chmod", "644", str(legacy / "module.prop")], check=True)
-    subprocess.run(["chmod", "755", str(legacy)], check=True)
+    subprocess.run([bash, "-c", 'chmod 644 "$1/module.prop"; chmod 755 "$1"', "fixture",
+                    f.posix + "/data/adb/modules/c17_resident_cache"], check=True)
 
     def generated(action):
         return f.rewrite((out / (action + ".sh")).read_text(encoding="utf-8"))
@@ -634,7 +826,7 @@ def app_commands(base, bash, javabin, classpath):
     def run(action, **flags):
         # MSYS may normalize the inherited Windows PATH before -c; bind fixtures inside the shell.
         return subprocess.run([bash, "-c", 'export PATH="$1/bin:/usr/bin:/bin"; ' + generated(action), "fixture", f.posix],
-                              env=f.env(**flags), text=True, encoding="utf-8", capture_output=True, timeout=60)
+                              env=f.env(**flags), text=True, encoding="utf-8", capture_output=True, timeout=180 if os.name == "nt" else 60)
 
     # Permission guards consume octal digits as data, across Android and manager shell arithmetic modes.
     for permission in ("600", "644", "700", "755", "4700", "602", "622", "666", "775", "777"):
@@ -669,7 +861,7 @@ def app_commands(base, bash, javabin, classpath):
     contains(result.stdout, "C17_PERF:last_state=current", "check reports the module record")
     modern_protocol = base / "modern-check-output.txt"
     modern_protocol.write_text(result.stdout, encoding="utf-8")
-    web = subprocess.run(java + ["--web-status-file", str(modern_protocol)], text=True, capture_output=True)
+    web = subprocess.run(java + ["--web-status-file", str(modern_protocol)], text=True, encoding="utf-8", capture_output=True)
     equal(0, web.returncode, "native H5 status serializes the real generated CHECK: " + web.stdout + web.stderr)
     contains(web.stdout, "C17_WEB:begin", "native H5 framing starts")
     contains(web.stdout, "C17_WEB:end", "native H5 framing ends")
@@ -677,7 +869,7 @@ def app_commands(base, bash, javabin, classpath):
     protocol = base / "real-check-output.txt"
     protocol.write_text(result.stdout, encoding="utf-8")
     parsed = subprocess.run(java + ["--parse-file", str(protocol)],
-                            text=True, capture_output=True)
+                            text=True, encoding="utf-8", capture_output=True)
     equal(0, parsed.returncode, "real CHECK result must parse, including a legacy status file without final newline: " + parsed.stdout + parsed.stderr)
     # Real V1 record captured on PJZ110 had no final LF; current APK must read it without upgrading or running the module.
     (f.data / "status").write_text("state=ok\ntime=1791500000\ncompiled=2\npackages=2\nerror=none", encoding="utf-8")
@@ -685,7 +877,7 @@ def app_commands(base, bash, javabin, classpath):
     result = run("CHECK")
     protocol.write_text(result.stdout, encoding="utf-8")
     parsed = subprocess.run(java + ["--parse-file", str(protocol)],
-                            text=True, capture_output=True)
+                            text=True, encoding="utf-8", capture_output=True)
     equal(0, parsed.returncode, "PJZ110 legacy no-LF status is readable: " + parsed.stdout + parsed.stderr)
     equal(before, (f.data / "status").read_bytes(), "CHECK leaves the legacy record unchanged")
     result = run("RUN")
@@ -760,7 +952,7 @@ def reuse_without_compiler_boundaries(base, bash):
     equal("deferred", no_timer.status()["state"], "ready ART never bypasses timeout requirement")
     equal("timeout_unavailable", no_timer.status()["error"], "timeout failure remains explicit")
     equal("0", no_timer.status()["verified"], "unbounded ART was never queried")
-    equal([], no_timer.commands(), "missing timeout invokes no Android package or condition query")
+    equal(["package list packages -U"], no_timer.commands(), "missing ART timeout still allows the independent cache UID lookup only")
     equal([], list(no_timer.data.glob("managed.*")), "missing timeout creates no ownership")
 
     for shape in ("empty", "invalid", "directory", "link"):
@@ -812,20 +1004,55 @@ def reuse_without_compiler_boundaries(base, bash):
         equal([], compiles(old.commands()), "blocked migration never compiles " + legacy)
 
 
+def reuse_and_logs(base, bash):
+    f = Fixture(base, bash, "reuse-and-logs")
+    prop = f.bin / "getprop"
+    prop.write_text(prop.read_text(encoding="utf-8").replace("#!/bin/sh\n", '#!/bin/sh\nprintf "getprop %s\\n" "$*" >> "$C17_FIXTURE_LOG"\n', 1), encoding="utf-8")
+    result = f.run(mode="run")
+    equal(0, result.returncode, "cold optimization succeeds")
+    commands = f.commands()
+    equal(1, commands.count("getprop ro.build.fingerprint"), "build identity read once for all packages")
+    equal(4, sum(line.startswith("package art dump ") for line in commands), "cold run queries each ART state once before and once after compile")
+    equal(2, len(compiles(commands)), "each native package compiled once")
+    for record in f.data.glob("package.*"):
+        record.write_text("versionCode=8\n" + record.read_text(encoding="utf-8"), encoding="utf-8")
+    f.log.write_text("", encoding="utf-8")
+    result = f.run(mode="run", C17_FIXTURE_ART="unknown")
+    equal(0, result.returncode, "legacy identity remains reusable after companion upgrade")
+    equal([], compiles(f.commands()), "companion upgrade does not recompile unchanged native APKs")
+    equal("2", f.status()["reused"], "both legacy package identities reused")
+    equal(2, sum(line.startswith("package art dump ") for line in f.commands()), "warm run performs only one verification query per native package")
+    contains((f.data / "trace").read_text(encoding="utf-8"), "proof=identity_only", "fallback log states the actual reuse evidence")
+    (f.data / "trace").write_text(("old diagnostic " + "x" * 180 + "\n") * 30, encoding="utf-8")
+    f.run(mode="run", C17_FIXTURE_ART="speed")
+    trace = (f.data / "trace").read_bytes()
+    equal(True, len(trace) <= 2049, "execution log has a hard byte bound including final newline")
+    equal(True, len(trace.splitlines()) <= 24, "execution log has a hard entry bound")
+    contains(trace.decode(), "proof=native_art", "verified reuse log remains visible after trimming")
+    failed = Fixture(base, bash, "failure-log")
+    failed.run(mode="run", C17_FIXTURE_COMPILE="fail")
+    evidence = (failed.data / "operation-last").read_text(encoding="utf-8")
+    for token in ("time=", "package=", "stage=compile", "error=", "diagnostic=", "FAILED"):
+        contains(evidence, token, "failure report preserves " + token)
+    equal(True, len(evidence.encode()) <= 2048, "failure diagnostic remains bounded")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bash", default=shutil.which("bash"))
     parser.add_argument("--java", default=shutil.which("java"))
     parser.add_argument("--classpath", help="compiled checks and production classes for the generated-command part")
     parser.add_argument("--status-only", action="store_true", help="only exercise manager descriptions against the real scripts")
-    parser.add_argument("--groups", default="scripts,on_demand,descriptions,app", help="independent fixture groups: scripts,on_demand,descriptions,app")
+    parser.add_argument("--groups", default="locking,scripts,on_demand,descriptions,reuse,app", help="independent fixture groups: locking,scripts,on_demand,descriptions,reuse,app")
     args = parser.parse_args()
     groups = set(args.groups.split(","))
-    if not groups <= {"scripts", "on_demand", "descriptions", "app"}: parser.error("unknown fixture group")
+    if not groups <= {"locking", "scripts", "on_demand", "descriptions", "reuse", "app"}: parser.error("unknown fixture group")
     base = Path(tempfile.mkdtemp(prefix="c17-performance-module-"))
     if not args.status_only:
+        if "locking" in groups: locking(base, args.bash)
         if "scripts" in groups: scripts(base, args.bash)
         if "on_demand" in groups: on_demand(base, args.bash)
+        if "reuse" in groups: reuse_and_logs(base, args.bash)
     if args.status_only or "descriptions" in groups: status_descriptions(base, args.bash)
     print(f"performance-module scripts: {CHECKS} checks passed", flush=True)
     if args.classpath and not args.status_only and "app" in groups:

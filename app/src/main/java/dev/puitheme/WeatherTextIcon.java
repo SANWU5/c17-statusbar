@@ -189,6 +189,26 @@ final class WeatherTextIcon {
         }
     }
 
+    /** Cache the visible CJK glyph box, rather than enlarging icons by the font's em size. */
+    static final class IconMetrics {
+        private final android.graphics.Rect ink=new android.graphics.Rect();
+        private final Paint.FontMetricsInt fallback=new Paint.FontMetricsInt();
+        private android.graphics.Typeface face;
+        private float size=Float.NaN,scale,skew;
+        private int flags;
+        private String variation;
+        float top,height;
+        void update(Paint paint){
+            if(face==paint.getTypeface()&&size==paint.getTextSize()&&scale==paint.getTextScaleX()
+                    &&skew==paint.getTextSkewX()&&flags==paint.getFlags()
+                    &&java.util.Objects.equals(variation,paint.getFontVariationSettings()))return;
+            face=paint.getTypeface();size=paint.getTextSize();scale=paint.getTextScaleX();skew=paint.getTextSkewX();flags=paint.getFlags();
+            variation=paint.getFontVariationSettings();
+            paint.getTextBounds("国",0,1,ink);
+            if(ink.height()>0){top=ink.top;height=ink.height();}
+            else {paint.getFontMetricsInt(fallback);top=fallback.ascent;height=Math.max(1,fallback.descent-fallback.ascent);}
+        }
+    }
     static final class Span extends ReplacementSpan {
         final Kind kind;
         final NativeImage image;
@@ -199,22 +219,20 @@ final class WeatherTextIcon {
         private final RectF bounds=new RectF();
         private final Paint tint=new Paint();
         private final Paint.FontMetricsInt metrics=new Paint.FontMetricsInt();
+        private final IconMetrics iconMetrics=new IconMetrics();
         private final PorterDuffXfermode sourceIn=new PorterDuffXfermode(PorterDuff.Mode.SRC_IN);
         Span(Kind kind,NativeImage image) { this(kind,image,false); }
         Span(Kind kind,NativeImage image,boolean nativeColours) {
             this.kind=kind==null?Kind.UNKNOWN:kind;this.image=image;this.nativeColours=nativeColours;graphic=image==null?null:image.create();
             artwork=image==null&&this.kind!=Kind.UNKNOWN?new ModuleWeatherIcon(this.kind,nativeColours):null;
         }
-        /** The lock-screen widget draws its icon about one and a half text heights tall; matching it keeps the glyph recognisable. */
-        static final float ICON_SCALE=1.35f;
-        private float height(Paint paint){float value=paint.getTextSize();return Float.isFinite(value)?Math.max(1f,value*ICON_SCALE):1f;}
+        private float height(Paint paint){iconMetrics.update(paint);return iconMetrics.height;}
         private float width(Paint paint){return height(paint)*(image==null?1.15f:Math.max(.25f,Math.min(4f,(float)image.width/image.height)));}
         @Override public int getSize(Paint paint,CharSequence text,int start,int end,Paint.FontMetricsInt output) {
             if(output!=null) {
                 paint.getFontMetricsInt(output);
-                // A taller icon grows the line around its own centre instead of being clipped by the text line.
-                float centre=(output.ascent+output.descent)*.5f,half=height(paint)*.5f;
-                int iconTop=(int)Math.floor(centre-half),iconBottom=(int)Math.ceil(centre+half);
+                iconMetrics.update(paint);
+                int iconTop=(int)Math.floor(iconMetrics.top),iconBottom=(int)Math.ceil(iconMetrics.top+iconMetrics.height);
                 if(iconTop<output.ascent)output.ascent=iconTop;if(iconBottom>output.descent)output.descent=iconBottom;
                 if(iconTop<output.top)output.top=iconTop;if(iconBottom>output.bottom)output.bottom=iconBottom;
             }
@@ -226,7 +244,7 @@ final class WeatherTextIcon {
             if(artwork!=null){artwork.draw(canvas,x,baseline,paint);return;}
             if(graphic==null)return;
             float height=height(paint),width=width(paint);paint.getFontMetricsInt(metrics);
-            float y=baseline+(metrics.ascent+metrics.descent-height)*.5f;
+            float y=baseline+iconMetrics.top;
             bounds.set(x,y,x+width,y+height);
             // The parent material requests opaque coverage. Its one existing
             // effect already colours all glyphs, so preserve the native vector

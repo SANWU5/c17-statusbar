@@ -34,7 +34,7 @@ public final class NetworkLabelFormatsCheck {
             equal(saved.get(key),imported.values().get(key),"backup preserves blank/unicode content "+key);
             equal(saved.get(key),snapshot.getString(key),"complete snapshot preserves content "+key);
             equal(true,SettingsCatalog.item(key)!=null,"editor present "+key);
-            equal("label",SettingsCatalog.item(key).groupId,"editor belongs to the label page "+key);
+            equal("network",SettingsCatalog.item(key).groupId,"editor belongs to the combined network page "+key);
             equal(false,SettingsCatalog.hiddenKeys().contains(key),"content key is not hidden "+key);
             equal(ConfigTransfer.Type.STRING,ConfigTransfer.types().get(key),"wire type "+key);
         }

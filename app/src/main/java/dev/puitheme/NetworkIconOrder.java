@@ -50,6 +50,7 @@ public final class NetworkIconOrder {
     private Method nativePlaceHelper, nodeOwner, nodeParent, nodeCoordinator, coordinatorPosition;
     private Method placeableWidth;
     private Method scopeDensity;
+    private Method constraintMinWidth, constraintMaxWidth, constraintMinHeight, constraintMaxHeight, createConstraints;
     private final Map<View, SharedRow> sharedRows = new WeakHashMap<>();
     private final ThreadLocal<SharedMeasure> sharedMeasure = new ThreadLocal<>();
     private final ThreadLocal<MarginMeasure> marginMeasure = new ThreadLocal<>();
@@ -67,7 +68,7 @@ public final class NetworkIconOrder {
                 || nextFlow && (nextOrder != 0 || nextLeft != 0 || nextRight != 0))
                 && !settings.getBoolean(StatusBarSettings.SAFE_MODE, false);
         if (enabled == wanted && shared == nextShared && flow == nextFlow && labelOrder == nextOrder && labelLeft == nextLeft && labelRight == nextRight) return false;
-        if (shared && !nextShared) for (SharedRow row : new ArrayList<>(sharedRows.values())) row.restore();
+        if (shared && !nextShared) for (SharedRow row : new ArrayList<>(sharedRows.values())) row.disabled();
         shared = nextShared;
         enabled = wanted; flow = nextFlow; labelOrder = nextOrder; labelLeft = nextLeft; labelRight = nextRight; revision++;
         synchronized (taggedModifiers) { taggedModifiers.clear(); }
@@ -132,6 +133,16 @@ public final class NetworkIconOrder {
             placeableWidth = placeable.getMethod("getWidth");
         } catch (ReflectiveOperationException unavailableSharedPlacement) {
             nodeOwner = nodeParent = nodeCoordinator = coordinatorPosition = placeableWidth = null;
+        }
+        try {
+            Class<?> constraints=loader.loadClass("androidx.compose.ui.unit.Constraints");
+            constraintMinWidth=constraints.getMethod("getMinWidth-impl",Long.TYPE);
+            constraintMaxWidth=constraints.getMethod("getMaxWidth-impl",Long.TYPE);
+            constraintMinHeight=constraints.getMethod("getMinHeight-impl",Long.TYPE);
+            constraintMaxHeight=constraints.getMethod("getMaxHeight-impl",Long.TYPE);
+            createConstraints=loader.loadClass("androidx.compose.ui.unit.ConstraintsKt").getMethod("Constraints",Integer.TYPE,Integer.TYPE,Integer.TYPE,Integer.TYPE);
+        } catch (ReflectiveOperationException unavailableConstraints) {
+            constraintMinWidth=constraintMaxWidth=constraintMinHeight=constraintMaxHeight=createConstraints=null;
         }
         modifierVisitor = Proxy.newProxyInstance(loader, new Class<?>[]{function}, (proxy, method, args) -> {
             if (method.getName().equals("invoke")) {
@@ -465,7 +476,15 @@ public final class NetworkIconOrder {
             if (shared && nativePlaceHelper != null && method.getName().startsWith("measure")
                     && forwarded != null && forwarded.length > 1 && forwarded[1] instanceof List) {
                 current = sharedMeasurement(nativePolicy, (List<?>) forwarded[1]);
-                if (current != null) sharedMeasure.set(current);
+                if (current != null) {
+                    sharedMeasure.set(current);
+                    if(forwarded.length>2&&forwarded[2] instanceof Long){
+                        long constraints=(Long)forwarded[2],content=current.row.contentConstraints(constraints);
+                        current.captureAllowed=current.row.contentTrusted;
+                        current.maximumWidth=current.row.contentMaximumWidth;
+                        if(content!=constraints){forwarded=forwarded.clone();forwarded[2]=content;}
+                    }
+                }
                 else sharedMeasure.remove();
             }
             if (flow && !shared && nativePlaceHelper != null && method.getName().startsWith("measure")
@@ -483,7 +502,14 @@ public final class NetworkIconOrder {
                 }
                 return result;
             }
-            catch (InvocationTargetException error) { throw error.getCause(); }
+            catch (InvocationTargetException error) {
+                if (current != null) current.row.failedMeasurement();
+                throw error.getCause();
+            }
+            catch (ReflectiveOperationException | RuntimeException error) {
+                if (current != null) current.row.failedMeasurement();
+                throw error;
+            }
             finally {
                 if (previous == null) sharedMeasure.remove(); else sharedMeasure.set(previous);
                 if (previousMargin == null) marginMeasure.remove(); else marginMeasure.set(previousMargin);
@@ -500,6 +526,7 @@ public final class NetworkIconOrder {
         if (!shared || released || scope == null || scope.policy != policy || original == null || original.length != 10
                 || !(original[0] instanceof Object[]) || !(original[3] instanceof int[])
                 || !(original[4] instanceof Integer)) return original;
+        if (!scope.captureAllowed) return original;
         Object[] placeables = (Object[]) original[0];
         int[] nativePositions = (int[]) original[3];
         if (placeables.length != scope.children || nativePositions.length != scope.children) return original;
@@ -528,6 +555,11 @@ public final class NetworkIconOrder {
             int[] positions = nativePositions.clone();
             int rowLeft = scope.row.rowLeft();
             if (rowLeft < 0 || target.width < rowLeft) return original;
+            if(scope.maximumWidth>=0&&target.width-rowLeft>scope.maximumWidth){
+                // A real narrower parent wins over the previous scene's target.
+                // Do not publish a MeasureResult outside this pass's bounds.
+                scope.row.target=null;return original;
+            }
             for (int i = 0; i < positions.length; i++) {
                 int value = i == scope.label ? target.labelLeft + scope.row.labelInset - rowLeft
                         : target.signalLeft + scope.row.signalInset - rowLeft + nativePositions[i] - scope.row.measuredSignalLeft;
@@ -627,7 +659,7 @@ public final class NetworkIconOrder {
             View host = sharedLayout.host((View) owner);
             if (host == null) return null;
             SharedRow row = sharedRows.get(host);
-            if (row == null || row.row.get() != rowNode) {
+            if (row == null || row.row.get() != rowNode || row.owner.get() != owner) {
                 if (row != null) sharedLayout.unregister(row);
                 row = new SharedRow(host, (View) owner, rowNode, signalNode);
                 sharedRows.put(host, row); sharedLayout.register(host, row);
@@ -640,6 +672,8 @@ public final class NetworkIconOrder {
     private static final class SharedMeasure {
         final Object policy; final SharedRow row; final int children, label;
         final Object[] nativeChildren;
+        boolean captureAllowed = true;
+        int maximumWidth = -1;
         SharedMeasure(Object policy, SharedRow row, Object[] children, int label) {
             this.policy = policy; this.row = row; this.children = children.length; this.nativeChildren = children; this.label = label;
         }
@@ -655,9 +689,47 @@ public final class NetworkIconOrder {
         int labelInset, signalInset, labelBudget, signalBudget;
         int diagnosedOrigin = -1, diagnosedWidth = -1, diagnosedLabel = -1, diagnosedSignal = -1;
         boolean measured, labelPresent, recoveringNativeVisibility, normalizeNativePass;
+        int hullMeasureDepth, nativeMinWidth, nativeMaxWidth;
+        int contentMaximumWidth;
+        boolean nativeConstraintsKnown, hullProtected, contentTrusted;
         SharedRow(View host, View owner, Object row, Object signalNode) {
             this.host = new WeakReference<>(host); this.owner = new WeakReference<>(owner); this.row = new WeakReference<>(row);
             this.signalNode = new WeakReference<>(signalNode);
+        }
+        @Override public void beginHullMeasure(){hullMeasureDepth++;hullProtected=true;}
+        @Override public void endHullMeasure(){if(hullMeasureDepth>0)hullMeasureDepth--;}
+        long contentConstraints(long current){
+            contentTrusted=false;contentMaximumWidth=-1;
+            try{
+                boolean nativePass=hullMeasureDepth==0&&sharedLayout.nativeMeasuring(host.get());
+                if(nativePass)sharedLayout.nativeParticipant(host.get(),this);
+                boolean owned=hullMeasureDepth>0||hullProtected||target!=null||sharedLayout.mayReplayHull(host.get());
+                if(createConstraints==null){
+                    // Without the actual Constraints contract only an unowned
+                    // native pass can establish a frame; compact targets fail closed.
+                    if(nativePass||!owned)contentTrusted=true;else abandonMeasurement();
+                    return current;
+                }
+                if(nativePass||!owned){
+                    nativeMinWidth=(Integer)constraintMinWidth.invoke(null,current);
+                    nativeMaxWidth=(Integer)constraintMaxWidth.invoke(null,current);
+                    nativeConstraintsKnown=true;contentMaximumWidth=nativeMaxWidth;contentTrusted=true;return current;
+                }
+                if(!nativeConstraintsKnown){abandonMeasurement();return current;}
+                // The host's compact hull can overlap fragments. Its EXACT size
+                // is not a new content constraint and must not squeeze the label
+                // before capture. Real native traversals keep their own bounds.
+                long result=(Long)createConstraints.invoke(null,nativeMinWidth,nativeMaxWidth,
+                        (Integer)constraintMinHeight.invoke(null,current),(Integer)constraintMaxHeight.invoke(null,current));
+                contentMaximumWidth=nativeMaxWidth;contentTrusted=true;return result;
+            }catch(ReflectiveOperationException|RuntimeException unavailable){abandonMeasurement();return current;}
+        }
+        private void abandonMeasurement(){measured=false;nativeConstraintsKnown=false;target=null;}
+        @Override public void nativeMeasureFailed(){ failedMeasurement(); }
+        private void failedMeasurement(){
+            // Even a partially completed native pass can leave Compose holding
+            // the prior compact result. Require another successful native pass.
+            abandonMeasurement();sharedLayout.preserveHullWitness(host.get());
         }
         void capture(int[] positions, int[] widths, int label, int width) {
             normalizeNativePass = false;
@@ -736,7 +808,11 @@ public final class NetworkIconOrder {
                 long position = (Long) coordinatorPosition.invoke(nodeCoordinator.invoke(signal), 0L);
                 float signalLocal = Float.intBitsToFloat((int) (position >>> 32));
                 if (!Float.isFinite(signalLocal) || signalLocal < -65535f || signalLocal > 65535f) return null;
-                int currentSignal = left + Math.round(signalLocal) - signalInset;
+                // localToRoot(signal) already contains the Row origin. Add only
+                // the Android owner's physical offset, never that origin twice.
+                int ownerOffset = NetworkSharedSlotLayout.offset(owner.get(), mobileHost);
+                if (ownerOffset < 0) return null;
+                int currentSignal = ownerOffset + Math.round(signalLocal) - signalInset;
                 return new NetworkSharedSlotLayout.Frame(mobileHost, this, true, labelPresent, labelBudget,
                         signalBudget, left + labelLeft - labelInset, left + signalLeft - signalInset, left + nativeWidth, currentSignal);
             } catch (ReflectiveOperationException | RuntimeException unsupportedCoordinates) { restore(); return null; }
@@ -746,6 +822,8 @@ public final class NetworkIconOrder {
             if (!value.signalVisible || value.labelVisible != labelPresent) return reject("native_visibility", -1, value);
             try {
                 int origin = rowLeft();
+                if(value.width<(long)origin+nativeWidth&&(!nativeConstraintsKnown||createConstraints==null))
+                    return reject("native_constraints_unavailable",origin,value);
                 if (origin < 0 || value.width < origin || value.signalLeft + signalInset < 0
                         || (long) value.signalLeft + signalInset + signalWidth > value.width
                         || labelPresent && (value.labelLeft + labelInset < 0
@@ -770,6 +848,9 @@ public final class NetworkIconOrder {
             // here would create a second, unnecessary layout pass.
         }
         @Override public void restore() { if (target != null) { target = null; invalidate(); } }
+        @Override public void disabled() {
+            restore(); measured=false; nativeConstraintsKnown=false; hullProtected=false;
+        }
     }
 
     private static final class SwappedTail extends AbstractList<Object> {
@@ -797,5 +878,6 @@ public final class NetworkIconOrder {
         nativeContainer = null; measurePolicy = null; slot = null; visible = null; blocked = null; ignored = null;
         measuredNode = null; lookaheadNode = null;
         modifierThen = null; modifierFold = null; signalTag = null; textTag = null; modifierVisitor = null;
+        constraintMinWidth=constraintMaxWidth=constraintMinHeight=constraintMaxHeight=createConstraints=null;
     }
 }

@@ -96,6 +96,9 @@ public final class C17HighlightRemoval {
     // Exact OplusCustomRow.mBackgroundNormal identities supplied at native bind events.
     // Do not classify immersive wallpaper/media artwork as notification backgrounds.
     private final Map<View, Boolean> fluidNotifications = Collections.synchronizedMap(new WeakHashMap<>());
+    // OplusCustomRow is a FrameLayout, not an ActivatableNotificationView. Its
+    // dispatchDraw adds a separate spotlight after drawing the registered body.
+    private final Map<View, WeakReference<View>> fluidSpotlightRows = Collections.synchronizedMap(new WeakHashMap<>());
     // A native MetaBall gradient must keep its own colours/alpha while optics
     // are removed. It cannot be replaced by a uniform finished-card RGB filter.
     private final Map<View, Boolean> fluidNativeAccents = Collections.synchronizedMap(new WeakHashMap<>());
@@ -193,6 +196,9 @@ public final class C17HighlightRemoval {
 
     public synchronized void setFluidNotificationBackground(View host, boolean follow, boolean keepHighlight) {
         if (released || host == null || !type(host.getClass(), NOTIFICATION_BACKGROUND)) return;
+        ViewParent parent=host.getParent();
+        if(parent instanceof View && type(parent.getClass(),"com.oplus.systemui.statusbar.notification.customcard.OplusCustomRow"))
+            fluidSpotlightRows.put((View)parent,new WeakReference<>(host));
         Boolean old = fluidNotifications.put(host, follow);
         boolean nativeAccent = follow && keepHighlight;
         boolean previousNative = Boolean.TRUE.equals(fluidNativeAccents.get(host));
@@ -277,6 +283,7 @@ public final class C17HighlightRemoval {
     /** Exact native hierarchies, resolved once per class for the existing View.draw hook. */
     public boolean isSurface(View host) {
         if (released || host == null) return false;
+        if (QsMoreMaterial.nativeFrame(host)) return QsMoreMaterial.owns(host);
         Class<?> type = host.getClass(); Boolean cached = surfaceTypes.get(type);
         if (cached != null) return cached;
         if (surfaceTypes.size() >= MAX_SURFACE_TYPES) return false;
@@ -583,6 +590,12 @@ public final class C17HighlightRemoval {
     /** Pure Spotlight draw calls only. Never disable a native session, touch handler or whole glass. */
     public boolean skipSpotlight(View host) {
         if (!enabled || released) return false;
+        WeakReference<View> fluid=host==null?null:fluidSpotlightRows.get(host);
+        if(fluid!=null){
+            View body=fluid.get();
+            if(body!=null&&body.getParent()==host&&fluidNotifications.containsKey(body))return opticsEnabled(body);
+            fluidSpotlightRows.remove(host);
+        }
         // An explicit native owner wins over an unrelated enclosing draw scope.
         // Notifications are reparented into a separate heads-up window on C17.
         View owner = host == null ? null : isSurface(host) ? host : nearestSurface(host);
@@ -782,6 +795,8 @@ public final class C17HighlightRemoval {
         // inactive tile. Preserve that base and its alpha; apply the same RGB mix.
         boolean tint = backgroundEnabled && (!QsTileAppearance.isDeviceCard(host)
                 || binding.deviceBase != null && binding.deviceBase.matches(host));
+        // More uses the same native detail glass as the icon group. Removing
+        // optics must not add an unsolicited opaque grey tint to that glass.
         C17AcrylicMaterial.Swap swap = acrylic.prepare(engine, host, lightBackground, darkBackground, tint);
         try { return nativeDraw.draw(canvas); } finally { if (swap != null) swap.restore(); }
     }
@@ -857,7 +872,7 @@ public final class C17HighlightRemoval {
         restoreAll(); invalidateSurfaces(); released = true;
         engines.clear(); shaders.clear(); surfaces.clear();
         engineAccess.clear(); materialAccess.clear(); effectAccess.clear(); surfaceTypes.clear(); scopeTypes.clear();
-        notificationOwners.clear(); fluidNotifications.clear(); fluidNativeAccents.clear(); fluidOverlays.clear(); fluidGradients.clear();
+        notificationOwners.clear(); fluidNotifications.clear(); fluidSpotlightRows.clear(); fluidNativeAccents.clear(); fluidOverlays.clear(); fluidGradients.clear();
         lockMediaCompositions.clear();
         blurAccess.clear(); proxyAccess.clear(); wrapperAccess.clear(); notificationAccess.clear(); blurOwners.clear(); sliderStrokes.clear();
         acrylic.clear(); deviceAcrylic.clear();
@@ -1136,6 +1151,7 @@ public final class C17HighlightRemoval {
 
     private int scope(View host) {
         if (host == null) return UNKNOWN;
+        if (QsMoreMaterial.nativeFrame(host)) return QsMoreMaterial.owns(host) ? CONTROL : UNKNOWN;
         Class<?> type = host.getClass(); Integer cached = scopeTypes.get(type);
         if (cached == null) {
             if (scopeTypes.size() >= MAX_SURFACE_TYPES || !isSurface(host)) return UNKNOWN;

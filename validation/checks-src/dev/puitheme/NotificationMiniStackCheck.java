@@ -30,12 +30,16 @@ public final class NotificationMiniStackCheck {
     public static final class ContainerExtension { GroupExtension oplusNotificationGroupExtImpl=new GroupExtension(); }
     public static class Container extends ViewGroup {
         Row mContainingNotification; Object mOverlayEx; boolean mIsUserSwipingToExpandRow; Path mChildClipPath=new Path();
-        int nativeHeight=300,drawn; Path clipDuringDraw; View lastDrawn;
+        int nativeHeight=300,drawn,childIndexReads,childCountReads; Path clipDuringDraw; View lastDrawn;
         TextView mOverflowNumber; ContainerExtension mExt=new ContainerExtension();
+        /** As in NotificationChildrenContainer: recomputed with hidden=false by every native update, then applied. */
+        State mHeaderViewState=new State();
         final List<View> transients=new ArrayList<>();
         public int getTransientViewCount(){return transients.size();}
         public View getTransientView(int index){return transients.get(index);}
         Container(){super(null);}
+        @Override public int getChildCount(){childCountReads++;return super.getChildCount();}
+        @Override public View getChildAt(int index){childIndexReads++;return super.getChildAt(index);}
         public int getIntrinsicHeight(){return nativeHeight;}
         public int getCollapsedHeight(){return nativeHeight-10;}
         public int getMinHeight(){return nativeHeight-20;}
@@ -96,12 +100,19 @@ public final class NotificationMiniStackCheck {
         Container mChildrenContainer; Row mNotificationParent; Object mRowEx; Content mPrivateLayout,mPublicLayout; Object mBackgroundNormal,mExpandClickListener;
         Menu mMenuRow; int mClipTopAmount,mClipBottomAmount;
         boolean publicShown,guts; int actualHeight=200,backgroundUpdates,roundness,resets,childUpdates; float radius=28f;
+        NotificationMiniStack alphaHook;int alphaChanges;
         Row parentDuringBackground=this; final List<Row> members=new ArrayList<>(); final State state=new State();
         CoveredResources coveredResources;Object coveredProgress;int coveredReads;
         Row(){super(null);}
+        @Override public void setAlpha(float value){
+            float next=alphaHook==null?value:alphaHook.nativeBadgeAlpha(this,value);
+            if(getAlpha()!=next)alphaChanges++;
+            super.setAlpha(next);
+        }
         @Override public android.content.res.Resources getResources(){return coveredResources==null?super.getResources():coveredResources;}
         @Override public Object getTag(int key){if(key==COVERED_PROGRESS_ID){coveredReads++;return coveredProgress;}return super.getTag(key);}
-        public List<Row> getAttachedChildren(){return members;}
+        int memberReads;
+        public List<Row> getAttachedChildren(){memberReads++;return members;}
         public Content getShowingLayout(){return mPrivateLayout;}
         public boolean shouldShowPublic(){return publicShown;}
         public boolean areGutsExposed(){return guts;}
@@ -143,6 +154,96 @@ public final class NotificationMiniStackCheck {
         }
     }
     private static Bundle settings(boolean on,boolean hideBadge){Bundle result=new Bundle();result.putBoolean(NotificationMiniStack.ENABLED,on);result.putBoolean(NotificationMiniStack.HIDE_BADGE,hideBadge);return result;}
+    private static void largeGroupUpdateBudget()throws Throwable{
+        NotificationMiniStack mini=ready(true);Group group=new Group(80);
+        mini.childrenUpdated(group.summary);group.summary.memberReads=0;
+        for(int frame=0;frame<100;frame++){
+            for(Row child:group.children)mini.childrenUpdated(child);
+            mini.childrenUpdated(group.summary);
+        }
+        equal(100,group.summary.memberReads,"A large group samples membership only once per native child-state update");
+        group.children.get(1).publicShown=true;
+        mini.childrenUpdated(group.summary);
+        mini.rowDraw(group.summary,()->null);
+        check(!mini.diagnosticSummary().contains("sessions=1"),"The next update immediately sees a child's privacy change");
+        group.children.get(1).publicShown=false;mini.childrenUpdated(group.summary);
+        check(mini.diagnosticSummary().contains("sessions=1"),"A new update can re-admit the group after privacy changes");
+        mini.configure(settings(false,true));Handler.drainForCheck();
+    }
+    /** A settled group whose inputs did not change gets its last endpoint written back without a full pass;
+     * every event that can change the endpoint, and every live eligibility change, forces the full pass again. */
+    private static void stableEndpointReuse()throws Throwable{
+        NotificationMiniStack mini=ready(true);mini.hierarchyHooksReady(true);mini.visualHooksReady(true);
+        Group group=new Group(5);
+        mini.childrenUpdated(group.summary);
+        check(mini.diagnosticSummary().contains(" stable=0 "),"the first update is a full pass");
+        State front=group.children.get(0).state,rear=group.children.get(1).state,last=group.children.get(4).state;
+        int frontHeight=front.height;float rearY=rear.y,rearAlpha=rear.alpha;
+        check(frontHeight>0&&rearAlpha>0f&&rearAlpha<1f&&last.hidden,"the full pass wrote the closed endpoint");
+        for(int pass=1;pass<=10;pass++){
+            // The native pass recomputes every child state before the hook runs.
+            for(Row child:group.children){child.state.height=7;child.state.y=-9f;child.state.alpha=1f;child.state.hidden=false;child.state.clipTopAmount=5;child.state.clipBottomAmount=5;}
+            mini.childrenUpdated(group.summary);
+            equal(frontHeight,front.height,"reused front height");near(rearY,rear.y,"reused rear position");near(rearAlpha,rear.alpha,"reused rear opacity");
+            equal(0,front.clipTopAmount,"reused clip");check(last.hidden&&!rear.hidden,"reused visibility of the deck and the rest");
+        }
+        check(mini.diagnosticSummary().contains(" stable=10 "),"ten unchanged updates reuse the endpoint: "+mini.diagnosticSummary());
+        mini.transition(NotificationMiniStack.SET_CHANGING,group.summary,Boolean.FALSE,()->null);
+        mini.childrenUpdated(group.summary);
+        check(mini.diagnosticSummary().contains(" stable=10 "),"a native transition forces the full pass");
+        mini.childrenUpdated(group.summary);
+        check(mini.diagnosticSummary().contains(" stable=11 "),"the pass after it is reused again");
+        mini.roundnessReset(group.children.get(1),null);mini.backgroundUpdated(group.children.get(1));
+        mini.childrenUpdated(group.summary);
+        check(mini.diagnosticSummary().contains(" stable=11 "),"a child's background update forces the full pass for its group");
+        int reused=0,longest=0,streak=0;
+        for(int pass=0;pass<100;pass++){
+            String earlier=stable(mini.diagnosticSummary());mini.childrenUpdated(group.summary);
+            if(!earlier.equals(stable(mini.diagnosticSummary()))){reused++;streak++;longest=Math.max(longest,streak);}else streak=0;
+        }
+        check(reused>=90&&longest<=NotificationMiniStack.STABLE_PASS_LIMIT,"reuse is bounded: a full pass at least every "+NotificationMiniStack.STABLE_PASS_LIMIT+" updates ("+reused+", "+longest+")");
+        // Live eligibility is read on every update, reused or not.
+        for(Row child:group.children){child.state.height=7;child.state.alpha=1f;}
+        group.children.get(1).publicShown=true;
+        String privateBefore=stable(mini.diagnosticSummary());
+        mini.childrenUpdated(group.summary);
+        check(privateBefore.equals(stable(mini.diagnosticSummary())),"a child's privacy change is seen by the very next update");
+        equal(7,front.height,"no endpoint is written for a group that is no longer eligible");
+        group.children.get(1).publicShown=false;
+        mini.configure(settings(false,true));Handler.drainForCheck();
+    }
+    /** The native pass shows the group header from its own view state on every frame. Hiding the view afterwards
+     * flips it twice per frame; marking the computed state hidden keeps it invisible without any visibility write. */
+    private static void headerVisibilityIsNotFoughtOver()throws Throwable{
+        for(boolean reuse:new boolean[]{false,true}){
+            NotificationMiniStack mini=ready(true);
+            if(reuse){mini.hierarchyHooksReady(true);mini.visualHooksReady(true);}
+            Group group=new Group(4);
+            final int[] changes={0};
+            View header=new View(null){@Override public void setVisibility(int value){if(value!=getVisibility())changes[0]++;super.setVisibility(value);}};
+            group.container.removeView(group.header);group.container.addView(header);
+            mini.childrenUpdated(group.summary);mini.rowDraw(group.summary,()->null);
+            equal(View.INVISIBLE,header.getVisibility(),"the closed group hides its header");
+            changes[0]=0;
+            for(int frame=0;frame<60;frame++){
+                // Native updateState: copy the view, then force hidden=false, as AOSP does.
+                group.container.mHeaderViewState.hidden=false;
+                mini.childrenUpdated(group.summary);
+                // Native applyState: the header follows its own view state.
+                int wanted=group.container.mHeaderViewState.hidden?View.INVISIBLE:View.VISIBLE;
+                if(header.getVisibility()!=wanted)header.setVisibility(wanted);
+                mini.rowDraw(group.summary,()->null);
+                equal(View.INVISIBLE,header.getVisibility(),"the header is invisible when the frame is drawn");
+            }
+            equal(0,changes[0],"the header's visibility is never written during steady frames (reuse="+reuse+")");
+            mini.configure(settings(false,true));Handler.drainForCheck();
+        }
+    }
+    private static String stable(String summary){
+        java.util.regex.Matcher matcher=java.util.regex.Pattern.compile(" stable=(\\d+) ").matcher(summary);
+        if(!matcher.find())throw new AssertionError("no stable counter in "+summary);
+        return matcher.group(1);
+    }
     private static NotificationMiniStack ready(boolean hideBadge)throws Exception{
         NotificationMiniStack mini=new NotificationMiniStack(new Handler(null));
         mini.bind(targets());mini.hooksReady(true);mini.configure(settings(true,hideBadge));Handler.drainForCheck();
@@ -310,15 +411,17 @@ public final class NotificationMiniStackCheck {
         mini.setOuterStackPolicy(row->true);Handler.drainForCheck();
         CoveredResources resources=new CoveredResources();group.summary.coveredResources=resources;
         mini.childrenUpdated(group.summary);
-        for(Object progress:new Object[]{1f,0f,.001f,.5f,1f,.5f,0f,Float.NaN,Float.POSITIVE_INFINITY,-1f,"unknown",null}) {
+        for(Object progress:new Object[]{1f,0f,.001f,.5f,1.2f,.5f,0f,Float.NaN,Float.POSITIVE_INFINITY,-1f,"unknown",null}) {
             group.summary.coveredProgress=progress;int reads=group.summary.coveredReads;
-            boolean covered=progress instanceof Float&&Float.isFinite((Float)progress)&&(Float)progress>0f;
+            boolean covered=progress instanceof Float&&Float.isFinite((Float)progress)&&(Float)progress>=1f;
+            float exposed=progress instanceof Float&&Float.isFinite((Float)progress)?1f-Math.max(0f,Math.min(1f,(Float)progress)):1f;
             mini.rowDraw(group.summary,()->{
                 int[] nativeDraws={0};Canvas front=new Canvas();
                 equal(true,mini.drawChild(group.container,front,group.children.get(0),()->{nativeDraws[0]++;return true;}),"outer stack retains the group's first real card");
                 for(int index=1;index<=2;index++) {
                     Canvas rear=new Canvas();
-                    equal(!covered,mini.drawChild(group.container,rear,group.children.get(index),()->{nativeDraws[0]++;return true;}),"only covered outer-stack rows suppress their mini rear cards: "+progress);
+                    equal(!covered,mini.drawChild(group.container,rear,group.children.get(index),()->{nativeDraws[0]++;return true;}),"only fully covered outer-stack rows skip mini rear drawing: "+progress);
+                    near(NotificationMiniStack.opacity(index)*exposed,group.children.get(index).getAlpha(),"native progress reaches persistent rear alpha: "+progress);
                     equal(rear.saves,rear.restores,"covered/open rear drawing keeps the native canvas balanced");
                 }
                 equal(covered?1:3,nativeDraws[0],"covered rear cards never enter native drawing");
@@ -349,6 +452,77 @@ public final class NotificationMiniStackCheck {
     }
     private static void preDraw(View row){
         for(android.view.ViewTreeObserver.OnPreDrawListener listener:new ArrayList<>(row.getViewTreeObserver().preDrawListeners))listener.onPreDraw();
+    }
+    /** Native covered-progress frames must reach cached rear nodes before the fully open endpoint. */
+    private static void pullDownContinuity()throws Throwable{
+        NotificationMiniStack mini=ready(false);Group group=new Group(3);
+        mini.setOuterStackPolicy(row->true);Handler.drainForCheck();
+        group.summary.coveredResources=new CoveredResources();group.summary.coveredProgress=1f;
+        mini.childrenUpdated(group.summary);
+        near(0f,group.children.get(1).getAlpha(),"fully covered rear starts hidden");
+        float previous=0f;
+        for(float progress:new float[]{.75f,.5f,.25f,.001f,0f}) {
+            group.summary.coveredProgress=progress;
+            // No updateChildrenStates or drawChild: Android can reuse the existing display list.
+            preDraw(group.summary);
+            float alpha=group.children.get(1).getAlpha();
+            check(alpha>previous,"native pull-down reveals cached rear before covered progress reaches zero: "+progress+" alpha="+alpha);
+            near(.55f*(1f-progress),alpha,"first rear follows current native coverage");
+            near(.30f*(1f-progress),group.children.get(2).getAlpha(),"second rear follows the same native frame");
+            near(1f,group.children.get(0).getAlpha(),"front stays native during pull-down");
+            mini.rowDraw(group.summary,()->{
+                Canvas canvas=new Canvas();int[] draws={0};
+                equal(true,mini.drawChild(group.container,canvas,group.children.get(1),()->{draws[0]++;return true;}),"partly exposed rear reaches native drawing");
+                equal(1,draws[0],"draw gate agrees with the cached rear alpha");
+                equal(canvas.saves,canvas.restores,"pull-down rear canvas stays balanced");return null;
+            });
+            previous=alpha;
+        }
+        near(.55f,previous,"fully open endpoint keeps normal mini-stack opacity");
+        for(float progress:new float[]{.25f,.5f,.75f,1f}) {
+            group.summary.coveredProgress=progress;preDraw(group.summary);
+            float alpha=group.children.get(1).getAlpha();
+            check(alpha<previous,"reversing pull-down fades cached rear without an endpoint jump");previous=alpha;
+        }
+        group.summary.coveredProgress=.5f;preDraw(group.summary);
+        nativeWrite(mini,group.children.get(1),.67f);nativeWrite(mini,group.children.get(2),0f);
+        near(.275f,group.children.get(1).getAlpha(),"native alpha writer cannot bypass partial rear coverage");
+        near(.15f,group.children.get(2).getAlpha(),"native zero intent is retained behind partial rear coverage");
+        mini.configure(settings(false,false));Handler.drainForCheck();
+        near(.67f,group.children.get(1).getAlpha(),"release returns latest native alpha after partial coverage");
+        near(0f,group.children.get(2).getAlpha(),"release preserves a native zero during partial coverage");
+        equal(0,group.summary.getViewTreeObserver().preDrawListeners.size(),"release removes pull-down observer");
+    }
+    private static void scalePullDownContinuity()throws Throwable{
+        NotificationMiniStack mini=ready(false);Group group=new Group(3);
+        mini.setOuterStackPolicy(row->true);Handler.drainForCheck();
+        group.summary.coveredResources=new CoveredResources();group.summary.coveredProgress=0f;
+        StateEx state=(StateEx)group.summary.state.mExpandableViewStateEx;
+        state.animation.scale.x=state.animation.scale.y=.8f;
+        group.summary.setScaleX(.8f);group.summary.setScaleY(.8f);mini.childrenUpdated(group.summary);
+        near(0f,group.children.get(1).getAlpha(),"keyed scale establishes actual outer coverage");
+        state.animation.scale.x=state.animation.scale.y=1f;
+        float previous=0f;
+        for(float scale:new float[]{.9f,.95f,.99f,.999f,1f}) {
+            group.summary.setScaleX(scale);group.summary.setScaleY(scale);preDraw(group.summary);
+            float alpha=group.children.get(1).getAlpha();
+            check(alpha>previous,"reset target must not latch cached rear until scale=1: "+scale+" alpha="+alpha);
+            check(alpha<=.55f,"scale reveal stays within normal mini opacity");
+            near(1f,group.children.get(0).getAlpha(),"scale reveal keeps the first real card");
+            previous=alpha;
+        }
+        near(.55f,previous,"scale reveal reaches normal endpoint");
+        group.summary.setScaleX(.8f);group.summary.setScaleY(.8f);preDraw(group.summary);
+        near(.55f,group.children.get(1).getAlpha(),"a later generic entry scale cannot reuse old outer coverage");
+        state.animation.scale.x=state.animation.scale.y=.8f;
+        group.summary.setScaleX(.9f);group.summary.setScaleY(.9f);preDraw(group.summary);
+        check(group.children.get(1).getAlpha()>0f&&group.children.get(1).getAlpha()<.55f,"new keyed compression fades before the target is reached");
+        group.summary.mChildrenExpanded=true;preDraw(group.summary);
+        near(.55f,group.children.get(1).getAlpha(),"native group expansion releases partial outer coverage");
+        group.summary.mChildrenExpanded=false;state.animation.scale.x=state.animation.scale.y=1f;preDraw(group.summary);
+        near(.55f,group.children.get(1).getAlpha(),"expansion clears the old keyed-scale endpoint");
+        mini.configure(settings(false,false));Handler.drainForCheck();
+        near(1f,group.children.get(1).getAlpha(),"scale reveal releases native alpha");
     }
     /** RenderNode reuse need not call drawChild again; persistent row alpha must still change. */
     private static void cachedOuterStack()throws Throwable{
@@ -654,17 +828,20 @@ public final class NotificationMiniStackCheck {
     /** Stable GPU frames must keep native count leases without repeatedly enumerating the RemoteViews tree. */
     private static void stableBadgeTree()throws Throwable{
         NotificationMiniStack mini=ready(true);Group group=new Group(3);
-        final int[] childReads={0};
+        final int[] childReads={0},membershipSearches={0};
         ViewGroup header=new ViewGroup(null){
             @Override public View getChildAt(int index){childReads[0]++;return super.getChildAt(index);}
+            @Override public int indexOfChild(View child){membershipSearches[0]++;return super.indexOfChild(child);}
         };
         HookedBadge count=new HookedBadge(mini,.7f);header.addView(count);header.addView(new View(null));
         ((ViewGroup)group.children.get(0).mPrivateLayout.mContractedChild).addView(header);
         group.container.mExt.oplusNotificationGroupExtImpl.numberView=count;
         mini.childrenUpdated(group.summary);near(0f,count.getAlpha(),"initial native count is leased");
         int initialReads=childReads[0];check(initialReads>0,"initial count discovery enumerates its header");
+        int initialSearches=membershipSearches[0];
         for(int frame=0;frame<12;frame++)preDraw(group.summary);
         equal(initialReads,childReads[0],"stable badge frames do not enumerate descendant child indices");
+        equal(initialSearches,membershipSearches[0],"Stable native child arrays never run a linear membership search for every descendant");
         near(0f,count.getAlpha(),"stable badge frames retain the hidden GPU count");
         header.removeView(count);header.addView(count);preDraw(group.summary);
         equal(initialReads,childReads[0],"same-parent reordering does not rediscover the unchanged count set");
@@ -889,8 +1066,257 @@ public final class NotificationMiniStackCheck {
         equal(true,SafetyMode.runtimeSettings(saved).getBoolean(NotificationMiniStack.ENABLED,false),"kept outside safe mode");
     }
 
+    /** Inertia invokes update, pre-draw and draw repeatedly on an unchanged RemoteViews tree. */
+    private static void inertialBadgeBudget()throws Throwable{
+        NotificationMiniStack mini=ready(true);Group group=new Group(3);
+        java.lang.reflect.Method ready=NotificationMiniStack.class.getDeclaredMethod("hierarchyHooksReady",boolean.class);
+        java.lang.reflect.Method changed=NotificationMiniStack.class.getDeclaredMethod("hierarchyChanged",ViewGroup.class);
+        ready.invoke(mini,true);
+        int[] reads={0};
+        ViewGroup header=new ViewGroup(null){@Override public int getChildCount(){reads[0]++;return super.getChildCount();}};
+        HookedBadge number=new HookedBadge(mini,.7f);header.addView(number);
+        for(int i=0;i<1000;i++)header.addView(new View(null));
+        ((ViewGroup)group.children.get(0).mPrivateLayout.mContractedChild).addView(header);
+        group.container.mExt.oplusNotificationGroupExtImpl.numberView=number;
+        mini.childrenUpdated(group.summary);int baseline=reads[0];
+        for(int frame=0;frame<120;frame++){
+            mini.childrenUpdated(group.summary);preDraw(group.summary);mini.rowDraw(group.summary,()->null);
+        }
+        equal(baseline,reads[0],"an unchanged hierarchy is not rescanned by any inertia phase");
+        near(0f,number.getAlpha(),"native count stays hidden throughout inertia");
+        int posted=Handler.postedForCheck.size();
+        android.os.Looper.setCurrentForCheck(null);
+        try{for(int i=0;i<1000;i++)changed.invoke(mini,header);}
+        finally{android.os.Looper.resetCurrentForCheck();}
+        equal(posted,Handler.postedForCheck.size(),"background inflation does not flood the UI queue with per-child invalidations");
+        preDraw(group.summary);baseline=reads[0];
+        group.summary.memberReads=0;preDraw(group.summary);
+        equal(1,group.summary.memberReads,"visible pre-draw validates eligibility once");
+        final android.content.res.Resources ids=new android.content.res.Resources(){
+            @Override public String getResourceEntryName(int id){return "expand_button_number";}
+            @Override public String getResourcePackageName(int id){return "android";}
+        };
+        TextView replacement=new TextView(null){@Override public android.content.res.Resources getResources(){return ids;}};
+        replacement.setId(7501);replacement.setAlpha(.8f);
+        changed.invoke(mini,header);header.removeView(number);header.addView(replacement);changed.invoke(mini,header);
+        preDraw(group.summary);
+        near(.7f,number.getAlpha(),"same-size replacement returns the old count lease");
+        near(0f,replacement.getAlpha(),"hierarchy event hides replacement before drawing with stale OEM pointer");
+        int rebuilt=reads[0];check(rebuilt>baseline,"changed branch rebuilds once");preDraw(group.summary);
+        equal(rebuilt,reads[0],"rebuilt tree returns to constant work");
+        TextView transientNumber=new TextView(null){@Override public android.content.res.Resources getResources(){return ids;}};
+        transientNumber.setId(7501);transientNumber.setAlpha(.6f);group.container.transients.add(transientNumber);
+        changed.invoke(mini,group.container);preDraw(group.summary);near(0f,transientNumber.getAlpha(),"transient addition invalidates the owner");
+        // Losing optional hooks must immediately resume structural checks.
+        ready.invoke(mini,false);header.removeView(replacement);preDraw(group.summary);
+        near(.8f,replacement.getAlpha(),"partial/unavailable hierarchy hooks retain the scanning fallback");
+        mini.configure(settings(false,false));Handler.drainForCheck();
+        near(.6f,transientNumber.getAlpha(),"disable restores transient alpha and removes ownership");
+        changed.invoke(mini,header);changed.invoke(mini,group.container);
+    }
+
     public static void main(String[] args)throws Throwable{
-        geometry();contract();inactive();eligibility();closedEndpoint();drawing();outerStackVisibility();cachedOuterStack();nativeBadges();badgeExpansionContinuity();nativeTemplateBadges();badgeLeaseLifecycle();stableBadgeTree();transitioningBadgeTree();returning();clicks();handBack();switchOff();helpers();settingsPlumbing();badgeUninstall();
+        rearAlphaWriteBudget();
+        nativeUpdateBudget();
+        inertialVisualBudget();
+        inertialContainerBudget();
+        inertialOutlineBudget();
+        inertialBadgeBudget();
+        largeGroupUpdateBudget();stableEndpointReuse();headerVisibilityIsNotFoughtOver();geometry();contract();inactive();eligibility();closedEndpoint();drawing();pullDownContinuity();scalePullDownContinuity();outerStackVisibility();cachedOuterStack();nativeBadges();badgeExpansionContinuity();nativeTemplateBadges();badgeLeaseLifecycle();stableBadgeTree();transitioningBadgeTree();returning();clicks();handBack();switchOff();helpers();settingsPlumbing();rearPlates();badgeUninstall();
         System.out.println("NotificationMiniStackCheck passed "+checks+" checks");
+    }
+    /** App289: a settled rear card records only its background; its content returns once it leaves the deck. */
+    private static void rearPlates()throws Throwable{
+        NotificationMiniStack mini=ready(false);Group group=new Group(4);
+        mini.childrenUpdated(group.summary);mini.rowDraw(group.summary,()->null);
+        Row front=group.children.get(0),second=group.children.get(1),third=group.children.get(2),fourth=group.children.get(3);
+        int[] during=new int[1];
+        mini.rowDraw(second,()->{during[0]=second.mPrivateLayout.mViewFlags;return null;});
+        equal(4,during[0]&0xC,"a settled rear card records without its content");
+        equal(0,second.mPrivateLayout.mViewFlags,"content visibility bits restored right after the draw");
+        mini.rowDraw(third,()->{during[0]=third.mPrivateLayout.mViewFlags;third.mPrivateLayout.mViewFlags|=0x100;return null;});
+        equal(4,during[0]&0xC,"the second rear card is a plate too");
+        equal(0x100,third.mPrivateLayout.mViewFlags,"only the visibility bits are ours; other flags written in the draw stay");
+        third.mPrivateLayout.mViewFlags=0;
+        mini.rowDraw(front,()->{during[0]=front.mPrivateLayout.mViewFlags;return null;});
+        equal(0,during[0]&0xC,"the front card keeps its content");
+        mini.rowDraw(fourth,()->{during[0]=fourth.mPrivateLayout.mViewFlags;return null;});
+        equal(0,during[0]&0xC,"cards past the deck are not touched");
+        try{mini.rowDraw(second,()->{throw new IllegalStateException("native draw");});check(false,"native failure propagates");}
+        catch(IllegalStateException expected){}
+        equal(0,second.mPrivateLayout.mViewFlags,"a failing native draw still restores the content");
+        int secondBefore=second.invalidations,thirdBefore=third.invalidations,frontBefore=front.invalidations;
+        group.summary.mChildrenExpanded=true;
+        mini.rowDraw(group.summary,()->null);
+        check(second.invalidations>secondBefore&&third.invalidations>thirdBefore,"opening the group redraws former plates with content");
+        equal(frontBefore,front.invalidations,"the front card was never a plate");
+        mini.rowDraw(second,()->{during[0]=second.mPrivateLayout.mViewFlags;return null;});
+        equal(0,during[0]&0xC,"an open group draws full cards");
+        secondBefore=second.invalidations;mini.rowDraw(group.summary,()->null);
+        equal(secondBefore,second.invalidations,"a released plate is redrawn only once");
+        group.summary.mChildrenExpanded=false;mini.childrenUpdated(group.summary);mini.rowDraw(group.summary,()->null);
+        mini.rowDraw(second,()->null);secondBefore=second.invalidations;
+        mini.configure(settings(false,false));Handler.drainForCheck();
+        check(second.invalidations>secondBefore,"switching the stack off redraws every plate with its content");
+        mini.rowDraw(second,()->{during[0]=second.mPrivateLayout.mViewFlags;return null;});
+        equal(0,during[0]&0xC,"no plate while the stack is off");
+    }
+    private static void rearAlphaWriteBudget()throws Throwable{
+        NotificationMiniStack mini=ready(false);Group group=new Group(4);
+        mini.setOuterStackPolicy(row->true);Handler.drainForCheck();
+        group.summary.coveredResources=new CoveredResources();group.summary.coveredProgress=0f;
+        for(Row child:group.children)child.alphaHook=mini;
+        mini.childrenUpdated(group.summary);
+        int initial=0;for(Row child:group.children)initial+=child.alphaChanges;
+        for(int frame=0;frame<120;frame++){
+            for(Row child:group.children)child.setAlpha(1f);
+            mini.childrenUpdated(group.summary);
+        }
+        int changes=0;for(Row child:group.children)changes+=child.alphaChanges;
+        equal(initial,changes,"native alpha refresh and mini reapply do not change leased rear RenderNode alpha twice per frame");
+        Row first=group.children.get(0),rear=group.children.get(1);
+        first.setAlpha(.43f);near(.43f,first.getAlpha(),"front-row native alpha writes remain untouched");first.setAlpha(1f);
+        rear.setAlpha(.67f);near(.55f,rear.getAlpha(),"ordinary rear writes retain mini opacity without a second write");
+        group.summary.coveredProgress=.5f;preDraw(group.summary);
+        near(.275f,rear.getAlpha(),"outer coverage still updates the held rear alpha");
+        rear.setAlpha(.71f);near(.275f,rear.getAlpha(),"native intent is retained while partial outer coverage remains applied");
+        group.summary.coveredProgress=0f;preDraw(group.summary);
+        near(.55f,rear.getAlpha(),"returning from outer coverage restores mini opacity");
+        mini.configure(settings(false,false));rear.setAlpha(.62f);
+        Handler.drainForCheck();near(.62f,rear.getAlpha(),"pending disable preserves the newest native rear alpha before releasing the lease");
+
+        NotificationMiniStack detached=ready(false);Group leaving=new Group(3);
+        for(Row child:leaving.children)child.alphaHook=detached;
+        detached.childrenUpdated(leaving.summary);Row moved=leaving.children.get(1);moved.setAlpha(.73f);
+        for(View.OnAttachStateChangeListener listener:new ArrayList<>(leaving.summary.attachListeners))listener.onViewDetachedFromWindow(leaving.summary);
+        near(.73f,moved.getAlpha(),"detach restores the latest native intent captured while the rear node was held");
+        Group reparented=new Group(3);for(Row child:reparented.children)child.alphaHook=detached;
+        detached.childrenUpdated(reparented.summary);Row borrowed=reparented.children.get(1);
+        Container foreign=new Container();reparented.container.removeView(borrowed);foreign.addView(borrowed);
+        borrowed.setAlpha(.81f);near(.81f,borrowed.getAlpha(),"a new native parent cannot inherit an old rear alpha lease");
+        Group removed=new Group(3);for(Row child:removed.children)child.alphaHook=detached;
+        detached.childrenUpdated(removed.summary);Row obsolete=removed.children.get(1);removed.summary.members.remove(obsolete);
+        obsolete.setAlpha(.79f);near(.79f,obsolete.getAlpha(),"an obsolete member is released even while the native parent pointer remains during removal");
+        detached.configure(settings(false,false));Handler.drainForCheck();
+    }
+    private static Object nativeUpdate(NotificationMiniStack mini,Group group,NotificationMiniStack.Call call)throws Throwable{
+        try{
+            java.lang.reflect.Method update=NotificationMiniStack.class.getMethod("updateChildren",Object.class,NotificationMiniStack.Call.class);
+            try{return update.invoke(mini,group.summary,call);}catch(java.lang.reflect.InvocationTargetException failure){throw failure.getCause();}
+        }catch(NoSuchMethodException previous){Object result=call.run();mini.childrenUpdated(group.summary);return result;}
+    }
+    private static void nativeUpdateBudget()throws Throwable{
+        NotificationMiniStack mini=ready(false);Group group=new Group(80);mini.childrenUpdated(group.summary);
+        group.summary.memberReads=0;
+        nativeUpdate(mini,group,()->{
+            for(Row child:group.children)mini.contentType(child.mPrivateLayout,()->3);
+            mini.height(group.container,true,()->900);
+            mini.height(group.container,false,()->900);
+            return null;
+        });
+        check(group.summary.memberReads<=2,"one native update shares one eligibility scan before applying current endpoint; reads="+group.summary.memberReads);
+        group.children.get(0).publicShown=true;
+        equal(3,mini.contentType(group.children.get(0).mPrivateLayout,()->3),"the update scope never carries privacy eligibility into the next call");
+        group.children.get(0).publicShown=false;
+        try{nativeUpdate(mini,group,()->{mini.contentType(group.children.get(0).mPrivateLayout,()->3);throw new IllegalStateException("native failure");});}
+        catch(IllegalStateException expected){ }
+        group.children.get(0).publicShown=true;
+        equal(3,mini.contentType(group.children.get(0).mPrivateLayout,()->3),"failed native callbacks release their sampling scope");
+        mini.configure(settings(false,false));Handler.drainForCheck();
+    }
+
+    private static void inertialVisualBudget()throws Throwable{
+        NotificationMiniStack mini=ready(false);Group group=new Group(8);
+        mini.hierarchyHooksReady(true);
+        try{NotificationMiniStack.class.getMethod("visualHooksReady",Boolean.TYPE).invoke(mini,true);}
+        catch(NoSuchMethodException oldVersion){ }
+        for(Row child:group.children){
+            child.mBackgroundNormal=new View(null);
+            // Device RemoteViews often have no public contracted template and report VISIBLE_TYPE_NONE.
+            child.mPublicLayout.mContractedChild=null;child.mPublicLayout.mVisibleType=-1;child.mPublicLayout.mIsChildInGroup=false;
+        }
+        group.summary.mBackgroundNormal=new View(null);
+        mini.childrenUpdated(group.summary);int countReads=group.container.childCountReads;
+        for(int frame=0;frame<120;frame++){
+            group.summary.setTranslationY(frame*4f);mini.childrenUpdated(group.summary);
+            mini.rowDraw(group.summary,()->null);
+        }
+        equal(countReads,group.container.childCountReads,"unchanged fling frames reuse the visual ownership plan without rebuilding container membership");
+        ViewGroup unrelated=new android.widget.FrameLayout(null);
+        for(int frame=0;frame<12;frame++){
+            mini.hierarchyChanged(unrelated);
+            mini.childrenUpdated(group.summary);
+            mini.rowDraw(group.summary,()->null);
+        }
+        equal(countReads,group.container.childCountReads,"unrelated hierarchy mutations do not rebuild an unchanged mini-stack ownership plan");
+        Row rear=group.children.get(1);rear.mPrivateLayout.setAlpha(1f);rear.setAlpha(1f);group.header.setVisibility(View.VISIBLE);
+        ((View)group.summary.mBackgroundNormal).setVisibility(View.VISIBLE);
+        mini.childrenUpdated(group.summary);
+        near(0f,rear.mPrivateLayout.getAlpha(),"stable plan repairs a native content alpha overwrite");
+        near(.55f,rear.getAlpha(),"stable plan repairs a native row alpha overwrite");
+        equal(View.INVISIBLE,group.header.getVisibility(),"stable plan retains native header hiding");
+        equal(View.INVISIBLE,((View)group.summary.mBackgroundNormal).getVisibility(),"stable plan retains summary background ownership");
+        rear.mPrivateLayout.mIsChildInGroup=true;rear.mPrivateLayout.mVisibleType=3;
+        NotificationMiniStack.class.getMethod("contentUpdated",Object.class).invoke(mini,rear.mPrivateLayout);
+        mini.childrenUpdated(group.summary);
+        equal(false,rear.mPrivateLayout.mIsChildInGroup,"native template callback rebuilds the visual plan");
+        equal(0,rear.mPrivateLayout.mVisibleType,"native template callback reselects contracted layout");
+        rear.mPrivateLayout.mIsChildInGroup=true;rear.mPrivateLayout.mVisibleType=3;
+        mini.childrenUpdated(group.summary);
+        equal(false,rear.mPrivateLayout.mIsChildInGroup,"silent inlined native grouping still invalidates the visual plan");
+        equal(0,rear.mPrivateLayout.mVisibleType,"silent inlined native selection is repaired");
+        View newSummaryBackground=new View(null);group.summary.mBackgroundNormal=newSummaryBackground;
+        mini.childrenUpdated(group.summary);equal(View.INVISIBLE,newSummaryBackground.getVisibility(),"new summary background cannot reuse the old ownership");
+        View header=new View(null);group.container.removeView(group.header);group.container.addView(header);
+        mini.hierarchyChanged(group.container);mini.childrenUpdated(group.summary);
+        equal(View.INVISIBLE,header.getVisibility(),"same-count structural replacement rebuilds ownership");
+        Content replacement=content(rear);rear.mPrivateLayout=replacement;mini.childrenUpdated(group.summary);
+        equal(false,replacement.mIsChildInGroup,"a new layout pointer cannot reuse the old plan");
+        near(0f,replacement.getAlpha(),"new private layout receives rear content alpha");
+        group.children.get(0).publicShown=true;mini.rowDraw(group.summary,()->null);
+        check(!mini.diagnosticSummary().contains("sessions=1"),"cached visuals do not bypass current privacy eligibility");
+        group.children.get(0).publicShown=false;mini.childrenUpdated(group.summary);
+        mini.configure(settings(false,false));Handler.drainForCheck();
+        equal(View.VISIBLE,header.getVisibility(),"cached plan restores replacement header on disable");
+    }
+
+    private static void inertialContainerBudget()throws Throwable{
+        NotificationMiniStack mini=ready(false);Group group=new Group(80);
+        mini.childrenUpdated(group.summary);int initial=group.container.childIndexReads;
+        for(int frame=0;frame<120;frame++){
+            mini.childrenUpdated(group.summary);
+            mini.rowDraw(group.summary,()->null);
+        }
+        equal(initial,group.container.childIndexReads,"stable inertial updates never enter the process-wide child-index hook for each child");
+        View replacement=new View(null);group.container.removeView(group.header);group.container.addView(replacement);
+        mini.childrenUpdated(group.summary);
+        equal(View.INVISIBLE,replacement.getVisibility(),"live same-count header replacement is hidden on the next update");
+        mini.configure(settings(false,false));Handler.drainForCheck();
+        equal(View.VISIBLE,replacement.getVisibility(),"replacement header returns to its native visibility");
+    }
+
+    private static void inertialOutlineBudget()throws Throwable{
+        NotificationMiniStack mini=ready(false);Group a=new Group(3),b=new Group(3);
+        b.children.get(0).mPrivateLayout.contracted=150;
+        mini.childrenUpdated(a.summary);mini.childrenUpdated(b.summary);
+        for(Group group:new Group[]{a,b})mini.rowDraw(group.summary,()->{
+            for(Row child:group.children)mini.drawChild(group.container,new Canvas(),child,()->true);return null;});
+        int built=Path.roundRectWritesForCheck;
+        for(int frame=0;frame<120;frame++)for(Group group:new Group[]{a,b}){
+            group.summary.setTranslationY(frame*3f);
+            mini.rowDraw(group.summary,()->{for(Row child:group.children)mini.drawChild(group.container,new Canvas(),child,()->true);return null;});
+        }
+        equal(built,Path.roundRectWritesForCheck,"inertia reuses unchanged local clipping geometry across distinct groups");
+        a.children.get(0).radius=8f;
+        mini.rowDraw(a.summary,()->{mini.drawChild(a.container,new Canvas(),a.children.get(0),()->true);return null;});
+        check(Path.roundRectWritesForCheck>built,"changed corner geometry rebuilds the clipping shape");
+        for(int i=0;i<200;i++){
+            a.children.get(0).radius=i*.25f;
+            mini.rowDraw(a.summary,()->{mini.drawChild(a.container,new Canvas(),a.children.get(0),()->true);return null;});
+        }
+        java.lang.reflect.Field cache=NotificationMiniStack.class.getDeclaredField("outlines");cache.setAccessible(true);
+        check(((List<?>)cache.get(mini)).size()<=48,"continuous geometry changes keep a bounded shape cache");
+        mini.configure(settings(false,false));Handler.drainForCheck();
+        equal(0,((List<?>)cache.get(mini)).size(),"feature release discards cached clipping shapes");
     }
 }

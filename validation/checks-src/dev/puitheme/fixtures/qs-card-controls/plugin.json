@@ -1,0 +1,13 @@
+{
+  "id": "dev.c17.validation.qs-card",
+  "name": "控制中心自由编辑",
+  "version": "1.2.1",
+  "versionCode": 5,
+  "apiVersion": 1,
+  "description": "自由编辑顶部4至7行卡片与磁贴，通过更多磁贴入口打开专页，并逐项配置音乐手动调整、空媒体隐藏与壁纸。",
+  "author": "C17 contributors",
+  "capabilities": [
+    "settings"
+  ],
+  "entry": "main.js"
+}

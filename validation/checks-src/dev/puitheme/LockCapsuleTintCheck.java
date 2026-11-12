@@ -127,33 +127,39 @@ public final class LockCapsuleTintCheck {
         check(rig.drawNow(music).colorFills == 0 && rig.drawNow(music).colorFills == 0, "and is gone after the fade");
     }
 
-    /** The lock screen and AOD are set on their own pages: with the media-accent and style masters off, their own look still tints the capsule. */
+    /** Lock/AOD appearance values stay saved, while the media-accent master gates every capsule media source. */
     private static void lockPageWithoutMasters() throws Exception {
-        ViewGroup music = item(true), other = item(false);
-        Rig rig = new Rig();
-        rig.config.putBoolean(FluidCloudStyle.LOCK_CAPSULE, true);
-        rig.config.putBoolean(FluidCloudStyle.FOLLOW_ONLY_PLAYING, false);
-        rig.config.putFloat(FluidCloudAccent.LOCK_LIGHT, 0f);rig.config.putFloat(FluidCloudAccent.AOD_LIGHT, 0f);
-        rig.apply();
-        check(rig.draw(music).colorFills == 0 && rig.draw(other).colorFills == 0, "nothing asks for the media colour: the capsules stay native");
-        rig.config.putBoolean(FluidCloudAccent.LOCK_GRADIENT, true);rig.config.putBoolean(FluidCloudAccent.AOD_GRADIENT, true);
-        rig.apply();
-        Canvas canvas = rig.draw(music);
-        check(canvas.rectFills == 1 && canvas.lastFillShader instanceof android.graphics.LinearGradient, "gradient style on, masters off: the music capsule has its gradient");
-        check((((android.graphics.LinearGradient) canvas.lastFillShader).colors[0] & 0xffffff) == (MEDIA & 0xffffff), "in the media colour");
-        canvas = rig.draw(other);
-        check(canvas.colorFills + canvas.rectFills == 1, "and another capsule follows the media colour too");
-        rig.config.putBoolean(FluidCloudAccent.LOCK_GRADIENT, false);rig.config.putBoolean(FluidCloudAccent.AOD_GRADIENT, false);
-        rig.config.putBoolean(FluidCloudAccent.LOCK_CUSTOM, true);rig.config.putBoolean(FluidCloudAccent.AOD_CUSTOM, true);
-        rig.config.putFloat(FluidCloudAccent.LOCK_OPACITY, 50f);rig.config.putFloat(FluidCloudAccent.AOD_OPACITY, 50f);
-        rig.config.putFloat(FluidCloudAccent.LOCK_MASK_OPACITY, 0f);rig.config.putFloat(FluidCloudAccent.AOD_MASK_OPACITY, 0f);
-        rig.apply();
-        canvas = rig.draw(music);
-        check(canvas.colorFills == 1 && (canvas.lastColorFill & 0xffffff) == (MEDIA & 0xffffff), "the custom look alone also tints it");
-        same(0x80, canvas.lastColorFill >>> 24, "at the opacity set on the lock page");
-        rig.config.putBoolean(FluidCloudAccent.LOCK_CUSTOM, false);rig.config.putBoolean(FluidCloudAccent.AOD_CUSTOM, false);
-        rig.apply();
-        check(rig.draw(music).colorFills == 0 && rig.draw(other).colorFills == 0, "the looks off again: native");
+        for(boolean aod:new boolean[]{false,true}) {
+            ViewGroup music=item(true),other=item(false);Rig rig=new Rig();
+            rig.style.setKeyguard(true);
+            com.android.systemui.statusbar.StatusBarStateControllerImpl state=new com.android.systemui.statusbar.StatusBarStateControllerImpl();
+            state.state=1;state.dozing=aod;rig.style.onNativeState(state);
+            rig.config.putBoolean(FluidCloudStyle.LOCK_CAPSULE,true);
+            rig.config.putBoolean(FluidCloudStyle.FOLLOW_ONLY_PLAYING,false);
+            rig.config.putFloat(FluidCloudAccent.LOCK_LIGHT,0f);rig.config.putFloat(FluidCloudAccent.AOD_LIGHT,0f);rig.apply();
+            check(rig.draw(music).colorFills==0&&rig.draw(other).colorFills==0,"nothing asks for media colour: both capsules stay native");
+            rig.config.putBoolean(FluidCloudAccent.LOCK_GRADIENT,true);rig.config.putBoolean(FluidCloudAccent.AOD_GRADIENT,true);rig.apply();
+            Canvas canvas=rig.draw(music),plain=rig.draw(other);
+            check(canvas.colorFills+canvas.rectFills==0&&plain.colorFills+plain.rectFills==0,"gradient on with media master off: neither lock/AOD capsule sources media colour");
+            rig.config.putBoolean(FluidCloudAccent.ENABLED,true);rig.apply();canvas=rig.draw(music);
+            check(canvas.rectFills==1&&canvas.lastFillShader instanceof android.graphics.LinearGradient,"enabling media accent uses the previously saved capsule gradient");
+            check((((android.graphics.LinearGradient)canvas.lastFillShader).colors[0]&0xffffff)==(MEDIA&0xffffff),"the gradient comes from current media");
+            check(rig.draw(other).colorFills+rig.draw(other).rectFills==1,"a non-media capsule follows the same enabled scene policy");
+            rig.config.putBoolean(FluidCloudAccent.ENABLED,false);rig.apply();canvas=rig.draw(music);plain=rig.draw(other);
+            check(canvas.colorFills+canvas.rectFills==0&&plain.colorFills+plain.rectFills==0,"switching media accent off clears both capsule sources after their existing colour fade");
+            rig.config.putBoolean(FluidCloudAccent.LOCK_GRADIENT,false);rig.config.putBoolean(FluidCloudAccent.AOD_GRADIENT,false);
+            rig.config.putBoolean(FluidCloudAccent.LOCK_CUSTOM,true);rig.config.putBoolean(FluidCloudAccent.AOD_CUSTOM,true);
+            rig.config.putFloat(FluidCloudAccent.LOCK_OPACITY,50f);rig.config.putFloat(FluidCloudAccent.AOD_OPACITY,50f);
+            rig.config.putFloat(FluidCloudAccent.LOCK_MASK_OPACITY,0f);rig.config.putFloat(FluidCloudAccent.AOD_MASK_OPACITY,0f);rig.apply();
+            canvas=rig.draw(music);plain=rig.draw(other);
+            check(canvas.colorFills+canvas.rectFills==0&&plain.colorFills+plain.rectFills==0,"custom opacity and mask cannot turn media colouring back on");
+            rig.config.putBoolean(FluidCloudAccent.ENABLED,true);rig.apply();canvas=rig.draw(music);
+            check(canvas.colorFills==1&&(canvas.lastColorFill&0xffffff)==(MEDIA&0xffffff),"re-enabling uses the saved custom look");
+            same(0x80,canvas.lastColorFill>>>24,"the saved lock/AOD 50% opacity remains effective");
+            rig.config.putBoolean(FluidCloudAccent.ENABLED,false);rig.apply();canvas=rig.draw(music);
+            check(canvas.colorFills+canvas.rectFills==0,"a custom look cannot retain old media colour after disabling again");
+            rig.tint.release();rig.style.release();rig.accent.release();
+        }
     }
 
     private static void decisions() throws Exception {
@@ -195,7 +201,7 @@ public final class LockCapsuleTintCheck {
         rig.config.putBoolean(FluidCloudAccent.LOCK_GRADIENT, false);rig.config.putBoolean(FluidCloudAccent.AOD_GRADIENT, false);
 
         // Following the media colour and the custom base colour reach every capsule, in that order, within the lock scope.
-        // (The lock page's own looks are off here: they would ask for the media colour on their own, see lockPageWithoutMasters.)
+        // (The lock page's own looks are off here; each media source still requires the media-accent master.)
         rig.config.putBoolean(FluidCloudAccent.LOCK_CUSTOM, false);rig.config.putBoolean(FluidCloudAccent.AOD_CUSTOM, false);
         rig.config.putBoolean(FluidCloudAccent.ENABLED, true);
         rig.config.putBoolean(FluidCloudStyle.FOLLOW_MEDIA, true);

@@ -44,11 +44,16 @@ public final class BatteryControls {
     private long scheduledAt;
     private final Runnable tick = () -> {
         scheduled = false;
+        long now = SystemClock.uptimeMillis();
         for (Entry entry : owners.values()) {
-            if (canAnimate(entry)) {
+            boolean can = canAnimate(entry);
+            // A re-check made only for a transparent battery redraws the others just at their own deadline;
+            // a battery that is visible again redraws once, its last frame is from before it faded out.
+            if (can && (now >= entry.due || !entry.animating)) {
                 Drawable drawable = entry.drawable.get();
                 if (drawable != null) drawable.invalidateSelf();
             }
+            entry.animating = can;
         }
         schedule();
     };
@@ -58,6 +63,9 @@ public final class BatteryControls {
         WeakReference<Drawable> drawable = new WeakReference<>(null);
         WeakReference<View> external = new WeakReference<>(null);
         final ChargeCycle cycle = new ChargeCycle();
+        /** Uptime of this battery's next animation step; whether it animated at the last tick. */
+        long due;
+        boolean animating;
         final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         final Rect ink = new Rect();
         final ChargeBolt bolt = new ChargeBolt();
@@ -225,7 +233,12 @@ public final class BatteryControls {
             entry.nativeCharging=(entry.nativeVisible&&chargeId.getInt(charge)>0)
                     ||(drawable!=null&&((Integer)getChargeId.invoke(drawable))>0);
             boolean charging = inside && entry.nativeCharging;
+            boolean wasCharging = entry.cycle.isCharging();
             entry.cycle.setCharging(charging, SystemClock.uptimeMillis());
+            // One phase for all batteries. With separate phases the status-bar and panel batteries faded at
+            // different moments, and each fade redrew both windows: twice the frames while a panel is open.
+            if (charging && !wasCharging) for (Entry other : owners.values())
+                if (other != entry && other.cycle.isCharging()) { entry.cycle.alignWith(other.cycle); break; }
             appearance.apply(drawable,entry.nativeCharging);
             if(drawable!=null){puiStyle.prepare(drawable,entry.percentStyle.enabled());puiStyle.updateView(owner,drawable,entry.percentStyle.enabled());}
             appearance.updateView(owner);
@@ -266,11 +279,29 @@ public final class BatteryControls {
         }
     }
 
-    private boolean canAnimate(Entry entry) {
+    private boolean canAnimate(Entry entry) { return animatableExceptAlpha(entry) && visible(entry.owner.get()); }
+
+    private boolean animatableExceptAlpha(Entry entry) {
         View owner = entry.owner.get();
         return enabled && !hideCharge && interactive && entry.cycle.isCharging() && entry.drawable.get() != null
                 && owner != null && owner.isAttachedToWindow() && owner.isShown()
                 && owner.getWindowVisibility() == View.VISIBLE;
+    }
+
+    /** App289: ColorOS fades the status bar and the panel headers to alpha 0 instead of hiding them, so a
+     * battery stays "shown" while nobody can see it. Measured 2026-11-11 with the shade open while charging:
+     * two such batteries redrew about 10 times a second each. A transparent battery rests; alpha changes have no
+     * callback, so while one is charging and transparent a re-check runs every second without drawing. */
+    private static final float TRANSPARENT = .01f;
+    static final long HIDDEN_RECHECK_MS = 1000L;
+    private static boolean visible(View view) {
+        float alpha = 1f;
+        for (Object current = view; current instanceof View; current = ((View) current).getParent()) {
+            View node = (View) current;
+            alpha *= node.getAlpha() * node.getTransitionAlpha();
+            if (alpha <= TRANSPARENT) return false;
+        }
+        return true;
     }
 
     private void reschedule() {
@@ -281,7 +312,14 @@ public final class BatteryControls {
 
     private void schedule() {
         long now = SystemClock.uptimeMillis(), delay = Long.MAX_VALUE;
-        for (Entry entry : owners.values()) if (canAnimate(entry)) delay = Math.min(delay, entry.cycle.nextDelay(now));
+        for (Entry entry : owners.values()) {
+            if (!animatableExceptAlpha(entry)) continue;
+            if (visible(entry.owner.get())) {
+                long next = entry.cycle.nextDelay(now);
+                entry.due = now + next;
+                delay = Math.min(delay, next);
+            } else delay = Math.min(delay, HIDDEN_RECHECK_MS);
+        }
         if (delay == Long.MAX_VALUE) {
             if (scheduled) { handler.removeCallbacks(tick); scheduled = false; }
             return;

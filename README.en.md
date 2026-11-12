@@ -1,10 +1,10 @@
-# Status C17 · 1.8.3
+# Status C17 · 2.1.0
 
-A SystemUI customization module for ColorOS 17, primarily adapted using OnePlus 13. Customize the status bar, notifications, Control Center, Fluid Cloud and lock screen, with a choice of COUI or Miuix for the settings app. Uses LibXposed API 101; package name: `dev.puitheme.iosstatusbar`.
+A SystemUI customization module for ColorOS 17, primarily adapted using OnePlus 13. Customize the status bar, notifications, Control Center, Fluid Cloud and lock screen, with a choice of Miuix, COUI or Material for the settings app, whose interface is available in 30 languages. Uses LibXposed API 101; package name: `dev.puitheme.iosstatusbar`.
 
-**Stable release 1.8.3.** The [complete release notes](docs/RELEASE-1.8.3.zh-CN.md) compare this release with 1.8.2 across 16 feature areas, including detailed additions, improvements and fixes.
+**Stable release 2.1.0.** Compared with 1.8.3 it adds extension plugins, a 30-language interface, System UI crash rescue and the privacy capsule, and fixes a set of status bar issues; see the [2.1.0 release notes](docs/RELEASE-2.1.0.zh-CN.md) (Chinese). Extension plugins can be written against the [plugin specification](https://github.com/SANWU5/c17-plugins).
 
-[Download APK](https://github.com/SANWU5/c17-statusbar/releases) · [中文](README.md) · [Changelog](CHANGELOG.md) · [Icon-pack specification and examples](https://github.com/SANWU5/c17-icon-packs)
+[Download APK](https://github.com/SANWU5/c17-statusbar/releases) · [中文](README.md) · [Changelog](CHANGELOG.md) · [Icon-pack specification and examples](https://github.com/SANWU5/c17-icon-packs) · [Plugin specification and templates](https://github.com/SANWU5/c17-plugins)
 
 ## Features
 

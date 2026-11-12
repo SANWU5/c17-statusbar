@@ -80,7 +80,7 @@ internal fun InstalledApplicationChoices(app: ModernMainActivity, allowed: Boole
     if (choices.isEmpty()) Text(if (loading) "正在读取可启动应用…" else if (!launchableOnly && entries.isEmpty()) "正在读取应用列表，可先填写包名。" else "没有符合条件的应用。",
         fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     else {
-        Text("共 ${choices.size} 个应用 · 第 ${page + 1} / ${lastPage + 1} 页" +
+        Text(trf("共 %1\$s 个应用 · 第 %2\$s / %3\$s 页", choices.size, page + 1, lastPage + 1) +
             if (launchableOnly) "，只显示可启动应用。" else "，包含没有桌面入口的应用。", fontSize = 12.sp,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         if (lastPage > 0) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -115,13 +115,13 @@ fun NotificationOverridesDialog(app: ModernMainActivity) {
         onDismissRequest = { app.notificationOverridesOpen = false }) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (editingPackage == null) {
-                Text("选择文字、表情或另一个应用的彩色图标。只替换状态栏小图标，通知内容和分组不变。", fontSize = 14.sp,
+                Text(tr("选择文字、表情或另一个应用的彩色图标。只替换状态栏小图标，通知内容和分组不变。"), fontSize = 14.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                     if (rules.isEmpty()) UiRow("尚未添加应用", "点击下方添加，其他应用保留原生图标")
                     rules.forEach { rule -> key(rule.packageName) {
                         UiGroupCard {
-                            UiSwitchRow(app.applicationLabel(rule.packageName), if (rule.isAppIcon()) "图标来自 ${app.applicationLabel(rule.sourcePackage)}" else "替换为 ${rule.text}", rule.enabled, allowed) {
+                            UiSwitchRow(app.applicationLabel(rule.packageName), if (rule.isAppIcon()) trf("图标来自 %s", app.applicationLabel(rule.sourcePackage)) else trf("替换为 %s", rule.text), rule.enabled, allowed) {
                                 if (rule.isAppIcon()) {
                                     val message = app.saveNotificationAppIconOverride(rule.packageName, rule.sourcePackage, it, rule.packageName)
                                     if (message.isNotEmpty()) app.toast(message)
@@ -162,12 +162,12 @@ fun NotificationOverridesDialog(app: ModernMainActivity) {
                         if (selectingSource) InstalledApplicationChoices(app, allowed) {
                             sourcePackage = it.packageName; selectingSource = false; error = ""
                         }
-                        Text("保留来源应用图标的颜色。来源应用卸载或图标读取失败时，恢复原生通知图标。", fontSize = 13.sp,
+                        Text(tr("保留来源应用图标的颜色。来源应用卸载或图标读取失败时，恢复原生通知图标。"), fontSize = 13.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     } else {
                         C17TextField(value = replacement, onValueChange = { replacement = it; error = "" }, label = "替换文字或表情",
                             singleLine = true, useLabelAsPlaceholder = true, modifier = Modifier.fillMaxWidth(), insideMargin = DpSize(12.dp, 10.dp))
-                        Text("最多 8 个字符，可使用 ❤️、✨ 等表情。尺寸跟随原生图标或通知图标区域的大小设置。", fontSize = 13.sp,
+                        Text(tr("最多 8 个字符，可使用 ❤️、✨ 等表情。尺寸跟随原生图标或通知图标区域的大小设置。"), fontSize = 13.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                     if (error.isNotEmpty()) Text(error, fontSize = 13.sp, color = MiuixTheme.colorScheme.primary)

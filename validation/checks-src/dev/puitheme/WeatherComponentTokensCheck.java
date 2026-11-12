@@ -104,7 +104,7 @@ public final class WeatherComponentTokensCheck {
         check(canvas.pictureDraws==1,"the recorded icon draws as a vector picture");
         Paint.FontMetricsInt line=new Paint.FontMetricsInt();
         int width=span.getSize(paint,"x",0,1,line);
-        float iconHeight=20f*WeatherTextIcon.Span.ICON_SCALE;
+        float iconHeight=20f;
         check(width==Math.ceil(iconHeight),"the icon adds no trailing pad: the single space is the whole gap");
         check(line.descent-line.ascent>=Math.floor(iconHeight)&&line.bottom-line.top>=line.descent-line.ascent,
                 "a taller icon grows the line around its centre instead of being clipped");

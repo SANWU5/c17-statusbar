@@ -30,12 +30,18 @@ public final class IconPackDrawing {
         void observe(View view);
         boolean nativeAppearance(String role);
         boolean drawNative(String role,Drawable graphic,Canvas canvas,int tint);
+        default Boolean draw(String role,Canvas canvas,RectF bounds,int tint,int alpha,ColorFilter filter){return null;}
+        default Boolean draw(String role,Canvas canvas,RectF bounds,int tint,int alpha,ColorFilter filter,boolean hostScalePlaced){return draw(role,canvas,bounds,tint,alpha,filter);}
+        default boolean drawNative(String role,Drawable graphic,Canvas canvas,int tint,boolean hostScalePlaced){return drawNative(role,graphic,canvas,tint);}
     }
     private static final Assets RUNTIME=new Assets(){
         public Bitmap image(String role){return IconManagementRuntime.bitmapForRole(role);}
         public void observe(View view){IconManagementRuntime.observe(view);}
         public boolean nativeAppearance(String role){return IconManagementRuntime.hasExplicitAppearance(role);}
         public boolean drawNative(String role,Drawable graphic,Canvas canvas,int tint){return IconManagementRuntime.drawNativeRole(role,graphic,canvas,tint);}
+        public Boolean draw(String role,Canvas canvas,RectF bounds,int tint,int alpha,ColorFilter filter){return IconManagementRuntime.drawRole(role,canvas,bounds,tint,alpha,filter);}
+        public Boolean draw(String role,Canvas canvas,RectF bounds,int tint,int alpha,ColorFilter filter,boolean hostScalePlaced){return IconManagementRuntime.drawRole(role,canvas,bounds,tint,alpha,filter,hostScalePlaced);}
+        public boolean drawNative(String role,Drawable graphic,Canvas canvas,int tint,boolean hostScalePlaced){return IconManagementRuntime.drawNativeRole(role,graphic,canvas,tint,hostScalePlaced);}
     };
     private static final String HORIZONTAL="com.oplus.systemui.statusbar.pipeline.battery.ui.drawable.HorizontalBatteryContentDrawable";
     private static final String METER="com.oplus.systemui.statusbar.pipeline.battery.ui.view.StatBatteryMeterView";
@@ -59,6 +65,10 @@ public final class IconPackDrawing {
     }
     public boolean drawSignal(String resource,Drawable graphic,Canvas canvas,int tint,int alpha,
                               ColorFilter filter,boolean secondaryHidden,boolean singleSignal){
+        return drawSignal(resource,graphic,canvas,tint,alpha,filter,secondaryHidden,singleSignal,false);
+    }
+    public boolean drawSignal(String resource,Drawable graphic,Canvas canvas,int tint,int alpha,
+                              ColorFilter filter,boolean secondaryHidden,boolean singleSignal,boolean hostScalePlaced){
         if(released||secondaryHidden||graphic==null||canvas==null||resource==null)return false;
         Mask mask=signals.get(graphic);
         if(mask==null||!resource.equals(mask.resource)||mask.singleSignal!=singleSignal){
@@ -67,12 +77,15 @@ public final class IconPackDrawing {
         }
         Bitmap bitmap=assets.image(mask.signal.role);
         Rect bounds=graphic.getBounds();
-        return mask.draw(bitmap,canvas,bounds.left,bounds.top,bounds.right,bounds.bottom,tint,alpha,filter)
-                ||assets.drawNative(mask.signal.role,graphic,canvas,tint);
+        return mask.draw(assets,mask.signal.role,bitmap,canvas,bounds.left,bounds.top,bounds.right,bounds.bottom,tint,alpha,filter,hostScalePlaced)
+                ||assets.drawNative(mask.signal.role,graphic,canvas,tint,hostScalePlaced);
     }
 
     /** The incoming model is used: getIcon runs before StatusBarIconView updates its own mIcon. */
     public Drawable wrapHint(View owner,Object incomingModel,Drawable graphic){
+        // AnimatedImageView starts/stops only an actual AnimationDrawable. A generic
+        // wrapper would erase that native type contract; dynamic hints stay native.
+        if(graphic instanceof android.graphics.drawable.Animatable)return graphic;
         if(released||owner==null||graphic==null||!named(owner.getClass(),STATUS_ICON))return graphic;
         try{
             HintAccess access=hintAccess.get(owner.getClass());
@@ -152,7 +165,7 @@ public final class IconPackDrawing {
             if(level<0||level>100)return null;
             boolean charging=primitive(access.charge,drawable)>0||entry.externalCharging;
             String role=BATTERY_ROLES[charging?1:0][level/10];
-            Bitmap bitmap=entry.percentage?assets.image(role):null;
+            Bitmap bitmap=assets.image(role);
             boolean image=valid(bitmap);
             if(!image&&!assets.nativeAppearance(role))return null;
             boolean inside=access.inside.getBoolean(drawable);
@@ -198,6 +211,8 @@ public final class IconPackDrawing {
     private static final String[][] BATTERY_ROLES=new String[2][11];
     static{for(int charge=0;charge<2;charge++)for(int level=0;level<=10;level++)BATTERY_ROLES[charge][level]="battery."+(charge==1?"charging.":"")+(level*10);}
     private static String hintRole(String slot,boolean on){return "hint."+slot+("bluetooth".equals(slot)?on?".on":".off":".default");}
+    /** Exact audited resource identity; callers cache it until resource or row policy changes. */
+    static String signalRole(String resource,boolean singleSignal){Signal signal=resource==null?null:Signal.read(resource,singleSignal);return signal==null?null:signal.role;}
     private static boolean finite(float value){return !Float.isNaN(value)&&!Float.isInfinite(value);}
     private static int primitive(MethodHandle accessor,Drawable drawable)throws ReflectiveOperationException{
         try{return (int)accessor.invokeExact((Object)drawable);}
@@ -271,11 +286,18 @@ public final class IconPackDrawing {
         String resource;Signal signal;boolean singleSignal;
         Mask(){ }
         Mask(String resource,Signal signal,boolean singleSignal){this.resource=resource;this.signal=signal;this.singleSignal=singleSignal;}
-        boolean draw(Bitmap bitmap,Canvas canvas,float left,float top,float right,float bottom,int color,int alpha,ColorFilter filter){
-            if(!valid(bitmap)||canvas==null||right<=left||bottom<=top)return false;
+        boolean draw(Assets assets,String role,Bitmap bitmap,Canvas canvas,float left,float top,float right,float bottom,int color,int alpha,ColorFilter filter){
+            return draw(assets,role,bitmap,canvas,left,top,right,bottom,color,alpha,filter,false);
+        }
+        boolean draw(Assets assets,String role,Bitmap bitmap,Canvas canvas,float left,float top,float right,float bottom,int color,int alpha,ColorFilter filter,boolean hostScalePlaced){
+            if(canvas==null||right<=left||bottom<=top)return false;
             // V3 fits the visible glyph, so pass the original host region before any legacy canvas-size fit.
-            target.set(left,top,right,bottom);Boolean v3=IconManagementRuntime.draw(bitmap,canvas,target,color,alpha,filter);
+            // The production renderer selects one role snapshot for this draw. An old bitmap
+            // must never fall through as legacy artwork after a background publication.
+            target.set(left,top,right,bottom);Boolean v3=assets.draw(role,canvas,target,color,alpha,filter,hostScalePlaced);
             if(v3!=null)return v3;
+            if(!valid(bitmap))return false;
+            v3=IconManagementRuntime.draw(bitmap,canvas,target,color,alpha,filter);if(v3!=null)return v3;
             float scale=Math.min((right-left)/bitmap.getWidth(),(bottom-top)/bitmap.getHeight());
             float width=bitmap.getWidth()*scale,height=bitmap.getHeight()*scale;
             float x=(left+right)*.5f,y=(top+bottom)*.5f;target.set(x-width*.5f,y-height*.5f,x+width*.5f,y+height*.5f);
@@ -289,26 +311,27 @@ public final class IconPackDrawing {
     private static final class HintDrawable extends Drawable implements Drawable.Callback {
         final IconPackDrawing helper;final Drawable nativeGraphic;final Mask mask=new Mask();
         String slot,role;boolean on;
-        int tint=0xffffffff,alpha;ColorFilter filter;ColorStateList colors;
+        int tint=0xffffffff;ColorStateList colors;
         HintDrawable(IconPackDrawing helper,Drawable nativeGraphic,String slot,boolean on){
             this.helper=helper;this.nativeGraphic=nativeGraphic;this.slot=slot;this.on=on;this.role=hintRole(slot,on);
-            alpha=nativeGraphic.getAlpha();filter=nativeGraphic.getColorFilter();
             setBounds(nativeGraphic.getBounds());setState(nativeGraphic.getState());setLevel(nativeGraphic.getLevel());nativeGraphic.setCallback(this);
+            setLayoutDirection(nativeGraphic.getLayoutDirection());setVisible(nativeGraphic.isVisible(),false);
         }
         @Override public void draw(Canvas canvas){
-            Rect r=getBounds();Bitmap bitmap=helper.released?null:helper.assets.image(role);
+            if(helper.released){nativeGraphic.draw(canvas);return;}
+            Rect r=getBounds();Bitmap bitmap=helper.assets.image(role);
             int color=colors==null?tint:colors.getColorForState(getState(),colors.getDefaultColor());
-            if(!mask.draw(bitmap,canvas,r.left,r.top,r.right,r.bottom,color,alpha,filter)
+            if(!mask.draw(helper.assets,role,bitmap,canvas,r.left,r.top,r.right,r.bottom,color,nativeGraphic.getAlpha(),nativeGraphic.getColorFilter())
                     &&(helper.released||!helper.assets.drawNative(role,nativeGraphic,canvas,color)))nativeGraphic.draw(canvas);
         }
         @Override protected void onBoundsChange(Rect bounds){nativeGraphic.setBounds(bounds);}
         @Override protected boolean onStateChange(int[] state){return nativeGraphic.setState(state)||colors!=null;}
         @Override protected boolean onLevelChange(int level){return nativeGraphic.setLevel(level);}
         @Override public boolean isStateful(){return nativeGraphic.isStateful()||colors!=null;}
-        @Override public void setAlpha(int value){alpha=value;nativeGraphic.setAlpha(value);invalidateSelf();}
-        @Override public int getAlpha(){return alpha;}
-        @Override public void setColorFilter(ColorFilter value){filter=value;nativeGraphic.setColorFilter(value);invalidateSelf();}
-        @Override public ColorFilter getColorFilter(){return filter;}
+        @Override public void setAlpha(int value){nativeGraphic.setAlpha(value);invalidateSelf();}
+        @Override public int getAlpha(){return nativeGraphic.getAlpha();}
+        @Override public void setColorFilter(ColorFilter value){nativeGraphic.setColorFilter(value);invalidateSelf();}
+        @Override public ColorFilter getColorFilter(){return nativeGraphic.getColorFilter();}
         @Override public void setTint(int value){tint=value;colors=null;nativeGraphic.setTint(value);invalidateSelf();}
         @Override public void setTintList(ColorStateList value){colors=value;if(value==null)tint=0xffffffff;nativeGraphic.setTintList(value);invalidateSelf();}
         @Override public void setTintMode(PorterDuff.Mode value){nativeGraphic.setTintMode(value);}
@@ -319,6 +342,13 @@ public final class IconPackDrawing {
         @Override public int getMinimumHeight(){return nativeGraphic.getMinimumHeight();}
         @Override public boolean getPadding(Rect result){return nativeGraphic.getPadding(result);}
         @Override public boolean setVisible(boolean visible,boolean restart){return super.setVisible(visible,restart)|nativeGraphic.setVisible(visible,restart);}
+        @Override public boolean onLayoutDirectionChanged(int direction){return nativeGraphic.setLayoutDirection(direction);}
+        @Override public void setAutoMirrored(boolean mirrored){nativeGraphic.setAutoMirrored(mirrored);}
+        @Override public boolean isAutoMirrored(){return nativeGraphic.isAutoMirrored();}
+        @Override public void setHotspot(float x,float y){nativeGraphic.setHotspot(x,y);}
+        @Override public void setHotspotBounds(int left,int top,int right,int bottom){nativeGraphic.setHotspotBounds(left,top,right,bottom);}
+        @Override public void getHotspotBounds(Rect bounds){nativeGraphic.getHotspotBounds(bounds);}
+        @Override public void jumpToCurrentState(){nativeGraphic.jumpToCurrentState();}
         @Override public void invalidateDrawable(Drawable who){invalidateSelf();}
         @Override public void scheduleDrawable(Drawable who,Runnable task,long when){scheduleSelf(task,when);}
         @Override public void unscheduleDrawable(Drawable who,Runnable task){unscheduleSelf(task);}
@@ -341,7 +371,7 @@ public final class IconPackDrawing {
             if(bitmap==null){if(!assets.drawNative(role,graphic,canvas,tint))graphic.draw(canvas);return;}
             if(!drawn){
                 drawn=true;
-                if(!draw(bitmap,canvas,region.left,region.top,region.right,region.bottom,tint,graphic.getAlpha(),null)){
+                if(!draw(assets,role,bitmap,canvas,region.left,region.top,region.right,region.bottom,tint,graphic.getAlpha(),null)){
                     failed=true;graphic.draw(canvas);
                 }
             }

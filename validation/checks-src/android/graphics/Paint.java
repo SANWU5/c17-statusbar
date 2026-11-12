@@ -34,8 +34,10 @@ public class Paint {
     public float shadowRadius,shadowDx,shadowDy;
     public int shadowColor;
     private ColorFilter colorFilter;
-    public Paint(int flags) { }
-    public void set(Paint source) {alpha=source.alpha;color=source.color;textSize=source.textSize;mode=source.mode;letterSpacing=source.letterSpacing;textScaleX=source.textScaleX;textSkewX=source.textSkewX;featureSettings=source.featureSettings;typeface=source.typeface;fakeBold=source.fakeBold;variationSettings=source.variationSettings;colorFilter=source.colorFilter;shader=source.shader;style=source.style;strokeWidth=source.strokeWidth;strokeMiter=source.strokeMiter;strokeCap=source.strokeCap;strokeJoin=source.strokeJoin;pathEffect=source.pathEffect;shadowRadius=source.shadowRadius;shadowDx=source.shadowDx;shadowDy=source.shadowDy;shadowColor=source.shadowColor;}
+    private int flags;
+    public Paint(int flags) { this.flags=flags; }
+    public int getFlags(){return flags;}
+    public void set(Paint source) {flags=source.flags;alpha=source.alpha;color=source.color;textSize=source.textSize;mode=source.mode;letterSpacing=source.letterSpacing;textScaleX=source.textScaleX;textSkewX=source.textSkewX;featureSettings=source.featureSettings;typeface=source.typeface;fakeBold=source.fakeBold;variationSettings=source.variationSettings;colorFilter=source.colorFilter;shader=source.shader;style=source.style;strokeWidth=source.strokeWidth;strokeMiter=source.strokeMiter;strokeCap=source.strokeCap;strokeJoin=source.strokeJoin;pathEffect=source.pathEffect;shadowRadius=source.shadowRadius;shadowDx=source.shadowDx;shadowDy=source.shadowDy;shadowColor=source.shadowColor;}
     public void setAlpha(int value) {alpha=value;}
     public void setShadowLayer(float radius,float dx,float dy,int color){shadowRadius=radius;shadowDx=dx;shadowDy=dy;shadowColor=color;}
     public int getAlpha() {return alpha;}
@@ -45,19 +47,37 @@ public class Paint {
     public void setStyle(Style value) {style=value;}
     public Style getStyle(){return style;}
     public float getStrokeWidth(){return strokeWidth;}
+    public boolean getFillPath(Path src,Path dst){
+        java.awt.geom.Area shape=new java.awt.geom.Area(src.rasterPath);
+        if(style!=Style.FILL){
+            int cap=strokeCap==Cap.ROUND?java.awt.BasicStroke.CAP_ROUND:strokeCap==Cap.SQUARE?java.awt.BasicStroke.CAP_SQUARE:java.awt.BasicStroke.CAP_BUTT;
+            int join=strokeJoin==Join.ROUND?java.awt.BasicStroke.JOIN_ROUND:strokeJoin==Join.BEVEL?java.awt.BasicStroke.JOIN_BEVEL:java.awt.BasicStroke.JOIN_MITER;
+            java.awt.geom.Area outline=new java.awt.geom.Area(new java.awt.BasicStroke(Math.max(.001f,strokeWidth),cap,join,Math.max(1f,strokeMiter)).createStrokedShape(src.rasterPath));
+            if(style==Style.STROKE)shape=outline;else shape.add(outline);
+        }
+        dst.setShapeForCheck(shape);return true;
+    }
     public Join getStrokeJoin(){return strokeJoin;}
     public Cap getStrokeCap(){return strokeCap;}
     public void setStrokeJoin(Join value) {strokeJoin=value;}
     public void setStrokeCap(Cap value) {strokeCap=value;}
     public void setStrokeWidth(float value) {strokeWidth=value;}
     public PathEffect setPathEffect(PathEffect value) {PathEffect old=pathEffect;pathEffect=value;return old;}
+    public PathEffect getPathEffect() {return pathEffect;}
     public Shader setShader(Shader value) {Shader old=shader;shader=value;return old;}
     public Shader getShader() {return shader;}
     public ColorFilter setColorFilter(ColorFilter value){ColorFilter old=colorFilter;colorFilter=value;return old;}
     public ColorFilter getColorFilter(){return colorFilter;}
     public float getTextSize() {return textSize;}
+    public static int textBoundsCallsForCheck;
+    public boolean equalsForTextMeasurement(Paint other){
+        return textSize==other.textSize && textScaleX==other.textScaleX && textSkewX==other.textSkewX
+            && typeface==other.typeface && flags==other.flags && fakeBold==other.fakeBold && letterSpacing==other.letterSpacing
+            && java.util.Objects.equals(variationSettings,other.variationSettings) && java.util.Objects.equals(featureSettings,other.featureSettings);
+    }
     public void setTextSize(float value) {textSize=value;}
     public void getTextBounds(String value,int start,int end,Rect bounds) {
+        textBoundsCallsForCheck++;
         // HGHT has a fixed base, unlike a direct percentage of the em size.
         float ink=textSize*(typeface!=null&&!Float.isNaN(typeface.variationHeight)
                 ?.2f+.8f*typeface.variationHeight/70f:1f);

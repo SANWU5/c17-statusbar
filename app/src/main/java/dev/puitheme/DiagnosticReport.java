@@ -409,9 +409,14 @@ public final class DiagnosticReport {
         return null;
     }
 
-    static final String[] FACT_TOPICS={"scene","clock","fluid","notification","label","ui","environment","weather","weather_slots","weather_widget","backdrop_source","backdrop_material","system_icons"};
+    static final String[] FACT_TOPICS={"scene","clock","fluid","notification","label","ui","environment","weather","weather_slots","weather_widget","backdrop_source","backdrop_material","system_icons","qs_cards"};
     /** Structured state names. Values are booleans, finite numbers or short identifier-like words; never text. */
     static final String[] FACT_NAMES={
+            // Control-center adaptation: fixed structural state and pixel bounds only.
+            "qs_ready","qs_enabled","qs_ui_thread","qs_session","qs_rows","qs_phase","qs_flags","qs_items",
+            "qs_native_rows","qs_native_cols","qs_cell_width","qs_cell_height","qs_native_auto","qs_view_id",
+            "qs_parent_type","qs_parent_height","qs_view_top","qs_view_height","qs_footer_top","qs_desired_height",
+            "qs_reserved_height","qs_available_height","qs_user_known",
             // scene
             "scene","previous","keyguard","dozing","aod_transition","aod_progress","aod_known","reason","source",
             // clock

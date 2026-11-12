@@ -125,6 +125,8 @@ public final class SettingsSnapshot {
         try {
             for(String key:StatusBarSettings.NUMERIC_DEFAULTS.keySet()) {
                 Object value=snapshot.get(key);
+                if(ModuleVariant.DABING && NotificationBigClockSettings.VISIBLE_COUNT.equals(key)
+                        && value instanceof Integer && (Integer)value > 0)continue;
                 if(!(value instanceof Float)||!Float.isFinite((Float)value))return false;
             }
             for(String key:StatusBarSettings.COLOR_DEFAULTS.keySet()) {
@@ -133,6 +135,7 @@ public final class SettingsSnapshot {
             }
             for(String key:StatusBarSettings.STRING_DEFAULTS.keySet())if(!(snapshot.get(key) instanceof String))return false;
             for(String key:StatusBarSettings.BOOLEAN_DEFAULTS.keySet())if(!(snapshot.get(key) instanceof Boolean))return false;
+            if(!Upgrade196.validRows(snapshot.get(QsCardSettings.GRID_ROWS))||!Upgrade196.validMode(snapshot.get(QsCardSettings.SMALL_MODE)))return false;
             return true;
         } catch(RuntimeException malformed) { return false; }
     }
@@ -140,11 +143,18 @@ public final class SettingsSnapshot {
     /** Missing raw keys intentionally use defaults; malformed present keys never become defaults. */
     static Bundle fromPreferences(Map<String,?> supplied) {
         if(supplied==null)return null;
+        if(ModuleVariant.DABING)supplied=DabingCustomerPolicy.restrict(supplied);
         Map<String,?> values=new HashMap<>(supplied);
         if(!validStoredTypes(values))return null;
+        if(!values.containsKey(QsCardSettings.GRID_ROWS)) {
+            Map<String,Object> inherited=new HashMap<>(values);
+            inherited.put(QsCardSettings.GRID_ROWS,Upgrade196.inheritedDefaults(values).get(QsCardSettings.GRID_ROWS));values=inherited;
+        }
         Bundle result=new Bundle();
         for(Map.Entry<String,Float> entry:StatusBarSettings.NUMERIC_DEFAULTS.entrySet())
             result.putFloat(entry.getKey(),StatusBarSettings.settingNumber(values,entry.getKey(),entry.getValue()));
+        if(ModuleVariant.DABING)result.putInt(NotificationBigClockSettings.VISIBLE_COUNT,
+                ((Number)values.get(NotificationBigClockSettings.VISIBLE_COUNT)).intValue());
         // Preserve an older saved percentage until a deliberate edit. Only confirmed native
         // pixel evidence may convert it; percentage/density alone cannot establish intent.
         if (!values.containsKey(NativeClockMeasurement.SCALE_BASIS_VERSION) && values.containsKey(StatusBarSettings.CLOCK_SCALE))
@@ -159,6 +169,8 @@ public final class SettingsSnapshot {
     }
 
     private static boolean validStoredTypes(Map<String,?> values) {
+        if(values.containsKey(QsCardSettings.GRID_ROWS)&&!Upgrade196.validRows(values.get(QsCardSettings.GRID_ROWS)))return false;
+        if(values.containsKey(QsCardSettings.SMALL_MODE)&&!Upgrade196.validMode(values.get(QsCardSettings.SMALL_MODE)))return false;
         for(String key:StatusBarSettings.NUMERIC_DEFAULTS.keySet())if(values.containsKey(key)) {
             Object value=values.get(key);
             if(!(value instanceof Number)||!Float.isFinite(((Number)value).floatValue()))return false;
@@ -234,15 +246,29 @@ public final class SettingsSnapshot {
             try {
                 SharedPreferences raw=StatusBarSettings.preferences(context);
                 synchronized(LOCK) { BACKED_REVISIONS.remove(raw); }
+                if(!ModuleVariant.DABING&&freshForFramework(context,raw))SettingsFrameworkMirror.offerDefaults(context,raw);
                 scheduleSave(context,raw,null,0L);
-            } catch(RuntimeException unavailable) {
+            } catch(RuntimeException | android.content.pm.PackageManager.NameNotFoundException unavailable) {
                 ModuleDiagnostics.error("settings","Could not confirm device configuration for framework boot storage",unavailable);
             }
         });
     }
 
+    /** An unlocked, genuinely unused settings store may share the normal default snapshot. */
+    static boolean freshForFramework(Context context,SharedPreferences raw)throws android.content.pm.PackageManager.NameNotFoundException {
+        synchronized(raw) {
+            if(!raw.getAll().isEmpty()||!notificationAllowed(raw))return false;
+            android.os.UserManager users=(android.os.UserManager)context.getSystemService(Context.USER_SERVICE);
+            if(users==null||!users.isUserUnlocked())return false;
+            Context credential=context.createPackageContext(context.getPackageName(),0);
+            return !credential.isDeviceProtectedStorage()
+                    &&credential.getSharedPreferences(StatusBarSettings.PREFS,Context.MODE_PRIVATE).getAll().isEmpty()
+                    &&storageContext(context).getSharedPreferences(BACKUP_PREFS,Context.MODE_PRIVATE).getAll().isEmpty();
+        }
+    }
+
     private static void scheduleSave(Context context,SharedPreferences raw,Runnable failed,long delay) {
-        if(context==null||raw==null||!"dev.puitheme.iosstatusbar".equals(context.getPackageName()))return;
+        if(context==null||raw==null||!ModuleVariant.PACKAGE.equals(context.getPackageName()))return;
         if(!notificationAllowed(raw))return;
         Map<String,Object> requested=readableValues(raw);
         if(requested.isEmpty()||!bounded(requested)||fromPreferences(requested)==null)return;

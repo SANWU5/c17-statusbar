@@ -133,19 +133,19 @@ public final class FluidCloudAccent {
     }
 
     /**
-     * The lock screen's (or AOD's) own page asks for the media look: its gradient style or its custom look is on. The lock screen and AOD are set
-     * on their own pages and do not wait for the media-accent master (nor the fluid-cloud style master); those two govern the other scenes.
+     * The lock screen's (or AOD's) own page asks for its look. These settings also
+     * govern neutral glass, so they remain available when media colour is off.
      */
     boolean lockOwn(boolean aod) { return !released && lockEffectsEnabled && (ownAod(aod) ? aodGradient || aodCustom : lockGradient || lockCustom); }
 
-    /** Whether a card of this scene takes its media's accent: the media-accent master is on, or, on the lock screen and in AOD, the scene's own page asks. */
-    boolean accentWanted(boolean lockScene, boolean aod) { return (!lockScene||lockEffectsEnabled)&&(enabled() || lockScene && lockOwn(aod)); }
+    /** The media-accent master gates media colour in every scene, including lock screen and AOD. */
+    boolean accentWanted(boolean lockScene, boolean aod) { return enabled() && (!lockScene || lockEffectsEnabled); }
 
     /** The follow-media policy uses the same mask settings as the accent. */
     Integer maskedMediaColor(Integer nativeColor) { return maskedMediaColor(nativeColor, false); }
     Integer maskedMediaColor(Integer nativeColor, boolean lockScene) { return maskedMediaColor(nativeColor, lockScene, false); }
     Integer maskedMediaColor(Integer nativeColor, boolean lockScene, boolean aod) {
-        return released || nativeColor == null || lockScene&&!lockEffectsEnabled ? null : maskedAccent(nativeColor, lockScene, aod);
+        return released || nativeColor == null || lockScene && (!enabled() || !lockEffectsEnabled) ? null : maskedAccent(nativeColor, lockScene, aod);
     }
 
     /** True in AOD, which has a look of its own. */
@@ -419,7 +419,7 @@ public final class FluidCloudAccent {
 
     public void configure(Bundle settings) {
         if (released) return;
-        boolean nextLockEffects=!SafetyMode.enabled(settings);
+        boolean nextLockEffects=!SafetyMode.enabled(settings)&&!CustomPluginMaterialIsolation.lockOwned(settings);
         boolean next = settings != null && settings.getBoolean(ENABLED, false) && !SafetyMode.enabled(settings);
         boolean nextLockscreen = settings != null && settings.getBoolean(LOCKSCREEN_ENABLED, false);
         boolean nextMask = settings != null && settings.getBoolean(MASK_ENABLED, false);
@@ -471,6 +471,7 @@ public final class FluidCloudAccent {
     public void release() {
         if (released) return;
         enabled = false; released = true;
+        try { CustomPluginValues.publish(CustomPluginValues.HOST, MEDIA_ACCENT_VALUE, null); } catch (RuntimeException ignored) { }
         ArrayList<BackgroundBinding> owned = backgroundSnapshot();
         ArrayList<MediaBinding> roots = mediaSnapshot();
         for (MediaBinding binding : roots) if (binding.loss != null) { main.removeCallbacks(binding.loss); binding.loss = null; }
@@ -518,7 +519,25 @@ public final class FluidCloudAccent {
         colorRevision++;
         if (enabled) scheduleRefresh();
         notifyColorsChanged();
+        publishLatest();
     }
+
+    /** App289 runtime.values "host/media_accent": the newest live OEM media colour, for plugins such as glass.
+     * Published whether or not this host accent switch is on; attached media are preferred over detached ones. */
+    private void publishLatest() {
+        MediaBinding latest = null; boolean latestAttached = false;
+        for (MediaBinding binding : mediaSnapshot()) {
+            if (!binding.hasColor || binding.section.get() == null) continue;
+            View root = binding.root.get();
+            boolean attached = binding.attached && root != null && root.isAttachedToWindow();
+            if (latest == null || attached && !latestAttached || attached == latestAttached && binding.sequence > latest.sequence) {
+                latest = binding; latestAttached = attached;
+            }
+        }
+        try { CustomPluginValues.publish(CustomPluginValues.HOST, MEDIA_ACCENT_VALUE, released || latest == null ? null : latest.color); }
+        catch (RuntimeException ignored) { }
+    }
+    static final String MEDIA_ACCENT_VALUE = "media_accent";
     private void notifyColorsChanged() {
         Runnable listener = colorListener;
         if (listener != null && !released) listener.run();

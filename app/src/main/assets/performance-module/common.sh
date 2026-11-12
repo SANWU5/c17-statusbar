@@ -16,6 +16,9 @@ PRIORITY=compatibility
 IDLE_REMAINING=0
 DIAGNOSTIC=none
 LOCKED=0
+GUARDED=0
+FLOCK_KIND=
+FLOCK_BIN=
 ACTIVE_PID=
 ACTIVE_JOB=
 ACTIVE_LOG=
@@ -24,6 +27,19 @@ COMPILE_CAPABILITY_ERROR=
 BOOT=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)
 MODVERSION=
 MODCODE=
+BUILD_ID=
+LAST_STATUS=
+
+# Bounded plain-text evidence. No device identifiers, notifications or user data.
+trace() {
+  [ "$LOCKED" = 1 ] || return 0
+  trace_text="$(date +%s) $MODE $*"
+  if ordinary "$DATA/trace" && owned "$DATA/trace"; then
+    trace_text="$(tail -n 23 "$DATA/trace")
+$trace_text"
+  fi
+  write_file trace "$(printf '%s\n' "$trace_text" | tail -c 2048)"
+}
 
 fail() { STATE=failed; ERROR=$1; }
 no_links() {
@@ -46,7 +62,7 @@ owned() {
 }
 unlock() {
   if [ "$LOCKED" = 1 ]; then
-    rm -f "$DATA/.lock/pid" "$DATA/.lock/boot"
+    rm -f "$DATA/.lock/pid" "$DATA/.lock/boot" "$DATA/.lock/start" "$DATA/.lock/generation"
     rmdir "$DATA/.lock" 2>/dev/null
     LOCKED=0
   fi
@@ -59,24 +75,112 @@ cleanup() {
     write_file active-job "$(printf '%s\nunknown\n' "$BOOT")"
   fi
   if [ -n "$ACTIVE_PID" ]; then
+    terminate_client
     kill "$ACTIVE_PID" 2>/dev/null
   fi
   [ -z "$ACTIVE_LOG" ] || rm -f "$ACTIVE_LOG"
   ACTIVE_PID=; ACTIVE_JOB=; ACTIVE_LOG=
   unlock
+  if [ "$GUARDED" = 1 ]; then flock_call -u 9 2>/dev/null; exec 9<&-; GUARDED=0; fi
+}
+terminate_client() {
+  [ -n "$ACTIVE_LOG" ] && ordinary "$ACTIVE_LOG" && owned "$ACTIVE_LOG" || return 0
+  identity=$(sed -n 's/^C17_ART_CLIENT=\([0-9][0-9]*:[0-9][0-9]*\)$/\1/p' "$ACTIVE_LOG" | head -n 1)
+  case "$identity" in *:*) client=${identity%:*}; birth=${identity#*:};; *) return 0;; esac
+  [ "$client" -gt 1 ] && [ "$birth" != 0 ] || return 0
+  # This is our exec'd Binder client, not system_server/dex2oat. Guard against PID reuse.
+  for signal in TERM KILL; do
+    [ "$(awk '{print $22}' "/proc/$client/stat" 2>/dev/null)" = "$birth" ] || break
+    kill -"$signal" "$client" 2>/dev/null || :
+  done
+}
+flock_call() {
+  # Android mksh closes persistent shell descriptors on exec unless explicitly
+  # inherited. This applies to probes, acquisition and release alike.
+  case "$FLOCK_KIND" in
+    command) flock "$@" 9<&9;;
+    toybox) /system/bin/toybox flock "$@" 9<&9;;
+    busybox) "$FLOCK_BIN" flock "$@" 9<&9;;
+    *) return 2;;
+  esac
+}
+flock_probe() { (exec 9<"$MODDIR"; flock_call -s -n 9) 2>/dev/null; }
+select_flock() {
+  FLOCK_KIND=command
+  command -v flock >/dev/null 2>&1 && flock_probe && return 0
+  FLOCK_KIND=toybox
+  [ -x /system/bin/toybox ] && flock_probe && return 0
+  FLOCK_KIND=busybox
+  for FLOCK_BIN in /data/adb/ksu/bin/busybox /data/adb/magisk/busybox /data/adb/ap/bin/busybox; do
+    [ -x "$FLOCK_BIN" ] && no_links "$FLOCK_BIN" && owned "$FLOCK_BIN" && flock_probe && return 0
+  done
+  FLOCK_KIND=; return 1
+}
+process_start() {
+  case "$1" in ''|*[!0-9]*) return 1;; esac
+  process_stat=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
+  process_stat=${process_stat##*) }
+  set -- $process_stat
+  [ "$#" -ge 20 ] || return 1
+  shift 19
+  case "$1" in ''|*[!0-9]*) return 1;; esac
+  printf '%s\n' "$1"
+}
+old_lock_boot() {
+  # Legacy empty locks have no identity. Reclaim only evidence predating this boot,
+  # with a margin for second-resolution timestamps; current-boot ambiguity stays blocked.
+  read -r uptime_seconds ignored < /proc/uptime || return 1
+  uptime_seconds=${uptime_seconds%%.*}
+  lock_modified=$(stat -c %Y "$DATA/.lock") || return 1
+  lock_now=$(date +%s) || return 1
+  case "$uptime_seconds:$lock_modified:$lock_now" in *[!0-9:]*|:*|*::*) return 1;; esac
+  [ "$lock_modified" -lt "$((lock_now - uptime_seconds - 2))" ]
+}
+lock_state() {
+  # Called only while holding the kernel directory lock. A competing v10 initializer
+  # cannot publish/remove any marker here. No active-job record is changed by recovery.
+  LOCK_STATE=free
+  [ -e "$DATA/.lock" ] || [ -L "$DATA/.lock" ] || return
+  LOCK_STATE=unknown
+  safe_dir "$DATA/.lock" && owned "$DATA/.lock" || return
+  previous=; previous_boot=; previous_start=; generation=
+  ordinary "$DATA/.lock/boot" && owned "$DATA/.lock/boot" && previous_boot=$(cat "$DATA/.lock/boot")
+  if [ -n "$previous_boot" ]; then
+    printf '%s\n' "$previous_boot" | grep -Eq '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' || return
+  fi
+  if [ -n "$previous_boot" ] && [ "$previous_boot" != "$BOOT" ]; then LOCK_STATE=stale; return; fi
+  if [ -z "$previous_boot" ]; then old_lock_boot && { LOCK_STATE=stale; return; }; fi
+  ordinary "$DATA/.lock/pid" && owned "$DATA/.lock/pid" && previous=$(cat "$DATA/.lock/pid")
+  ordinary "$DATA/.lock/start" && owned "$DATA/.lock/start" && previous_start=$(cat "$DATA/.lock/start")
+  case "$previous_start" in *[!0-9]*) return;; esac
+  ordinary "$DATA/.lock/generation" && owned "$DATA/.lock/generation" && generation=$(cat "$DATA/.lock/generation")
+  case "$previous" in
+    ''|*[!0-9]*) [ "$generation" != 10 ] || LOCK_STATE=stale;;
+    *)
+      if ! kill -0 "$previous" 2>/dev/null; then LOCK_STATE=stale
+      else
+        current_start=$(process_start "$previous")
+        if [ -n "$previous_start" ] && [ -n "$current_start" ] && [ "$previous_start" != "$current_start" ]; then LOCK_STATE=stale
+        else LOCK_STATE=live; fi
+      fi;;
+  esac
+}
+guard_lock() {
+  exec 9<"$DATA" || return 1
+  flock_call -n 9 || { exec 9<&-; return 1; }
+  # An uninstall/recreate may have happened while this descriptor was being opened.
+  [ "$DATA" -ef "/proc/$$/fd/9" ] || { flock_call -u 9; exec 9<&-; return 1; }
+  GUARDED=1
 }
 take_lock() {
   attempt=0
-  boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)
   while ! mkdir "$DATA/.lock" 2>/dev/null; do
-    safe_dir "$DATA/.lock" || return 1
-    ordinary "$DATA/.lock/pid" && ordinary "$DATA/.lock/boot" || return 1
-    previous=$(cat "$DATA/.lock/pid")
-    previous_boot=$(cat "$DATA/.lock/boot")
-    case "$previous" in ''|*[!0-9]*) return 1;; esac
-    if [ "$previous_boot" != "$boot" ] || ! kill -0 "$previous" 2>/dev/null; then
-      rm -f "$DATA/.lock/pid" "$DATA/.lock/boot" || return 1
+    lock_state
+    if [ "$LOCK_STATE" = stale ]; then
+      rm -f "$DATA/.lock/pid" "$DATA/.lock/boot" "$DATA/.lock/start" "$DATA/.lock/generation" || return 1
       rmdir "$DATA/.lock" 2>/dev/null || return 1
+    elif [ "$LOCK_STATE" = unknown ]; then
+      ERROR=lock_incomplete; return 1
     else
       attempt=$((attempt + 1))
       [ "$attempt" -lt 20 ] || return 1
@@ -84,8 +188,10 @@ take_lock() {
     fi
   done
   LOCKED=1
+  printf '10\n' > "$DATA/.lock/generation" || return 1
   printf '%s\n' "$$" > "$DATA/.lock/pid" || return 1
-  printf '%s\n' "$boot" > "$DATA/.lock/boot" || return 1
+  printf '%s\n' "$BOOT" > "$DATA/.lock/boot" || return 1
+  process_start "$$" > "$DATA/.lock/start" || return 1
 }
 valid_package() { case "$1" in ''|.*|*[!a-zA-Z0-9._]*) return 1;; esac; }
 # SystemUI and the OEM control-centre plugin, found by its install path; nothing else is ever compiled.
@@ -102,14 +208,14 @@ packages() {
 # Per-package identities prevent retrying a successful package when its neighbour failed.
 # The APK containing LSPosed callbacks is not compiled here; updating it does not invalidate native ART code.
 fingerprint() {
-  fp_build=$(getprop ro.build.fingerprint)
+  fp_build=$BUILD_ID
   [ -n "$fp_build" ] || return 1
   fp_paths=$(timeout -k 2 12 cmd package path "$1" 2>/dev/null) || return 1
   [ -n "$fp_paths" ] || return 1
   fp_info=$(timeout -k 2 12 dumpsys package "$1" 2>/dev/null) || return 1
   printf '%s\n' "$fp_info" | grep -q 'versionCode=' || return 1
   printf 'build=%s\n' "$fp_build"
-  grep -m1 '^versionCode=' "$MODDIR/module.prop"
+  # Script upgrades do not invalidate unchanged native APKs.
   printf '%s %s\n' "$1" "$(printf '%s\n' "$fp_paths" | tr '\n' ' ')"
   printf '%s\n' "$fp_info" | grep -m2 -E 'versionCode=|lastUpdateTime=' | tr -s ' \n' '  '
   printf '\n'
@@ -162,6 +268,16 @@ sample_runtime() {
   pid=$(pidof com.android.systemui 2>/dev/null | cut -d' ' -f1)
   case "$pid" in ''|*[!0-9]*) return 0;; esac
   [ -r "/proc/$pid/stat" ] || return 0
+  sample_now=$(date +%s)
+  if ordinary "$DATA/runtime" && owned "$DATA/runtime"; then
+    old_sample=$(sed -n 's/^sampled=//p' "$DATA/runtime")
+    old_pid=$(sed -n 's/^pid=//p' "$DATA/runtime")
+    old_boot=$(sed -n 's/^boot=//p' "$DATA/runtime")
+    old_sample=$(digits "$old_sample")
+    if [ "$old_pid" = "$pid" ] && [ "$old_boot" = "$BOOT" ] && [ "$sample_now" -ge "$old_sample" ] && [ $((sample_now - old_sample)) -lt 60 ]; then
+      trace runtime_sample=reused; return 0
+    fi
+  fi
   ticks=0
   for task in /proc/$pid/task/*; do
     name=$(cat "$task/comm" 2>/dev/null) || continue
@@ -176,11 +292,15 @@ sample_runtime() {
   [ "$up" -gt 0 ] || return 0
   age=$((up - started / 100)); [ "$age" -gt 0 ] || return 0
   aot=0; grep -Eq 'SystemUI.*(@classes\.dex|\.odex|\.oat)' "/proc/$pid/maps" 2>/dev/null && aot=1
-  write_file runtime "$(printf 'sampled=%s\njit_ms=%s\nproc_s=%s\naot=%s\n' "$(date +%s)" "$((ticks * 10))" "$age" "$aot")"
+  write_file runtime "$(printf 'sampled=%s\njit_ms=%s\nproc_s=%s\naot=%s\npid=%s\nboot=%s\n' "$sample_now" "$((ticks * 10))" "$age" "$aot" "$pid" "$BOOT")"
   return 0
 }
 status() {
   if [ "$LEDGER_DIRTY" = 1 ]; then ledger_save && LEDGER_DIRTY=0; fi
+  status_key="$STATE/$ERROR/$COMPILED/$PACKAGES/$REUSED/$VERIFIED/$DEFERRED/$IDLE_REMAINING/$DIAGNOSTIC/$PRIORITY"
+  if [ "$LAST_STATUS" = "$status_key" ]; then cat "$DATA/status"; return; fi
+  LAST_STATUS=$status_key
+  trace "state=$STATE error=$ERROR compiled=$COMPILED reused=$REUSED verified=$VERIFIED deferred=$DEFERRED diagnostic=$DIAGNOSTIC"
   stamp=$(date +%s)
   if [ "$PACKAGES" -gt 0 ] && [ "$VERIFIED" = "$PACKAGES" ]; then VERIFICATION=verified
   elif [ "$VERIFIED" -gt 0 ]; then VERIFICATION=partial
@@ -214,6 +334,7 @@ status() {
   esac
   # Rebuild fixed metadata rather than evaluating the old description.
   if ordinary "$MODDIR/module.prop"; then
+    [ "$(sed -n 's/^description=//p' "$MODDIR/module.prop")" != "$summary" ] || return 0
     temp=$(mktemp "$MODDIR/.prop.XXXXXX") || return 1
     printf 'id=c17_performance\nname=Status C17 附属模块\nversion=%s\nversionCode=%s\nauthor=aiingjie\ndescription=%s\n' \
       "$MODVERSION" "$MODCODE" "$summary" > "$temp"
@@ -244,8 +365,10 @@ art_state() {
     case "$filters" in verify|speed-profile|speed) ART_FILTER=$filters;; esac
   fi
   if [ -z "$statuses" ] || [ "$path_count" != "$status_count" ]; then ART=unknown
-  elif printf '%s\n' "$statuses" | grep -Eq '\[reason=vdex\]|\[status=(verify|speed-profile|run-from-apk|run-from-vdex|extract|error|unknown)\]'; then ART=stale
-  elif [ "$(printf '%s\n' "$statuses" | grep -c '\[status=')" = "$(printf '%s\n' "$statuses" | grep -c '\[status=speed\]')" ]; then ART=ready
+  elif printf '%s\n' "$statuses" | grep -Eq '\[reason=vdex\]|\[status=(verify|run-from-apk|run-from-vdex|extract|error|unknown)\]'; then ART=stale
+  # Valid profile-guided OEM code is compiled code too. Forcing every prebuilt
+  # speed-profile package through speed repeatedly can discard useful profiles.
+  elif [ "$(printf '%s\n' "$statuses" | grep -c '\[status=')" = "$(printf '%s\n' "$statuses" | grep -Ec '\[status=(speed|speed-profile)\]')" ]; then ART=ready
   else ART=unknown; fi
 }
 device_ready() {
@@ -316,23 +439,39 @@ operation() {
 }
 operation_once() {
   kind=$1; target=$2
+  trace "package=$target stage=$kind attempt=$((retry + 1))"
   ACTIVE_LOG=$(mktemp "$DATA/.operation.XXXXXX") || { ERROR=status_write_failed; return 1; }
   ACTIVE_JOB=
   OP_PRIORITY=
   [ "$PRIORITY" != background ] || OP_PRIORITY='-p PRIORITY_BACKGROUND'
+  # Binder transfers stdout/stderr FDs to system_server. An adb_data_file FD
+  # opened below /data/adb is rejected by enforcing ROMs before ART even starts.
+  # Pass anonymous pipes to cmd; only our reader opens the private evidence file.
+  # Preserve the compiler exit separately from the pipe reader's exit status.
+  (
+  compile_client() {
   if [ "$kind" = restore ]; then
     # --reset would erase current/reference profiles and can downgrade SystemUI to verify.
     # Restore the known prior filter, or ask the ROM's install policy when no trustworthy prior filter exists.
     if [ "$RESTORE_FILTER" = native ]; then
-      cmd package compile -v $OP_PRIORITY -r install -f --primary-dex "$target" > "$ACTIVE_LOG" 2>&1 &
+      exec cmd package compile -v $OP_PRIORITY -r install -f --primary-dex "$target"
     else
-      cmd package compile -v $OP_PRIORITY -m "$RESTORE_FILTER" -f --primary-dex "$target" > "$ACTIVE_LOG" 2>&1 &
+      exec cmd package compile -v $OP_PRIORITY -m "$RESTORE_FILTER" -f --primary-dex "$target"
     fi
   elif [ "$PRIORITY" = background ]; then
-    cmd package compile -v -m speed -p PRIORITY_BACKGROUND --primary-dex "$target" > "$ACTIVE_LOG" 2>&1 &
+    exec cmd package compile -v -m speed -p PRIORITY_BACKGROUND --primary-dex "$target"
   else
-    cmd package compile -v -m speed --primary-dex "$target" > "$ACTIVE_LOG" 2>&1 &
+    exec cmd package compile -v -m speed --primary-dex "$target"
   fi
+  }
+  compile_client &
+  client=$!
+  birth=$(awk '{print $22}' "/proc/$client/stat" 2>/dev/null)
+  case "$birth" in ''|*[!0-9]*) ;; *) printf 'C17_ART_CLIENT=%s:%s\n' "$client" "$birth";; esac
+  wait "$client"
+  compiler_exit=$?
+  printf '\nC17_ART_CLIENT_EXIT=%s\n' "$compiler_exit"
+  ) 9<&- 2>&1 | cat > "$ACTIVE_LOG" 9<&- 2>/dev/null &
   ACTIVE_PID=$!
   start=$(date +%s); polls=0; stop_reason=
   OPERATION_SECONDS=180
@@ -365,11 +504,14 @@ operation_once() {
     # Give the cancellable ART operation a short grace period; the client also has a hard bound.
     grace=0
     while kill -0 "$ACTIVE_PID" 2>/dev/null && [ "$grace" -lt 10 ]; do sleep 1; grace=$((grace + 1)); done
+    terminate_client
     kill "$ACTIVE_PID" 2>/dev/null
     kill -KILL "$ACTIVE_PID" 2>/dev/null
     result=1; ERROR=$stop_reason
   else
     wait "$ACTIVE_PID"; result=$?
+    client_exit=$(tr -d '\r' < "$ACTIVE_LOG" | sed -n 's/^C17_ART_CLIENT_EXIT=\([0-9][0-9]*\)$/\1/p')
+    [ "$client_exit" = 0 ] || result=1
     final_count=$(tr -d '\r' < "$ACTIVE_LOG" | grep -Ec '^Final Status: (PERFORMED|SKIPPED|FAILED|CANCELLED)$')
     if [ "$result" != 0 ] || [ "$(tr -d '\r' < "$ACTIVE_LOG" | grep -Ec '^Final Status: (PERFORMED|SKIPPED)$')" != 1 ]; then
       result=1; ERROR=${kind}_failed
@@ -394,8 +536,9 @@ operation_once() {
   ACTIVE_PID=; ACTIVE_JOB=
   # Preserve bounded failure evidence as data for the H5 details; never evaluate or source it.
   if [ "$result" != 0 ] || [ "$DIAGNOSTIC" != none ]; then
-    write_file operation-last "$(head -c 2048 "$ACTIVE_LOG")" || ERROR=status_write_failed
+    write_file operation-last "$(printf 'time=%s package=%s stage=%s error=%s diagnostic=%s\n' "$(date +%s)" "$target" "$kind" "$ERROR" "$DIAGNOSTIC"; tail -c 1400 "$ACTIVE_LOG")" || ERROR=status_write_failed
   fi
+  trace "package=$target stage=$kind result=$result error=$ERROR diagnostic=$DIAGNOSTIC wall_ms=$OP_WALL"
   rm -f "$ACTIVE_LOG"; ACTIVE_LOG=
   return "$result"
 }
@@ -439,17 +582,30 @@ MODVERSION=$(sed -n 's/^version=//p' "$MODDIR/module.prop" | head -n 1)
 MODCODE=$(sed -n 's/^versionCode=//p' "$MODDIR/module.prop" | head -n 1)
 case "$MODVERSION" in ''|*[!a-zA-Z0-9._+-]*) echo error=module_version_rejected; exit 20;; esac
 case "$MODCODE" in ''|*[!0-9]*) echo error=module_version_rejected; exit 20;; esac
-case "$MODE" in boot|auto|run|uninstall|enable|disable) ;; *) echo error=mode_rejected; exit 20;; esac
+case "$MODE" in boot|auto|run|uninstall|enable|disable|lockcheck|lockstatus) ;; *) echo error=mode_rejected; exit 20;; esac
 [ "$(id -u)" = 0 ] || { echo error=root_required; exit 21; }
-if [ "$MODE" != uninstall ]; then
+if [ "$MODE" != uninstall ] && [ "$MODE" != lockstatus ] && [ "$MODE" != lockcheck ]; then
   for flag in disable remove; do [ ! -L "$MODDIR/$flag" ] || { echo error=path_link_rejected; exit 20; }; done
   [ ! -e "$MODDIR/remove" ] || { echo error=module_inactive; exit 27; }
   [ "$MODE" = enable ] || [ "$MODE" = disable ] || [ ! -e "$MODDIR/disable" ] || { echo error=module_inactive; exit 27; }
 fi
 [ ! -e "$DATA" ] || { safe_dir "$DATA" && owned "$DATA"; } || { echo error=data_path_rejected; exit 20; }
+if ! select_flock; then
+  [ "$MODE" != lockstatus ] || { echo unavailable; exit 0; }
+  echo error=lock_unavailable; exit 28
+fi
+[ "$MODE" != lockcheck ] || exit 0
+if [ "$MODE" = lockstatus ]; then
+  [ -e "$DATA" ] || { echo 0; exit 0; }
+  guard_lock 2>/dev/null || { echo 1; exit 0; }
+  lock_state
+  case "$LOCK_STATE" in free|stale) echo 0;; live) echo 1;; *) echo unknown;; esac
+  flock_call -u 9; exec 9<&-; exit 0
+fi
 mkdir -p "$DATA" && chmod 0700 "$DATA" || { echo error=data_create_failed; exit 22; }
-take_lock || { unlock; echo error=busy; exit 23; }
+guard_lock 2>/dev/null || { echo error=busy; exit 23; }
 trap cleanup EXIT
+take_lock || { [ "$ERROR" != lock_incomplete ] || { echo error=lock_incomplete; exit 29; }; echo error=busy; exit 23; }
 interrupted() {
   cleanup
   fail interrupted
@@ -458,6 +614,7 @@ interrupted() {
   exit 24
 }
 trap interrupted HUP INT TERM
+trace "start module=$MODCODE"
 
 # Management takes the same task lock; H5 never edits flags directly and cannot race compilation.
 if [ "$MODE" = enable ] || [ "$MODE" = disable ]; then
@@ -472,13 +629,32 @@ if [ "$MODE" = enable ] || [ "$MODE" = disable ]; then
     else touch "$candidate/disable" || exit 22; fi
   done
   echo state=$MODE
+  if ordinary "$MODDIR/cache-service.sh" && owned "$MODDIR/cache-service.sh"; then
+    if [ "$MODE" = enable ]; then sh "$MODDIR/cache-service.sh" start || :
+    else sh "$MODDIR/cache-service.sh" stop || :; fi
+  fi
   exit 0
 fi
 
-# Record pending migration before a capability failure can overwrite an interrupted legacy running record.
+# Preserve legacy migration evidence before publishing the boot waiting state.
 if ordinary "$DATA/fingerprint" || { ordinary "$DATA/status" && ! grep -q '^module_version_code=' "$DATA/status"; }; then
   [ -e "$DATA/migration-complete" ] || write_file migration-pending legacy || { echo error=migration_failed; exit 22; }
 fi
+# The package manager may not answer UID queries when KSU starts service.sh.
+# Wait for boot readiness before the one-shot cache start; this is independent
+# of ART capabilities, thermal conditions and the later idle/charging gates.
+if [ "$MODE" = boot ]; then
+  STATE=waiting; status >/dev/null || { echo error=status_write_failed; exit 22; }
+  count=0
+  while [ "$(getprop sys.boot_completed)" != 1 ] && [ "$count" -lt 300 ]; do sleep 2; count=$((count + 1)); done
+  if [ "$(getprop sys.boot_completed)" != 1 ]; then fail boot_timeout; status; exit 22; fi
+fi
+# Cache startup is independent of ART readiness and environmental deferral.
+if ordinary "$MODDIR/cache-service.sh" && owned "$MODDIR/cache-service.sh"; then
+  if [ "$MODE" = uninstall ]; then sh "$MODDIR/cache-service.sh" purge || { fail cache_cleanup_failed; status; exit 22; }
+  else sh "$MODDIR/cache-service.sh" start || trace "cache=start_unavailable"; fi
+fi
+
 if ! capabilities; then
   # Only verified native ART may bypass compile-only capabilities. Recovery/migration/removal
   # can change artifacts or cancel jobs, so retain their original strict gate.
@@ -528,29 +704,31 @@ if [ "$MODE" = uninstall ]; then
   echo state=removed
   exit 0
 fi
-if [ "$MODE" = boot ]; then
-  # Bounded boot-only wait; no daemon and no periodic polling after this exits.
-  STATE=waiting; status >/dev/null || { echo error=status_write_failed; exit 22; }
-  count=0
-  while [ "$(getprop sys.boot_completed)" != 1 ] && [ "$count" -lt 300 ]; do sleep 2; count=$((count + 1)); done
-  if [ "$(getprop sys.boot_completed)" != 1 ]; then fail boot_timeout; status; exit 22; fi
-fi
 ledger_load
+BUILD_ID=$(getprop ro.build.fingerprint)
 TARGETS=$(packages) || { fail package_query_failed; status; exit 22; }
 TARGETS=$(printf '%s\n' "$TARGETS" | sort -u)
 pending=
+pending_filters=
 for package in $TARGETS; do
   valid_package "$package" || continue
   PACKAGES=$((PACKAGES + 1))
   art_state "$package"
   current=$(fingerprint "$package") || current=
   if [ "$ART" = ready ]; then
+    trace "package=$package result=reuse proof=native_art"
     REUSED=$((REUSED + 1)); VERIFIED=$((VERIFIED + 1)); ledger_reuse "$package"
     if [ -n "$current" ]; then write_file "package.$package" "$current" || fail fingerprint_write_failed; fi
-  elif [ "$ART" = unknown ] && [ -n "$current" ] && ordinary "$DATA/package.$package" && owned "$DATA/package.$package" && [ "$(cat "$DATA/package.$package")" = "$current" ]; then
+  elif [ "$ART" = unknown ] && [ -n "$current" ] && ordinary "$DATA/package.$package" && owned "$DATA/package.$package" && [ "$(sed '/^versionCode=[0-9][0-9]*$/d' "$DATA/package.$package")" = "$current" ]; then
     # Compatible ROM fallback: avoid endless recompilation, but explicitly report no ART verification.
     REUSED=$((REUSED + 1)); ledger_reuse "$package"
-  else pending="$pending $package"; fi
+    trace "package=$package result=reuse proof=identity_only art=unknown"
+  else
+    trace "package=$package result=pending art=$ART filter=$ART_FILTER"
+    pending="$pending $package"
+    pending_filters="$pending_filters
+$package=$ART_FILTER"
+  fi
 done
 [ "$PACKAGES" -gt 0 ] || fail no_package
 if [ "$STATE" != failed ] && [ -n "$COMPILE_CAPABILITY_ERROR" ] && [ "$VERIFIED" != "$PACKAGES" ]; then
@@ -576,7 +754,14 @@ if [ "$STATE" != failed ] && [ -n "$pending" ]; then
     for package in $pending; do
       if ! device_ready; then STATE=deferred; DEFERRED=$((DEFERRED + 1)); continue; fi
       # Written before the operation: a partially modified artifact also needs restoration on removal.
-      art_state "$package"
+      # Recheck after an idle wait, not twice back-to-back in the same inspection.
+      if [ "$waited" -gt 0 ]; then
+        art_state "$package"
+        if [ "$ART" = ready ]; then
+          REUSED=$((REUSED + 1)); VERIFIED=$((VERIFIED + 1)); ledger_reuse "$package"
+          trace "package=$package result=reuse proof=art_after_wait"; continue
+        fi
+      else ART_FILTER=$(printf '%s\n' "$pending_filters" | awk -F= -v p="$package" '$1==p {print $2;exit}'); fi
       if ! ordinary "$DATA/managed.$package"; then write_file "managed.$package" "$ART_FILTER" || { RUN_FAILURE=fingerprint_write_failed; break; }; fi
       if operation compile "$package"; then
         ledger_compile "$package"

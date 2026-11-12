@@ -2,6 +2,7 @@ package android.graphics;
 public class RectF {
     public float left,top,right,bottom;
     public RectF() { }
+    public RectF(Rect rect){set(rect);}
     public RectF(float left,float top,float right,float bottom) {this.left=left;this.top=top;this.right=right;this.bottom=bottom;}
     public float width() {return right-left;}
     public boolean isEmpty(){return left>=right||top>=bottom;}
@@ -11,6 +12,7 @@ public class RectF {
     public float centerY() {return (top+bottom)/2;}
     public void set(float left,float top,float right,float bottom){this.left=left;this.top=top;this.right=right;this.bottom=bottom;}
     public void set(Rect rect){left=rect.left;top=rect.top;right=rect.right;bottom=rect.bottom;}
+    public void set(RectF rect){set(rect.left,rect.top,rect.right,rect.bottom);}
     public void inset(float x,float y){left+=x;right-=x;top+=y;bottom-=y;}
     public boolean intersect(float l,float t,float r,float b){
         if(left>=r||l>=right||top>=b||t>=bottom)return false;

@@ -46,18 +46,22 @@ public final class SingleNetworkLabelControlsCheck {
         helper.update(opts,text,sub,2,-1,150,22,650,Collections.emptyMap(),Collections.emptyMap());
     }
     public static void main(String[] ignored)throws Exception{
+        if(ignored.length>0&&"auto-width".equals(ignored[0])){autoWidthLegacyContract();System.out.println("SingleNetworkLabelControls auto-width checks passed: "+checks);return;}
+        autoWidthLegacyContract();
+        scaledInkBudget();
         // Real defect: an OEM 8px badge and a 24px badge must produce the same
         // 13dp independent glyph as the current dual-SIM Compose renderer.
         independentGlyphContract();
         glyphSharedLifecycle();
+        styleSwitchContract();
         Native nativeCode=new Native();SingleNetworkLabelControls helper=new SingleNetworkLabelControls(nativeCode);Binder primary=new Binder(8),secondary=new Binder(21);
         event(helper,nativeCode,primary,"native8");event(helper,nativeCode,secondary,"native21");
         equal(false,SingleNetworkLabelControls.managed(primary.text));equal("native8",primary.text.getText());
         update(helper,options(true),"5G",8);
         equal(true,SingleNetworkLabelControls.managed(primary.text));equal(View.VISIBLE,primary.text.getVisibility());equal("5G",primary.text.getText());
         equal(View.GONE,secondary.text.getVisibility());equal(View.GONE,primary.image.getVisibility());equal(View.GONE,secondary.image.getVisibility());
-        equal(8f,primary.text.getTranslationX());equal(-4f,primary.text.getTranslationY());equal(52f,primary.text.getTextSize());equal(88,primary.text.getMinimumWidth());
-        equal(1.5f,primary.text.getScaleX());equal(1.5f,primary.text.getScaleY());
+        equal(8f,primary.text.getTranslationX());equal(-4f,primary.text.getTranslationY());equal(52f,primary.text.getTextSize());equal(0,primary.text.getMinimumWidth());
+        equal(1.5f,paintedScale(primary.text));equal(1f,primary.text.getScaleX());equal(1.5f,primary.text.getScaleY());
         equal(primary.text.getTypeface(),secondary.text.getTypeface());
         // Main traffic SIM, not native first-or-null/slot order, determines the displayed generation.
         update(helper,options(true),"4G",21);equal(View.GONE,primary.text.getVisibility());equal(View.VISIBLE,secondary.text.getVisibility());equal("4G",secondary.text.getText());
@@ -129,7 +133,7 @@ public final class SingleNetworkLabelControlsCheck {
             equal(NumericPolicy.pixels(15.11f,3.40625f),exact.text.getTranslationX());
             equal(NumericPolicy.pixels(8.02f,3.40625f),exact.text.getTranslationY());
             equal(13f*3.40625f,exact.text.getTextSize());
-            equal(NumericPolicy.scale(175.37f/100f,Math.max(20f*3.40625f,NumericPolicy.layoutPixels(22,3.40625f))),exact.text.getScaleX());
+            equal(175.37f/100f,paintedScale(exact.text));equal(1f,exact.text.getScaleX());
             equal("5G",exact.text.getText());exactHelper.releaseRuntime();equal(3f,exact.text.getTranslationX());equal(20f,exact.text.getTextSize());
         }finally{exact.text.getResources().getDisplayMetrics().density=oldDensity;}
         SingleNetworkLabelControls removed=new SingleNetworkLabelControls(nativeCode);Binder removedRow=new Binder(8);nativeCode.bind(removedRow,"5G");removed.bound(removedRow);
@@ -139,6 +143,104 @@ public final class SingleNetworkLabelControlsCheck {
         equal(false,SingleNetworkLabelControls.managed(removedRow.text));equal(20f,removedRow.text.getTextSize());equal(3f,removedRow.text.getTranslationX());
         equal("",removed.nativeLabel(8));equal(true,removed.diagnosticSummary().startsWith("Single network label rows 0"));
         System.out.println("SingleNetworkLabelControls checks passed: "+checks);
+    }
+    /** Framework WRAP_CONTENT width: ReplacementSpan advance plus the explicit minimum, not View scaling. */
+    private static final class MeasuredLabel extends TextView {
+        MeasuredLabel(){super(new Context());}
+        @Override protected void onMeasure(int width,int height){
+            super.onMeasure(width,height);
+            setMeasuredDimension(Math.max(getMinimumWidth(),(int)Math.ceil(android.text.Layout.getDesiredWidth(getText(),0,getText().length(),getPaint()))),80);
+        }
+    }
+    /** Records the transformed painted bounds, including the parent-applied View matrix. */
+    private static final class InkCanvas extends Canvas {
+        private float sx=1f,sy=1f,tx;
+        private final Map<Integer,float[]> states=new LinkedHashMap<>();
+        float inkLeft,inkRight,drawScale,drawScaleY;
+        @Override public int save(){int token=super.save();states.put(token,new float[]{sx,tx,sy});return token;}
+        @Override public void restoreToCount(int token){float[] state=states.remove(token);if(state!=null){sx=state[0];tx=state[1];sy=state[2];}super.restoreToCount(token);}
+        @Override public void translate(float x,float y){tx+=sx*x;super.translate(x,y);}
+        @Override public void scale(float x,float y){sx*=x;sy*=y;super.scale(x,y);}
+        @Override public void scale(float x,float y,float px,float py){tx+=sx*px*(1f-x);sx*=x;sy*=y;super.scale(x,y,px,py);}
+        @Override public void drawText(String text,float x,float y,Paint paint){Rect bounds=new Rect();paint.getTextBounds(text,0,text.length(),bounds);
+            inkLeft=tx+sx*(x+bounds.left);inkRight=tx+sx*(x+bounds.right);drawScale=sx;drawScaleY=sy;super.drawText(text,x,y,paint);}
+    }
+    private static float paintedScale(TextView view){Spanned text=(Spanned)view.getText();ReplacementSpan span=text.getSpans(0,text.length(),ReplacementSpan.class)[0];
+        InkCanvas canvas=new InkCanvas();span.draw(canvas,text,0,text.length(),0,0,40,80,view.getPaint());return canvas.drawScale*view.getScaleX();}
+    private static InkCanvas ink(TextView view){Spanned text=(Spanned)view.getText();ReplacementSpan span=text.getSpans(0,text.length(),ReplacementSpan.class)[0];
+        InkCanvas canvas=new InkCanvas();span.draw(canvas,text,0,text.length(),0,0,40,80,view.getPaint());return canvas;}
+    private static void autoWidthLegacyContract(){
+        Native nativeCode=new Native();MeasuredLabel text=new MeasuredLabel();text.strictMeasuredRelayout=true;
+        text.setLayoutParams(new ViewGroup.LayoutParams(-2,80));text.setMinimumWidth(17);text.setScaleX(.9f);text.setScaleY(.8f);
+        Binder binding=new Binder(8,text);nativeCode.bind(binding,"native-auto");SingleNetworkLabelControls controls=new SingleNetworkLabelControls(nativeCode);controls.bound(binding);
+        float originalDensity=text.getResources().getDisplayMetrics().density;
+        try {
+            for(boolean typography:new boolean[]{true,false})for(float density:new float[]{1f,3.40625f})
+                    for(float scale:new float[]{0f,100f,175f})for(String label:new String[]{"5G","5GA","自定义 5G"}){
+                text.getResources().getDisplayMetrics().density=density;Bundle saved=new Bundle();saved.putBoolean("label_enabled",true);saved.putBoolean("label_text_style_enabled",typography);
+                FeatureOptions features=FeatureOptions.from(saved);controls.update(features,label,8,0,0,scale,0,720,Collections.emptyMap(),Collections.emptyMap());
+                text.measure(0,0);text.layout(0,0,text.getMeasuredWidth(),text.getMeasuredHeight());
+                CharSequence original=text.getText();int measured=text.getMeasuredWidth(),requests=text.layoutRequests;InkCanvas before=ink(text);
+                equal(0,text.getMinimumWidth());if(scale==0)equal(0,measured);
+                for(float legacyWidth:new float[]{22,80,0}){
+                    controls.update(features,label,8,0,0,scale,legacyWidth,720,Collections.emptyMap(),Collections.emptyMap());
+                    equal(true,original==text.getText());equal(requests,text.layoutRequests);equal(0,text.getMinimumWidth());
+                    text.measure(0,0);equal(measured,text.getMeasuredWidth());InkCanvas after=ink(text);
+                    equal(before.inkLeft,after.inkLeft);equal(before.inkRight,after.inkRight);equal(before.drawScale,after.drawScale);equal(before.drawScaleY,after.drawScaleY);equal(before.text,after.text);
+                }
+            }
+            Bundle saved=new Bundle();saved.putBoolean("label_enabled",true);saved.putBoolean("label_text_style_enabled",true);FeatureOptions features=FeatureOptions.from(saved);
+            controls.update(features,"5G",8,0,0,100,80,600,Collections.emptyMap(),Collections.emptyMap());text.measure(0,0);
+            int width=text.getMeasuredWidth(),requests=text.layoutRequests;CharSequence original=text.getText();
+            controls.update(features,"5GA",8,0,0,100,0,600,Collections.emptyMap(),Collections.emptyMap());text.measure(0,0);
+            equal(true,text.getMeasuredWidth()>width);equal(true,text.layoutRequests>requests);equal(false,original==text.getText());
+            int longer=text.getMeasuredWidth();controls.update(features,"5GA",8,0,0,175,22,600,Collections.emptyMap(),Collections.emptyMap());text.measure(0,0);
+            equal(true,text.getMeasuredWidth()>longer);equal(1.75f,ink(text).drawScale);equal(1.75f,text.getScaleY());
+            requests=text.layoutRequests;original=text.getText();controls.update(features,"5GA",8,0,0,175,80,900,Collections.emptyMap(),Collections.emptyMap());
+            equal(false,original==text.getText());equal(true,text.layoutRequests>requests);equal(900f,ink(text).textEffectiveWeight);
+            controls.update(options(false),"5GA",8,0,0,175,0,900,Collections.emptyMap(),Collections.emptyMap());
+            equal(17,text.getMinimumWidth());equal(.9f,text.getScaleX());equal(.8f,text.getScaleY());equal("native-auto",text.getText());
+        } finally {controls.releaseRuntime();text.getResources().getDisplayMetrics().density=originalDensity;}
+    }
+    private static void scaledInkBudget(){
+        Native nativeCode=new Native();MeasuredLabel text=new MeasuredLabel();Binder row=new Binder(8,text);
+        text.setMinimumWidth(17);text.setScaleX(.9f);text.setScaleY(.8f);text.setTranslationX(0);text.setTranslationY(2);
+        float originalDensity=text.getResources().getDisplayMetrics().density;
+        SingleNetworkLabelControls controls=new SingleNetworkLabelControls(nativeCode);nativeCode.bind(row,"native-LTE");controls.bound(row);
+        Bundle saved=new Bundle();saved.putBoolean("label_enabled",true);
+        try {
+            for(float density:new float[]{1f,3.40625f})for(float scale:new float[]{1f,25f,100f,175f,250f,Float.MAX_VALUE})for(float minimum:new float[]{0f,22f,80f})
+                    for(String label:new String[]{"5G","5GA","自定义 5G"}){
+                text.getResources().getDisplayMetrics().density=density;
+                controls.update(FeatureOptions.from(saved),label,8,0,0,scale,minimum,720,Collections.emptyMap(),Collections.emptyMap());
+                text.measure(0,0);text.layout(0,0,text.getMeasuredWidth(),text.getMeasuredHeight());
+                Spanned styled=(Spanned)text.getText();ReplacementSpan span=styled.getSpans(0,styled.length(),ReplacementSpan.class)[0];
+                int advance=span.getSize(text.getPaint(),styled,0,styled.length(),null);
+                InkCanvas canvas=new InkCanvas();canvas.scale(text.getScaleX(),text.getScaleY(),text.getMeasuredWidth()/2f,text.getMeasuredHeight()/2f);
+                span.draw(canvas,styled,0,styled.length(),0,0,40,80,text.getPaint());
+                checks++;if(canvas.inkLeft<-.01f||canvas.inkRight>text.getMeasuredWidth()+.01f)
+                    throw new AssertionError("scaled network text escapes its native allocated width: scale="+scale+", min="+minimum+", width="+text.getMeasuredWidth()+", painted="+canvas.inkLeft+".."+canvas.inkRight);
+                equal(advance,text.getMeasuredWidth());equal(0,text.getMinimumWidth());
+                equal(0f,text.getTranslationX());equal(label,canvas.text);
+                // Keep the existing external vertical transform: enlarging only the
+                // drawing inside a fixed 20dp TextView line introduces new clipping.
+                equal(canvas.drawScale,text.getScaleY());equal(canvas.drawScale,canvas.drawScaleY);
+                InkCanvas internal=new InkCanvas();span.draw(internal,styled,0,styled.length(),0,0,40,80,text.getPaint());
+                equal(1f,internal.drawScaleY);
+                Paint.FontMetricsInt metrics=new Paint.FontMetricsInt();span.getSize(text.getPaint(),styled,0,styled.length(),metrics);
+                equal((int)Math.round(20d*density),metrics.descent-metrics.ascent);
+            }
+            for(float minimum:new float[]{0f,22f}){
+                controls.update(FeatureOptions.from(saved),"5G",8,0,0,0,minimum,720,Collections.emptyMap(),Collections.emptyMap());
+                text.measure(0,0);Spanned styled=(Spanned)text.getText();ReplacementSpan span=styled.getSpans(0,styled.length(),ReplacementSpan.class)[0];
+                InkCanvas canvas=new InkCanvas();span.draw(canvas,styled,0,styled.length(),0,0,40,80,text.getPaint());
+                equal(null,canvas.text);equal(0,text.getMeasuredWidth());equal(1f,text.getScaleX());equal(0f,text.getScaleY());
+            }
+            controls.update(FeatureOptions.from(saved),"5G",8,7,-3,175,22,720,Collections.emptyMap(),Collections.emptyMap());
+            equal(7f*text.getResources().getDisplayMetrics().density,text.getTranslationX());
+            controls.update(options(false),"5G",8,0,0,175,22,720,Collections.emptyMap(),Collections.emptyMap());
+            equal(17,text.getMinimumWidth());equal(.9f,text.getScaleX());equal(.8f,text.getScaleY());equal(0f,text.getTranslationX());equal(2f,text.getTranslationY());equal("native-LTE",text.getText());
+        } finally {controls.releaseRuntime();text.getResources().getDisplayMetrics().density=originalDensity;}
     }
     private static void independentGlyphContract(){
         boolean keepPadding=View.keepPaddingForCheck;View.keepPaddingForCheck=true;
@@ -158,10 +260,10 @@ public final class SingleNetworkLabelControlsCheck {
         equal(1,spans.length);ReplacementSpan span=spans[0];Paint.FontMetricsInt metrics=new Paint.FontMetricsInt();
         int advance=span.getSize(small.text.getPaint(),text,0,text.length(),metrics);
         equal(80,metrics.descent-metrics.ascent);equal(metrics.ascent,metrics.top);equal(metrics.descent,metrics.bottom);
-        equal((int)Math.ceil(small.text.getPaint().measureText("5G")+8),advance);
+        equal(Math.max(small.text.getMinimumWidth(),(int)Math.ceil(small.text.getPaint().measureText("5G")+8)),advance);
         Canvas canvas=new Canvas();span.draw(canvas,text,0,text.length(),7,10,50,90,small.text.getPaint());
         Rect glyph=new Rect();small.text.getPaint().getTextBounds("5G",0,2,glyph);
-        equal(7+advance/2f-glyph.exactCenterX(),canvas.textX);equal(50f-glyph.exactCenterY(),canvas.textY);equal(52f,canvas.textSize);
+        equal(7+advance/2f-glyph.exactCenterX(),canvas.translateX+canvas.textX*canvas.scaleX);equal(50f-glyph.exactCenterY(),canvas.translateY+canvas.textY*canvas.scaleY);equal(52f,canvas.textSize);
         equal(600f,canvas.textEffectiveWeight);equal("5G",canvas.text);
         // Explicit network scope must win over a different legacy source. This
         // runs FontRepository.apply, rather than comparing a configuration key.
@@ -171,7 +273,7 @@ public final class SingleNetworkLabelControlsCheck {
         spans=((Spanned)small.text.getText()).getSpans(0,3,ReplacementSpan.class);Canvas fontCanvas=new Canvas();
         spans[0].draw(fontCanvas,small.text.getText(),0,3,0,0,40,80,small.text.getPaint());
         equal(720f,fontCanvas.textEffectiveWeight);equal(52f,fontCanvas.textSize);equal("5GA",fontCanvas.text);
-        equal(1.5f,small.text.getScaleX());equal(8f,small.text.getTranslationX());equal(-4f,small.text.getTranslationY());
+        equal(1.5f,paintedScale(small.text));equal(1f,small.text.getScaleX());equal(8f,small.text.getTranslationX());equal(-4f,small.text.getTranslationY());
         Map<String,Integer> tint=new LinkedHashMap<>();tint.put("label_color_light",0x40112233);tint.put("label_color_dark",0x40112233);
         Map<String,Boolean> alpha=new LinkedHashMap<>();alpha.put("label_color_light",true);alpha.put("label_color_dark",true);
         controls.update(own,"5G",8,0,0,100,22,600,tint,alpha);
@@ -189,6 +291,48 @@ public final class SingleNetworkLabelControlsCheck {
         equal(2,small.text.getPaddingLeft());equal(4,small.text.getPaddingTop());equal(6,small.text.getPaddingRight());equal(8,small.text.getPaddingBottom());
         equal("native-small",small.text.getText());equal(false,small.text.getText() instanceof Spanned);
         controls.releaseRuntime();View.keepPaddingForCheck=keepPadding;
+    }
+    /** Replay the same display/layout projection as reload before reaching the real native binder. */
+    private static void styleSwitchContract(){
+        for(boolean size:new boolean[]{false,true})for(boolean typography:new boolean[]{false,true})
+                for(boolean shared:new boolean[]{false,true})for(boolean position:new boolean[]{false,true}){
+            Native nativeCode=new Native();SingleNetworkLabelControls controls=new SingleNetworkLabelControls(nativeCode);Binder row=new Binder(8);
+            nativeCode.bind(row,"native-LTE");controls.bound(row);
+            Bundle saved=new Bundle();saved.putBoolean("label_enabled",true);saved.putBoolean("label_size_enabled",size);
+            saved.putBoolean("label_text_style_enabled",typography);saved.putBoolean("label_position_enabled",position);
+            saved.putBoolean(StatusBarLayoutSettings.WIFI_LABEL_SHARED,shared);saved.putBoolean("wifi_position_enabled",!position);
+            saved.putFloat(StatusBarSettings.LABEL_OFFSET_Y,-7f);saved.putFloat(StatusBarSettings.WIFI_OFFSET_Y,3f);
+            saved.putFloat(StatusBarSettings.LABEL_SCALE,175f);saved.putFloat(StatusBarSettings.SLOT_WIDTH,44f);
+            Bundle projected=NetworkDisplaySettings.runtime(saved);controls.configureLayout(projected);projected=StatusBarLayoutSettings.runtime(projected);
+            controls.update(FeatureOptions.from(projected),"5G",8,0,projected.getFloat(StatusBarSettings.LABEL_OFFSET_Y),175,44,750,Collections.emptyMap(),Collections.emptyMap());
+            equal(0,row.text.getMinimumWidth());
+            equal(size?1.75f:1f,paintedScale(row.text));equal(1f,row.text.getScaleX());equal(size?1.75f:1f,row.text.getScaleY());
+            equal((shared?!position?3f:0f:position?-7f:0f)*row.text.getResources().getDisplayMetrics().density,row.text.getTranslationY());
+            equal(52f,row.text.getTextSize()); // Size scales the glyph; it does not replace native text metrics.
+            saved.putBoolean(StatusBarSettings.LABEL_HIDDEN,true);projected=NetworkDisplaySettings.runtime(saved);
+            controls.configureLayout(projected);projected=StatusBarLayoutSettings.runtime(projected);
+            controls.update(FeatureOptions.from(projected),"5G",8,0,projected.getFloat(StatusBarSettings.LABEL_OFFSET_Y),175,44,750,Collections.emptyMap(),Collections.emptyMap());
+            equal(View.GONE,row.text.getVisibility());equal(View.GONE,row.image.getVisibility());
+            saved.putBoolean("label_enabled",false);saved.putBoolean(StatusBarSettings.LABEL_HIDDEN,false);projected=NetworkDisplaySettings.runtime(saved);
+            controls.configureLayout(projected);projected=StatusBarLayoutSettings.runtime(projected);
+            controls.update(FeatureOptions.from(projected),"5G",8,0,projected.getFloat(StatusBarSettings.LABEL_OFFSET_Y),175,44,750,Collections.emptyMap(),Collections.emptyMap());
+            equal("native-LTE",row.text.getText());equal(24,row.text.getMinimumWidth());equal(1f,row.text.getScaleX());equal(5f,row.text.getTranslationY());
+            equal(View.VISIBLE,row.text.getVisibility());equal(View.VISIBLE,row.image.getVisibility());
+            saved.putBoolean("label_enabled",true);projected=NetworkDisplaySettings.runtime(saved);
+            controls.configureLayout(projected);projected=StatusBarLayoutSettings.runtime(projected);
+            controls.update(FeatureOptions.from(projected),"5G",8,0,projected.getFloat(StatusBarSettings.LABEL_OFFSET_Y),175,44,750,Collections.emptyMap(),Collections.emptyMap());
+            equal(0,row.text.getMinimumWidth());
+            equal(size?1.75f:1f,paintedScale(row.text));equal(1f,row.text.getScaleX());equal(-7f,saved.getFloat(StatusBarSettings.LABEL_OFFSET_Y));equal(44f,saved.getFloat(StatusBarSettings.SLOT_WIDTH));
+            controls.releaseRuntime();equal(24,row.text.getMinimumWidth());equal(20f,row.text.getTextSize());
+        }
+        Native nativeCode=new Native();SingleNetworkLabelControls controls=new SingleNetworkLabelControls(nativeCode);Binder row=new Binder(8);
+        nativeCode.bind(row,"native-LTE");controls.bound(row);Bundle saved=new Bundle();saved.putBoolean("label_enabled",true);
+        controls.update(FeatureOptions.from(saved),"5G+",8,0,0,200,0,850,Collections.emptyMap(),Collections.emptyMap());
+        equal(0,row.text.getMinimumWidth());equal(2f,paintedScale(row.text));equal(1f,row.text.getScaleX());
+        Spanned text=(Spanned)row.text.getText();ReplacementSpan span=text.getSpans(0,text.length(),ReplacementSpan.class)[0];
+        int advance=span.getSize(row.text.getPaint(),text,0,text.length(),new Paint.FontMetricsInt());
+        equal(true,advance>0);Canvas canvas=new Canvas();span.draw(canvas,text,0,text.length(),0,0,40,80,row.text.getPaint());
+        equal("5G+",canvas.text);equal(52f,canvas.textSize);equal(850f,canvas.textEffectiveWeight);controls.releaseRuntime();
     }
     private static final class Mobile extends ViewGroup implements StatusIconDisplayable{
         Mobile(){super(null);}
@@ -222,17 +366,18 @@ public final class SingleNetworkLabelControlsCheck {
         controls.sharedLayout(bridge);Bundle values=new Bundle();values.putBoolean("label_enabled",true);values.putBoolean(StatusBarLayoutSettings.WIFI_LABEL_SHARED,true);
         for(int cycle=0;cycle<3;cycle++){
             bridge.configure(true);controls.configureLayout(values);controls.update(FeatureOptions.from(values),"5G",8,0,0,150,22,600,Collections.emptyMap(),Collections.emptyMap());
-            equal(52f,text.getTextSize());equal(1.5f,text.getScaleY());equal(0f,text.getTranslationY());
+            equal(52f,text.getTextSize());equal(1.5f,paintedScale(text));equal(1.5f,text.getScaleY());equal(0f,text.getTranslationY());
             // The real ConstraintLayout's following native traversal resolves
             // its signal -> label chain; this fixture is not a solver.
             text.layout(92,0,180,80);signal.layout(0,0,92,80);
+            bridge.nativeMeasured(status);bridge.nativeLaidOut(status);
             NetworkSharedSlotLayout.Frame frame=bridge.frame(mobile);equal(true,frame!=null&&frame.labelPresent);
             equal(true,bridge.apply(frame,188,100,0,true,true));
             ConstraintLayout.LayoutParams placed=(ConstraintLayout.LayoutParams)text.getLayoutParams();
             equal(0,placed.topMargin);equal(0,placed.bottomMargin);equal(17,parent.getTop());equal(0,text.getTop());
             values.putBoolean(StatusBarLayoutSettings.WIFI_LABEL_SHARED,false);bridge.configure(false);controls.configureLayout(values);
             controls.update(FeatureOptions.from(values),"5G",8,0,0,150,22,600,Collections.emptyMap(),Collections.emptyMap());
-            equal(52f,text.getTextSize());equal(true,text.getText() instanceof Spanned);equal(1.5f,text.getScaleY());
+            equal(52f,text.getTextSize());equal(true,text.getText() instanceof Spanned);equal(1.5f,paintedScale(text));equal(1.5f,text.getScaleY());
             values.putBoolean(StatusBarLayoutSettings.WIFI_LABEL_SHARED,true);
         }
         Binder replacement=new Binder(8,text);replacement.model="native-rebuilt";controls.bound(replacement);

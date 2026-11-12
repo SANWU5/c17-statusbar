@@ -15,10 +15,11 @@ public final class DrawableSwitchCheck {
     private static int count;
     private static void require(boolean value,String message){count++;if(!value)throw new AssertionError(message);}
     private static final class Glyph extends Drawable {
-        final int width;int draws,alpha,tint;ColorStateList list;PorterDuff.Mode mode;
+        final int width;int draws,alpha=255,tint;ColorStateList list;PorterDuff.Mode mode;
         Glyph(int width){this.width=width;}
         public void draw(Canvas canvas){draws++;}
         public void setAlpha(int alpha){this.alpha=alpha;}
+        public int getAlpha(){return alpha;}
         public void setColorFilter(ColorFilter filter){}
         public int getOpacity(){return -3;}
         public int getIntrinsicWidth(){return width;}

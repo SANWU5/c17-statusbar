@@ -36,15 +36,8 @@ private val iconManagementPreviews = object : android.util.LruCache<String, andr
     override fun sizeOf(key: String, value: android.graphics.Bitmap) = value.width * value.height
 }
 
-private fun sourceRoleInPack(pack: IconManagementRepository.Pack, role: String): String? {
-    val target = IconRoleRegistry.role(role)?.targetId
-    return when {
-        PuiIconAliases.sourceRole(pack.manifest, role) != null -> PuiIconAliases.sourceRole(pack.manifest, role)
-        role.endsWith(".default") && pack.manifest.icons.containsKey(role.removeSuffix(".default")) -> role.removeSuffix(".default")
-        role.startsWith("hint.") && target != null && pack.manifest.icons.containsKey(target) -> target
-        else -> null
-    }
-}
+private fun sourceRoleInPack(pack: IconManagementRepository.Pack, role: String): String? =
+    IconManagementSelection.sourceRole(pack.manifest, role)
 private fun availablePackRoles(pack: IconManagementRepository.Pack): List<String> =
     (pack.manifest.icons.keys.filter { IconRoleRegistry.knownResourceRole(it) } +
         IconRoleRegistry.targets(null).flatMap { it.roles }.filter { sourceRoleInPack(pack, it) != null }).distinct()
@@ -64,7 +57,7 @@ private fun unsupportedArtworkCount(pack: IconManagementRepository.Pack): Int = 
     IconRoleRegistry.role(it)?.supported != true && IconRoleRegistry.targetForRole(it)?.supported != true
 }
 private fun packFormats(pack: IconManagementRepository.Pack): String =
-    "v3 · PNG ${pack.pngCount} · 矢量 ${pack.vectorCount} · 动态 ${pack.animationCount}"
+    trf("v3 · PNG %1\$s · 矢量 %2\$s · 动态 %3\$s", pack.pngCount, pack.vectorCount, pack.animationCount)
 
 /** Thumbnail loading shares the production PNG/vector decoder; native/default artwork is never invented. */
 @Composable
@@ -189,7 +182,7 @@ internal fun IconManagementPage(app: ModernMainActivity) {
         destination.section == "library" -> if (app.iconLibraryTarget != null) "选择图库" else "选套装"
         destination.section == "github" -> "从 GitHub 导入"
         destination.section == "custom" || destination.section == "scope" -> "自定义图标"
-        destination.section == "appearance" -> "${scope?.let { iconSectionTitle(it) }.orEmpty()}外观"
+        destination.section == "appearance" -> trf("%s外观", scope?.let { iconSectionTitle(it) }.orEmpty())
         destination.section in listOf("target", "target_pick") -> IconRoleRegistry.target(destination.targetId)?.title ?: "选择图案"
         else -> "图标管理"
     }
@@ -222,7 +215,7 @@ internal fun IconManagementPage(app: ModernMainActivity) {
                     }
                     destination.section == "library" -> {
                         app.iconLibraryTarget?.let { targetId -> item { UiGroupCard {
-                            UiRow("为${IconRoleRegistry.target(targetId)?.title ?: "当前图标"}选择素材", "选择图库后直接挑选图案，最后在目标页统一保存。")
+                            UiRow(trf("为%s选择素材", IconRoleRegistry.target(targetId)?.title ?: tr("当前图标")), "选择图库后直接挑选图案，最后在目标页统一保存。")
                         } } }
                         if (bundledKinds.isNotEmpty()) {
                             item { IconSectionLabel("内置套装") }
@@ -235,7 +228,7 @@ internal fun IconManagementPage(app: ModernMainActivity) {
                         }
                         if (app.iconPacks.isNotEmpty()) item { IconSectionLabel("我的套装") }
                         items(app.iconPacks, key = { it.id }) { listed -> UiGroupCard {
-                            UiRow(iconPackName(listed), "${listed.author.ifBlank { "未署名" }} · ${listed.iconCount} 个图案", "预览", Icons.Outlined.Collections,
+                            UiRow(iconPackName(listed), trf("%1\$s · %2\$s 个图案", listed.author.ifBlank { tr("未署名") }, listed.iconCount), "预览", Icons.Outlined.Collections,
                                 enabled = !app.busy) { navigate("pack", null, listed.id) }
                             Row(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 packPreviewRoles(listed, 5).forEach { role -> IconArtwork(app, listed, role, roleTitle(role)) }
@@ -284,7 +277,12 @@ internal fun IconManagementPage(app: ModernMainActivity) {
                             UiRow("自定义", "先选要改的图标，再选图案", "进入", Icons.Outlined.Tune, enabled = !app.busy) { navigate("custom", null) }
                         } }
                         item { UiGroupCard {
-                            UiRow("当前选择", "${state.scopePacks.size} 个范围已选套装 · ${state.overrides.keys.mapNotNull { IconRoleRegistry.role(it)?.targetId }.distinct().size} 个自定义目标")
+                            UiRow("当前选择", trf("%1\$s 个范围已选套装 · %2\$s 个自定义目标", state.scopePacks.size, state.overrides.keys.mapNotNull { IconRoleRegistry.role(it)?.targetId }.distinct().size))
+                            state.scopePacks.forEach { (appliedScope, id) ->
+                                val name = app.iconPacks.firstOrNull { it.id == id }?.let(::iconPackName) ?: "来源缺失"
+                                UiRow("${iconSectionTitle(appliedScope)} · $name", "移除后立即保存；保留单项图案、大小、颜色、透明度和动画选择。", "移除套装",
+                                    enabled = app.canEdit && !app.busy) { switchError = app.clearIconScopePack(appliedScope) }
+                            }
                             UiRow("恢复图标默认设置", "清除套装与自定义选择，保留图标库", "恢复", enabled = app.canEdit && !app.busy, onClick = app::resetIconManagement)
                             UiRow("图标包制作说明", "v3 格式与支持范围", "查看") { app.openUrl("https://github.com/SANWU5/c17-icon-packs") }
                         } }
@@ -320,13 +318,13 @@ private fun IconTargetBrowser(app: ModernMainActivity, state: IconManagementSett
             UiGroupCard { targets.forEach { target ->
                 val count = target.roles.count { state.overrides.containsKey(it) }
                 val packName = state.scopePacks[target.scope]?.let { id -> app.iconPacks.firstOrNull { it.id == id }?.let(::iconPackName) }
-                UiRow(target.title, if (count > 0) "已自定义 · $count 个状态" else packName ?: "系统或功能默认图案", "选择", enabled = !app.busy) { onTarget(target) }
+                UiRow(target.title, if (count > 0) trf("已自定义 · %s 个状态", count) else packName ?: "系统或功能默认图案", "选择", enabled = !app.busy) { onTarget(target) }
             } }
         }
         if (visible.none { it.supported }) UiGroupCard { UiRow("没有找到可设置的图标", "换个名称搜索，或选择其他分类。") }
         val unsupported = visible.filterNot { it.supported }
         if (unsupported.isNotEmpty()) UiGroupCard {
-            UiRow("暂未支持", "${unsupported.size} 个目标保留系统图案", if (showUnsupported) "收起" else "展开") { showUnsupported = !showUnsupported }
+            UiRow("暂未支持", trf("%s 个目标保留系统图案", unsupported.size), if (showUnsupported) "收起" else "展开") { showUnsupported = !showUnsupported }
             if (showUnsupported) unsupported.forEach { UiRow(it.title, it.reason, "保留原生", enabled = false) }
         }
         UiGroupCard {
@@ -383,32 +381,32 @@ private fun IconPackApplication(app: ModernMainActivity, pack: IconManagementRep
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (target != null) UiGroupCard {
             if (targetSelection) {
-                UiRow("仅为${target.title}选择图案", "选择后返回目标预览，图案和高级设置仍需在目标页保存。")
+                UiRow(trf("仅为%s选择图案", target.title), "选择后返回目标预览，图案和高级设置仍需在目标页保存。")
                 UiRow("改为应用整套", "选择状态栏、控制中心等范围；当前目标草稿会保留。", "选择范围", enabled = !app.busy) {
                     app.iconManagementDestination = IconManagementDestination("apply", packId = pack.id)
                 }
             } else {
-                UiRow("应用整套", "只保存下面所选范围，${target.title}的未保存草稿会保留。")
-                UiRow("返回单个目标选图", "继续为${target.title}挑选图案", "返回", enabled = !app.busy) {
+                UiRow("应用整套", trf("只保存下面所选范围，%s的未保存草稿会保留。", target.title))
+                UiRow("返回单个目标选图", trf("继续为%s挑选图案", target.title), "返回", enabled = !app.busy) {
                     app.iconManagementDestination = IconManagementDestination("pack", packId = pack.id)
                 }
             }
         }
         if (pending) UiGroupCard {
             if (existing != null) {
-                UiRow("相同内容已在图库中", "将使用“${iconPackName(existing)}”，不会重复导入或更改已有名称。需要改名时可在图库列表操作。")
+                UiRow("相同内容已在图库中", trf("将使用“%s”，不会重复导入或更改已有名称。需要改名时可在图库列表操作。", iconPackName(existing)))
             } else {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     C17TextField(value = app.iconImportName, onValueChange = { app.iconImportName = it; app.iconImportError = "" },
                         label = "图标库名称", modifier = Modifier.fillMaxWidth(), singleLine = true,
                         enabled = app.canEdit && !app.busy, isError = nameError.isNotEmpty(), errorMessage = nameError.takeIf { it.isNotEmpty() },
                         useLabelAsPlaceholder = true, insideMargin = DpSize(12.dp, 10.dp))
-                    Text("不同内容不能使用已有名称。修改名称后再保存，原有图标库保持不变。", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    Text(tr("不同内容不能使用已有名称。修改名称后再保存，原有图标库保持不变。"), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
             }
         }
         UiGroupCard {
-            UiRow(existing?.let(::iconPackName) ?: iconPackName(pack), "${pack.author.ifBlank { "未署名" }} · ${pack.iconCount} 个图案" + if (pack.animationCount > 0) " · ${pack.animationCount} 个动画" else "")
+            UiRow(existing?.let(::iconPackName) ?: iconPackName(pack), trf("%1\$s · %2\$s 个图案", pack.author.ifBlank { tr("未署名") }, pack.iconCount) + if (pack.animationCount > 0) trf(" · %s 个动画", pack.animationCount) else "")
             val samples = packPreviewRoles(pack, 12)
             samples.chunked(4).forEach { row -> Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { role -> Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -452,8 +450,8 @@ private fun IconPackApplication(app: ModernMainActivity, pack: IconManagementRep
                 }
             }
             preview?.let { result ->
-                UiRow("应用后", "替换 ${result.replaceCount} 个状态 · 缺失 ${result.missingCount} 个状态使用默认图案" +
-                    if (result.preserveCount > 0) "\n保留 ${result.preserveCount} 个已有单项选择" else "")
+                UiRow("应用后", trf("替换 %1\$s 个状态 · 缺失 %2\$s 个状态使用默认图案", result.replaceCount, result.missingCount) +
+                    if (result.preserveCount > 0) trf("\n保留 %s 个已有单项选择", result.preserveCount) else "")
             }
             if (availableScopes.isEmpty()) UiRow("没有可直接应用的目标", "这套资源没有已接入的匹配状态，可以加入图标库后手动选取。")
         }
@@ -461,7 +459,7 @@ private fun IconPackApplication(app: ModernMainActivity, pack: IconManagementRep
             UiRow("图库颜色预设", "选择后先预览；仅影响上方选中的范围，大小与图案来源独立保留。")
             UiRow("保留当前颜色", "应用套装时沿用已有颜色与透明度", if (presetId == null) "已选择" else "", enabled = !app.busy) { presetId = null }
             palettes.forEach { (id, palette) ->
-                UiRow(palette.name, "${palette.appearances.size} 项配色", if (presetId == id) "已选择" else "", enabled = !app.busy) { presetId = id }
+                UiRow(palette.name, trf("%s 项配色", palette.appearances.size), if (presetId == id) "已选择" else "", enabled = !app.busy) { presetId = id }
             }
             UiContentTabs(tabs = listOf("浅色背景预览", "深色背景预览"), selectedTabIndex = if (presetDark) 1 else 0,
                 onTabSelected = { presetDark = it == 1 }, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp))
@@ -496,10 +494,10 @@ private fun IconPackApplication(app: ModernMainActivity, pack: IconManagementRep
                 if (!targetSelection) UiSwitchRow("替换已有的单项图案", "只清除所选范围的图案覆盖，保留颜色、透明度和动画设置", clearOverrides, app.canEdit && !app.busy) { clearOverrides = it }
                 UiRow("素材信息", "${packFormats(pack)}\n${pack.license.ifBlank { "未提供许可信息" }}")
                 val unsupported = unsupportedArtworkCount(pack)
-                if (unsupported > 0) UiRow("原始候选与未接入素材", "$unsupported 个资源不自动映射到原生宿主。")
+                if (unsupported > 0) UiRow("原始候选与未接入素材", trf("%s 个资源不自动映射到原生宿主。", unsupported))
                 preview?.let { result ->
                     if (result.missingCount > 0) UiRow("缺失状态", result.missing.take(12).joinToString("、") { roleTitle(it) } + if (result.missingCount > 12) "…" else "")
-                    if (result.unsupportedCount > 0) UiRow("未接入目标", "${result.unsupportedCount} 个状态继续使用原生图案。")
+                    if (result.unsupportedCount > 0) UiRow("未接入目标", trf("%s 个状态继续使用原生图案。", result.unsupportedCount))
                 }
                 if (!targetSelection && pending) UiRow(if (existing != null) "使用已有图标库" else "仅加入图标库",
                     if (existing != null) "打开已保存的相同内容，不修改应用范围" else "保存素材，稍后用于自定义", if (existing != null) "打开" else "保存",
@@ -510,7 +508,7 @@ private fun IconPackApplication(app: ModernMainActivity, pack: IconManagementRep
             onRename?.let { UiRow("重命名图标库", enabled = app.canEdit && !app.busy, onClick = it) }
             UiRow("删除图标库", "删除前会显示受影响的选择", enabled = app.canEdit && !app.busy) { app.deleteIconPack(pack.id, iconPackName(pack)) }
         }
-        Text("预览为素材图案；显示位置、状态与动画以实际支持范围为准。“仅应用颜色预设”会立即保存配色；其余选择在应用套装后保存。", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Text(tr("预览为素材图案；显示位置、状态与动画以实际支持范围为准。“仅应用颜色预设”会立即保存配色；其余选择在应用套装后保存。"), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
 
@@ -553,9 +551,9 @@ private fun IconArtworkBrowser(app: ModernMainActivity, pack: IconManagementRepo
             }
         }
         if (raw.isNotEmpty()) UiGroupCard {
-            UiRow("原始素材", "${raw.size} 个来源原图，可手动选择；已核对的状态也列在上方分类", if (showRaw) "收起" else "展开") { showRaw = !showRaw }
+            UiRow("原始素材", trf("%s 个来源原图，可手动选择；已核对的状态也列在上方分类", raw.size), if (showRaw) "收起" else "展开") { showRaw = !showRaw }
             if (showRaw) {
-                Text("选择后仅使用静态图形，不代表新增宿主或动态支持。", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Text(tr("选择后仅使用静态图形，不代表新增宿主或动态支持。"), Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 IconRawArtwork(app, pack, raw, selected, onChoose)
             }
         }
@@ -585,7 +583,7 @@ private fun IconArtworkGrid(app: ModernMainActivity, pack: IconManagementReposit
                 Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(enabled = onChoose != null && app.canEdit && !app.busy) { onChoose?.invoke(source) }
                     .padding(horizontal = 4.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     IconArtwork(app, pack, role, roleTitle(role))
-                    val label = IconRoleRegistry.role(role)?.title ?: IconRoleRegistry.target(role)?.title ?: "原始 · ${role.substringAfterLast('.')}"
+                    val label = IconRoleRegistry.role(role)?.title ?: IconRoleRegistry.target(role)?.title ?: trf("原始 · %s", role.substringAfterLast('.'))
                     Text((if (selected?.packId == pack.id && selected.sourceRole == source) "✓ " else "") + label,
                         fontSize = 12.sp, maxLines = 3, modifier = Modifier.padding(top = 6.dp))
                 }
@@ -604,50 +602,78 @@ private fun iconLook(value: IconManagementSettings.Appearance?): IconLookDraft =
     else IconLookDraft(value.mode, value.lightColor, value.darkColor, value.opacity, value.sizePercent)
 
 private data class IconTargetDraft(
+    val baseRecords: String,
     val sources: Map<String, IconManagementSettings.Override>, val look: IconLookDraft,
     val stateLooks: Map<String, IconLookDraft>, val animation: Boolean, val activeState: String,
     val pickingRole: String?, val previewDark: Boolean, val advanced: Boolean, val individual: Boolean
-)
+) {
+    fun records(targetId: String): String = IconManagementSettings.applyTarget(baseRecords, targetId, sources, look.value(),
+        stateLooks.mapNotNull { (role, value) -> value.value()?.let { role to it } }.toMap(), animation)
+
+    fun rebase(target: IconRoleRegistry.Target, currentRecords: String, availablePacks: Map<String, IconManagementManifest>?): IconTargetDraft {
+        if (baseRecords == currentRecords && availablePacks == null) return this
+        val draftRecords = records(target.id)
+        val mergedRecords = IconManagementSettings.rebaseTargetDraft(baseRecords, draftRecords, currentRecords, target.id, availablePacks)
+        if (baseRecords == currentRecords && mergedRecords == draftRecords) return this
+        val merged = IconManagementSettings.parse(mergedRecords)
+        return copy(baseRecords = currentRecords,
+            sources = target.roles.mapNotNull { role -> merged.overrides[role]?.let { role to it } }.toMap(),
+            look = iconLook(merged.appearances["target:${target.id}"]),
+            stateLooks = target.roles.mapNotNull { role -> merged.appearances["role:$role"]?.let { role to iconLook(it) } }.toMap(),
+            animation = merged.animations[target.id] != false)
+    }
+}
 
 @Composable
 private fun IconTargetEditor(app: ModernMainActivity, target: IconRoleRegistry.Target, state: IconManagementSettings.State,
     childBack: Array<(() -> Boolean)?>, initialDraft: IconTargetDraft?, initiallyPick: Boolean, preferredPackId: String?,
     onDraft: (IconTargetDraft) -> Unit, onApplied: () -> Unit) {
-    var sources by remember(target.id) { mutableStateOf(initialDraft?.sources ?: target.roles.mapNotNull { role -> state.overrides[role]?.let { role to it } }.toMap()) }
-    var look by remember(target.id) { mutableStateOf(initialDraft?.look ?: iconLook(state.appearances["target:${target.id}"])) }
-    var stateLooks by remember(target.id) { mutableStateOf(initialDraft?.stateLooks ?: target.roles.mapNotNull { role -> state.appearances["role:$role"]?.let { role to iconLook(it) } }.toMap()) }
-    var animation by remember(target.id) { mutableStateOf(initialDraft?.animation ?: (state.animations[target.id] != false)) }
-    var activeState by remember(target.id) { mutableStateOf(initialDraft?.activeState ?: target.roles.first()) }
+    val currentRecords = remember(state) { IconManagementSettings.encode(state) }
+    val manifests = remember(app.iconPacks) { app.iconPacks.associate { it.id to it.manifest } }
+    // Refresh retains the previous library list. Its interim state is never proof of deletion.
+    val availablePacks = if (app.iconLibrariesLoading || app.busy) null else manifests
+    var working by remember(target.id) { mutableStateOf(initialDraft ?: IconTargetDraft(currentRecords,
+        target.roles.mapNotNull { role -> state.overrides[role]?.let { role to it } }.toMap(),
+        iconLook(state.appearances["target:${target.id}"]),
+        target.roles.mapNotNull { role -> state.appearances["role:$role"]?.let { role to iconLook(it) } }.toMap(),
+        state.animations[target.id] != false, target.roles.first(), null, false, false, false)) }
+    // Rebase synchronously for this frame; click handlers also recheck the latest saved records.
+    val draft = remember(working, currentRecords, target.id, availablePacks) { working.rebase(target, currentRecords, availablePacks) }
+    val sources = draft.sources
+    val look = draft.look
+    val stateLooks = draft.stateLooks
+    val animation = draft.animation
+    val activeState = draft.activeState
+    val pickingRole = draft.pickingRole
+    val previewDark = draft.previewDark
+    val advanced = draft.advanced
+    val individual = draft.individual
     var pickingSource by remember(target.id) { mutableStateOf(initiallyPick) }
-    var pickingRole by remember(target.id) { mutableStateOf(initialDraft?.pickingRole) }
-    var previewDark by remember(target.id) { mutableStateOf(initialDraft?.previewDark ?: false) }
-    var advanced by remember(target.id) { mutableStateOf(initialDraft?.advanced ?: false) }
-    var individual by remember(target.id) { mutableStateOf(initialDraft?.individual ?: false) }
     var error by remember(target.id) { mutableStateOf("") }
-    fun snapshot() = IconTargetDraft(sources, look, stateLooks, animation, activeState, pickingRole, previewDark, advanced, individual)
-    SideEffect { onDraft(snapshot()) }
+    SideEffect {
+        if (working != draft) working = draft
+        onDraft(draft)
+    }
     val back by rememberUpdatedState<() -> Boolean> { if (pickingSource) { pickingSource = false; true } else false }
     DisposableEffect(target.id) { childBack[0] = { back() }; onDispose { childBack[0] = null } }
     if (pickingSource) {
         IconSourcePicker(app, target, pickingRole, sources, preferredPackId, onBack = { pickingSource = false }, onOpenLibrary = {
-            onDraft(snapshot())
+            onDraft(draft)
             app.openIconLibraryForTarget(target.id)
         }) { selected ->
-            sources = selected
+            working = draft.copy(sources = selected)
             pickingSource = false
         }
         return
     }
-    val draftState = remember(app.iconManagementRecords(), target.id, sources, look, stateLooks, animation) {
-        runCatching { IconManagementSettings.parse(IconManagementSettings.applyTarget(app.iconManagementRecords(), target.id, sources, look.value(),
-            stateLooks.mapNotNull { (role, value) -> value.value()?.let { role to it } }.toMap(), animation)) }.getOrDefault(state)
+    val draftState = remember(draft, target.id) {
+        runCatching { IconManagementSettings.parse(draft.records(target.id)) }.getOrDefault(state)
     }
-    val manifests = remember(app.iconPacks) { app.iconPacks.associate { it.id to it.manifest } }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         UiGroupCard {
-            UiRow("图案预览", if (sources.isEmpty()) "跟随套装或系统默认" else "已选择 ${sources.size} 个状态图案")
+            UiRow("图案预览", if (sources.isEmpty()) "跟随套装或系统默认" else trf("已选择 %s 个状态图案", sources.size))
             UiContentTabs(tabs = listOf("浅色背景", "深色背景"), selectedTabIndex = if (previewDark) 1 else 0,
-                onTabSelected = { previewDark = it == 1 }, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp))
+                onTabSelected = { working = draft.copy(previewDark = it == 1) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp))
             target.roles.chunked(3).forEach { row -> Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { role ->
                     val plan = IconManagementSelection.plan(draftState, role, manifests)
@@ -668,58 +694,62 @@ private fun IconTargetEditor(app: ModernMainActivity, target: IconRoleRegistry.T
                 repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
             } }
             UiRow("选择图案", "为整个目标选择状态组或统一图案", "更换", enabled = app.canEdit && !app.busy) {
-                pickingRole = null; pickingSource = true
+                working = draft.copy(pickingRole = null); pickingSource = true
             }
             if (target.reason.isNotBlank()) UiRow("显示范围", target.reason)
         }
         IconAppearanceEditor(if (target.scope == "hint") "图标大小与浅深背景颜色" else "此图标的大小与颜色",
-            look, app.canEdit && !app.busy, childBack) { look = it }
+            look, app.canEdit && !app.busy, childBack) { working = draft.copy(look = it) }
         if (target.scope == "tile" && target.roles.size > 1) {
             IconSectionLabel("各状态独立颜色")
             UiGroupCard {
                 UiContentTabs(tabs = target.roles.map { target.stateLabels[IconRoleRegistry.role(it)?.state] ?: roleTitle(it) },
                     selectedTabIndex = target.roles.indexOf(activeState).coerceAtLeast(0),
-                    onTabSelected = { activeState = target.roles[it] }, modifier = Modifier.fillMaxWidth().padding(8.dp))
+                    onTabSelected = { working = draft.copy(activeState = target.roles[it]) }, modifier = Modifier.fillMaxWidth().padding(8.dp))
                 UiRow("只调整当前状态", roleTitle(activeState))
             }
-            IconAppearanceEditor("${roleTitle(activeState)}配色", stateLooks[activeState] ?: IconLookDraft(),
+            IconAppearanceEditor(trf("%s配色", roleTitle(activeState)), stateLooks[activeState] ?: IconLookDraft(),
                 app.canEdit && !app.busy, childBack, showSize = false) { value ->
-                stateLooks = stateLooks.toMutableMap().apply { if (value.value() == null) remove(activeState) else put(activeState, value) }
+                working = draft.copy(stateLooks = stateLooks.toMutableMap().apply { if (value.value() == null) remove(activeState) else put(activeState, value) })
             }
         }
         if (error.isNotEmpty()) Text(error, color = MiuixTheme.colorScheme.error, fontSize = 13.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             C17TextButton(text = "取消", modifier = Modifier.weight(1f), enabled = !app.busy, onClick = onApplied)
-            C17TextButton(text = if (app.iconManagementEnabled()) "应用到此图标" else "保存选择", modifier = Modifier.weight(1f), enabled = app.canEdit && !app.busy && target.supported, onClick = {
-                error = app.applyIconTarget(target.id, sources, look.value(), stateLooks.mapNotNull { (role, value) -> value.value()?.let { role to it } }.toMap(), animation)
+            C17TextButton(text = if (app.iconManagementEnabled()) "应用到此图标" else "保存选择", modifier = Modifier.weight(1f), enabled = app.canEdit && !app.busy && !app.iconLibrariesLoading && target.supported, onClick = {
+                error = runCatching {
+                    check(!app.iconLibrariesLoading) { "图标库仍在读取，请稍后保存" }
+                    val latest = draft.rebase(target, app.iconManagementRecords(), app.iconPacks.associate { it.id to it.manifest })
+                    app.applyIconTarget(target.id, latest.sources, latest.look.value(), latest.stateLooks.mapNotNull { (role, value) -> value.value()?.let { role to it } }.toMap(), latest.animation)
+                }.getOrElse { it.message ?: "图标设置已变化，请返回后重新选择" }
                 if (error.isEmpty()) onApplied()
             })
         }
         UiGroupCard {
-            UiRow("其他设置", "逐个状态的图案与动画", if (advanced) "收起" else "展开") { advanced = !advanced }
+            UiRow("其他设置", "逐个状态的图案与动画", if (advanced) "收起" else "展开") { working = draft.copy(advanced = !advanced) }
         }
         if (advanced) {
             UiGroupCard {
-                UiRow("逐个状态设置", "只调整选中的状态", if (individual) "收起" else "展开") { individual = !individual }
+                UiRow("逐个状态设置", "只调整选中的状态", if (individual) "收起" else "展开") { working = draft.copy(individual = !individual) }
                 if (individual) {
-                    target.roles.forEach { role -> UiRow(roleTitle(role), value = if (activeState == role) "已选择" else "") { activeState = role } }
+                    target.roles.forEach { role -> UiRow(roleTitle(role), value = if (activeState == role) "已选择" else "") { working = draft.copy(activeState = role) } }
                     UiRow("更换当前状态图案", roleTitle(activeState), "选择", enabled = app.canEdit && !app.busy) {
-                        pickingRole = activeState; pickingSource = true
+                        working = draft.copy(pickingRole = activeState); pickingSource = true
                     }
                 }
                 UiSwitchRow("使用套装动画", if (target.dynamicSupported) "跟随真实状态变化；仅在宿主允许时播放" else "此目标仅支持静态图案", animation,
-                    app.canEdit && !app.busy && target.dynamicSupported) { animation = it }
+                    app.canEdit && !app.busy && target.dynamicSupported) { working = draft.copy(animation = it) }
             }
-            if (individual && target.scope != "tile") IconAppearanceEditor("${roleTitle(activeState)}外观", stateLooks[activeState] ?: IconLookDraft(), app.canEdit && !app.busy, childBack) { value ->
-                stateLooks = stateLooks.toMutableMap().apply { if (value.value() == null) remove(activeState) else put(activeState, value) }
+            if (individual && target.scope != "tile") IconAppearanceEditor(trf("%s外观", roleTitle(activeState)), stateLooks[activeState] ?: IconLookDraft(), app.canEdit && !app.busy, childBack) { value ->
+                working = draft.copy(stateLooks = stateLooks.toMutableMap().apply { if (value.value() == null) remove(activeState) else put(activeState, value) })
             }
             UiGroupCard {
                 UiRow("恢复此目标的默认设置", "清空本页草稿，点击应用后保存", "恢复", enabled = app.canEdit && !app.busy) {
-                    sources = emptyMap(); look = IconLookDraft(); stateLooks = emptyMap(); animation = true
+                    working = draft.copy(sources = emptyMap(), look = IconLookDraft(), stateLooks = emptyMap(), animation = true)
                 }
             }
         }
-        Text("图案与高级设置统一保存；取消或返回会丢弃本次草稿。", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Text(tr("图案与高级设置统一保存；取消或返回会丢弃本次草稿。切换套装或应用颜色预设后，已保存的新值优先，其他草稿修改保留。"), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
 
@@ -750,7 +780,7 @@ private fun IconSourcePicker(app: ModernMainActivity, target: IconRoleRegistry.T
             matchingPacks.forEach { pack ->
                 val matches = target.roles.mapNotNull { current -> sourceRoleInPack(pack, current)?.let { current to IconManagementSettings.Override("pack", pack.id, it) } }.toMap()
                 UiGroupCard {
-                    UiRow(iconPackName(pack), "匹配 ${matches.size}/${target.roles.size} 个状态，缺失状态跟随套装或系统", "选用", enabled = app.canEdit && !app.busy) { onChoose(matches) }
+                    UiRow(iconPackName(pack), trf("匹配 %1\$s/%2\$s 个状态，缺失状态跟随套装或系统", matches.size, target.roles.size), "选用", enabled = app.canEdit && !app.busy) { onChoose(matches) }
                     Row(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         matches.keys.take(5).forEach { IconArtwork(app, pack, it, roleTitle(it)) }
                     }
@@ -784,7 +814,7 @@ private fun IconScopeAppearance(app: ModernMainActivity, scope: String, state: I
     DisposableEffect(scope) { childBack[0] = null; onDispose { childBack[0] = null } }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         IconAppearanceEditor("范围外观", draft, app.canEdit && !app.busy, childBack) { draft = it }
-        Text("只改变此范围的默认外观，各目标和状态的独立设置仍优先。返回不保存草稿。", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Text(tr("只改变此范围的默认外观，各目标和状态的独立设置仍优先。返回不保存草稿。"), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         if (error.isNotEmpty()) Text(error, color = MiuixTheme.colorScheme.error, fontSize = 13.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             C17TextButton(text = "取消", modifier = Modifier.weight(1f), enabled = !app.busy, onClick = onApplied)
@@ -813,11 +843,11 @@ private fun IconAppearanceEditor(title: String, draft: IconLookDraft, enabled: B
         Text(title, Modifier.padding(horizontal = 12.dp), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         UiGroupCard {
             if (showSize) {
-                UiSwitchRow("独立图标大小", "默认100%；仅缩放图案，保留系统位置和点击区域", draft.sizePercent != null, enabled) {
+                UiSwitchRow("独立图案缩放", "100%使用功能页或系统的基础尺寸；仅调整图案，位置、占位和点击区域保持原有设置", draft.sizePercent != null, enabled) {
                     onChange(draft.copy(sizePercent = if (it) 100f else null))
                 }
                 draft.sizePercent?.let { size ->
-                    UiSliderRow("图标大小", size, 25f..200f, "${size.toInt()}%", enabled = enabled) { onChange(draft.copy(sizePercent = it)) }
+                    UiSliderRow("图案缩放", size, 25f..200f, "${size.toInt()}%", enabled = enabled) { onChange(draft.copy(sizePercent = it)) }
                     C17TextButton("恢复100%大小", enabled = enabled, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), onClick = { onChange(draft.copy(sizePercent = 100f)) })
                 }
             }

@@ -34,9 +34,12 @@ public final class NumericPolicy {
     /** Positions and spacing may move in either direction. */
     public static boolean signed(String key) {
         if (StatusBarLayoutSettings.owns(key)) return StatusBarLayoutSettings.marginKey(key);
+        String clockKey = NotificationBigClockSettings.portraitKey(key);
         return key != null && (NativeStatusIcons.X.equals(key) || NativeStatusIcons.Y.equals(key)
                 || key.endsWith("offset_x") || key.endsWith("offset_y")
-                || key.endsWith("_spacing") || key.endsWith("_line_gap") || SpeedPosition.SAFE_GAP.equals(key));
+                || key.endsWith("_spacing") || key.endsWith("_line_gap") || SpeedPosition.SAFE_GAP.equals(key)
+                || NotificationBigClockSettings.NOTIFICATION_GAP.equals(clockKey)
+                || NotificationBigClockSettings.NOTIFICATION_EDGE_SAFE_DISTANCE.equals(clockKey));
     }
 
     public static float finite(Object stored, float fallback) {

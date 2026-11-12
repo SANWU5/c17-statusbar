@@ -326,6 +326,23 @@ public final class StatusBarFlowLayoutCheck {
         check(screenX(nativeHint)<200&&screenX(physicalRight)>=200,"explicit left/right stays physical in RTL while native follows OEM side");
         rtl.ownership();rtl.flow.releaseRuntime();
     }
+    /** code284: without the hint layout (ordering or margins only), a system hint the native
+     * container hides takes no width, so the following hint closes up instead of leaving an
+     * empty slot; once shown natively it takes its slot again. */
+    private static void nativeHiddenSystemGapCase(){
+        Rig rig=new Rig(0,400,true);
+        Icon bluetooth=addHint(rig,"bluetooth",70),location=addHint(rig,"location",85),alarm=addHint(rig,"alarm_clock",100);
+        // Native hides location and closes up: alarm takes x=85, the hidden icon keeps its stale x.
+        location.state.visible=2;rig.nativeHintXs.put(alarm,85f);
+        Bundle values=enabled();rig.configure(values);rig.pass();
+        near(screenX(bluetooth)+15,screenX(alarm),"a natively hidden system hint leaves no empty slot (10px icon + 5px native gap)");
+        check(location.state.visible==2,"the native hidden decision is kept");
+        near(85,location.state.x,"the hidden hint's native state is never written, so the native container alone decides when it returns");
+        location.state.visible=0;rig.nativeHintXs.put(alarm,100f);rig.pass();
+        near(screenX(bluetooth)+15,screenX(location),"once shown natively it takes its slot again");
+        near(screenX(location)+15,screenX(alarm),"and the following hint moves after it");
+        rig.ownership();rig.flow.releaseRuntime();
+    }
     private static void hintRetentionAndNativeStateCase(){
         Rig rig=new Rig(0,400,true);Icon rejected=addHint(rig,"location",70),retained=addHint(rig,"bluetooth",85);
         rejected.state.visible=2;retained.setAlpha(.35f);retained.setScaleX(.8f);retained.setTranslationY(3);
@@ -675,6 +692,57 @@ public final class StatusBarFlowLayoutCheck {
         near(0, row.getLeft(), "the icon row widened to the header start");
         flow.releaseRuntime(); near(180, battery.getLeft(), "QS close restores original natural battery geometry");
         near(80, row.getLeft(), "QS close restores the native icon row");
+    }
+    /** Device code279: crowded header icons start left of the middle; they still belong to the right group. */
+    private static void qsCrowdedSideCase() {
+        NamedResources resources = new NamedResources(); QRoot root = new QRoot(resources);
+        Box row = new Box(resources, "quick_qs_status_icons", 80, 0, 300, 30);
+        Box carrierHost = new Box(resources, "qs_clock_container", 0, 0, 80, 30);
+        Leaf carrier = new Leaf(resources, "qs_carrier_text", 0, 0, 80, 30); carrierHost.addView(carrier);
+        Box icons = new Box(resources, "icons", 0, 0, 180, 30);
+        Box nativeIcons = new Box(resources, "statusIcons", 0, 0, 180, 30); nativeIcons.container = true;
+        Icon wifi = new Icon(resources, "wifi", 20, 0); nativeIcons.addView(wifi); icons.addView(nativeIcons);
+        Leaf battery = new Leaf(resources, "battery", 180, 0, 205, 30);
+        row.addView(icons); row.addView(battery); root.addView(carrierHost); root.addView(row);
+        StatusBarFlowLayout flow = new StatusBarFlowLayout(); flow.setNativeAccess(new Native());
+        Bundle marginOnly = new Bundle(); marginOnly.putFloat(StatusBarLayoutSettings.key("battery", "margin_right"), 9);
+        flow.configure(marginOnly); flow.afterMeasure(root); flow.afterLayout(root);
+        check("ready".equals(flow.reason(root)), "crowded QS row ready");
+        near(300 - 25 - 9, screenX(battery), "QS battery keeps its margin");
+        near(300 - 25 - 9 - 20, screenX(wifi), "an icon starting left of the header middle stays next to the battery on the right");
+        near(0, screenX(carrier), "the carrier keeps the left side");
+    }
+    private static void paddedHeaderMarginCases() {
+        NamedResources resources = new NamedResources(); QRoot root = new QRoot(resources);
+        Box row = new Box(resources, "quick_qs_status_icons", 80, 0, 300, 30);
+        row.paddingLeft = 12; row.paddingRight = 14;
+        row.setClipChildren(true); row.setClipToPadding(true);
+        Box icons = new Box(resources, "icons", 0, 0, 180, 30);
+        Box nativeIcons = new Box(resources, "statusIcons", 0, 0, 180, 30); nativeIcons.container = true;
+        nativeIcons.addView(new Icon(resources, "wifi", 20, 100)); icons.addView(nativeIcons);
+        Leaf battery = new Leaf(resources, "battery", 180, 0, 205, 30);
+        Box batteryHost = new Box(resources, "system_icons", 180, 0, 220, 30);
+        battery.geometry.set(4, 0, 29, 30); battery.geometry.original = new int[]{4, 0, 29, 30};
+        batteryHost.paddingLeft = 4; batteryHost.paddingRight = 8;
+        batteryHost.setClipChildren(true); batteryHost.setClipToPadding(true); batteryHost.addView(battery);
+        row.addView(icons); row.addView(batteryHost); root.addView(row);
+        StatusBarFlowLayout flow = new StatusBarFlowLayout(); flow.setNativeAccess(new Native());
+        for (float margin : new float[]{6, 12, 24, 6}) {
+            Bundle config = new Bundle(); config.putFloat(StatusBarLayoutSettings.key("battery", "margin_right"), margin);
+            flow.configure(config); flow.beforeNativeLayout(root); flow.afterMeasure(root); flow.afterLayout(root);
+            check("ready".equals(flow.reason(root)), "padded notification header stays supported");
+            near(300 - 14 - 25 - margin, screenX(battery), "repeated margin changes preserve the screen target");
+            check(battery.getLeft() >= batteryHost.getPaddingLeft()
+                            && battery.getRight() <= batteryHost.getWidth() - batteryHost.getPaddingRight(),
+                    "a moved battery must fit the actual padded clipping viewport: " + battery.getLeft() + ".."
+                            + battery.getRight() + " in " + batteryHost.getPaddingLeft() + ".." + (batteryHost.getWidth() - batteryHost.getPaddingRight()));
+            check(row.getClipChildren() && row.getClipToPadding(), "native clipping ownership remains intact");
+        }
+        flow.releaseRuntime(); near(80, row.getLeft(), "release restores padded header origin");
+        near(220, row.getWidth(), "release restores padded header width");
+        near(4, battery.getLeft(), "release restores original battery coordinate");
+        near(12, row.getPaddingLeft(), "native leading padding is unchanged");
+        near(14, row.getPaddingRight(), "native trailing padding is unchanged");
     }
     private static void exactCallbackCases() throws Throwable {
         Rig rig = new Rig(0, 300, true);
@@ -1464,7 +1532,26 @@ public final class StatusBarFlowLayoutCheck {
         settings.putBoolean("battery_size_enabled", false); rig.configure(settings); rig.pass();
         near(25, screenX(rig.wifi), "later settings refresh the feature snapshot and its effective scale");
     }
+    private static void sharedWidthRecovery() {
+        Rig rig=new Rig(0,400,true);
+        NetworkSharedSlotLayout shared=new NetworkSharedSlotLayout();shared.configure(true);rig.flow.setSharedSlots(shared);
+        Bundle values=enabled();values.putBoolean(StatusBarLayoutSettings.WIFI_LABEL_SHARED,true);
+        for(String token:new String[]{"wifi","mobile"})values.putString(StatusBarLayoutSettings.key(token,"side"),"right");
+        values.putFloat(StatusBarLayoutSettings.key("wifi","order"),1);values.putFloat(StatusBarLayoutSettings.key("mobile","order"),2);
+        rig.configure(values);
+        // Actual native view remeasures at a different density/style; the shared slot
+        // remembers the latest size of each occupant, never the widest size ever seen.
+        rig.wifi.geometry.original=new int[]{0,0,40,30};rig.pass();rig.applyStates();
+        check("ready".equals(rig.flow.reason(rig.root)),"shared width fixture uses real finite flow");
+        near(40,screenX(rig.mobile)-screenX(rig.wifi),"large native Wi-Fi reserves forty pixels");
+        rig.wifi.geometry.original=new int[]{0,0,20,30};rig.pass();rig.applyStates();
+        near(20,screenX(rig.mobile)-screenX(rig.wifi),"smaller current Wi-Fi drops stale historical shared width");
+        for(int i=0;i<10;i++){rig.pass();rig.applyStates();near(20,screenX(rig.mobile)-screenX(rig.wifi),"stable shared width never accumulates space");}
+        rig.ownership();rig.flow.releaseRuntime();
+    }
     public static void main(String[] ignored) throws Throwable {
+        if(ignored.length>0&&"shared-width".equals(ignored[0])){sharedWidthRecovery();System.out.println("StatusBarFlowLayoutCheck shared-width: "+checks+" checks passed");return;}
+        paddedHeaderMarginCases();
         if(ignored.length==1&&"closing-capsule".equals(ignored[0])){capsuleStateFeedbackCase();System.out.println("Closing capsule checks: "+checks);return;}
         if(ignored.length==1&&"closing-local".equals(ignored[0])){localClosingFrameCase();System.out.println("Closing local-frame checks: "+checks);return;}
         if (ignored.length == 1 && "capsule-native".equals(ignored[0])) {
@@ -1542,9 +1629,9 @@ public final class StatusBarFlowLayoutCheck {
         Rig blocked = new Rig(0, 300); blocked.configure(cross()); blocked.clockHost.setOnClickListener(view -> { });
         blocked.pass(); check(!"ready".equals(blocked.flow.reason(blocked.root)), "interactive structural ancestor not moved or silently ignored");
         near(0f, blocked.clockHost.getLeft(), "interactive source retained"); blocked.ownership();
-        hintNeutralCase(); hintPlacementCase(); hintZeroAndGateCases(); hintRetentionAndNativeStateCase(); hintHeaderRootsCase(); hintSteadyReadBudgetCase(); obstacleCases(); cutoutAndMarginCases(); nativeSideCase(); nativeLocalRectCase(); nativeReflowResidualCase(); unsupportedReflowCase(); contentWrapperCases();
-        inactiveNativeShellCases();lockScreenBaselines();
-        qsNativeRowCases(); exactCallbackCases(); anonymousNotificationWrapperCases(); existingAnchorCases(); nativeSidePaddingCases(); firstNativeMeasureCases(); recognizedLeafFirstMeasureCases(); consumedNativeMeasureCases(); invisibleFirstMeasureCases(); skippedIconMeasureCases(); capsuleReservationCases(); capsuleBoundsCases(); capsuleLifecycleCases(); capsuleNativeInteractionCase(); capsuleNativeOwnershipCase(); layoutTransitionCases();
+        hintNeutralCase(); hintPlacementCase(); hintZeroAndGateCases(); hintRetentionAndNativeStateCase(); nativeHiddenSystemGapCase(); hintHeaderRootsCase(); hintSteadyReadBudgetCase(); obstacleCases(); cutoutAndMarginCases(); nativeSideCase(); nativeLocalRectCase(); nativeReflowResidualCase(); unsupportedReflowCase(); contentWrapperCases();
+        inactiveNativeShellCases();lockScreenBaselines();sharedWidthRecovery();
+        qsNativeRowCases(); qsCrowdedSideCase(); exactCallbackCases(); anonymousNotificationWrapperCases(); existingAnchorCases(); nativeSidePaddingCases(); firstNativeMeasureCases(); recognizedLeafFirstMeasureCases(); consumedNativeMeasureCases(); invisibleFirstMeasureCases(); skippedIconMeasureCases(); capsuleReservationCases(); capsuleBoundsCases(); capsuleLifecycleCases(); capsuleNativeInteractionCase(); capsuleNativeOwnershipCase(); layoutTransitionCases();
         System.out.println("StatusBarFlowLayoutCheck: " + checks + " checks passed");
     }
 }

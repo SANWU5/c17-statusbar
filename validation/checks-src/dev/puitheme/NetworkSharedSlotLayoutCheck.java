@@ -54,6 +54,229 @@ public final class NetworkSharedSlotLayoutCheck {
     private static Object[] placement(Object[] children, int[] positions, int width) {
         return new Object[]{children, new Object(), 0, positions, width, 80, null, 0, children.length, 0};
     }
+    /** The fixture packs four fields; production resolves Compose's own codec. */
+    public static final class Constraints {
+        static boolean fail;
+        public static long create(int minW,int maxW,int minH,int maxH){
+            if(fail||minW<0||minW>maxW||minH<0||minH>maxH||maxW>65535||maxH>65535)throw new IllegalArgumentException("constraints");
+            return (long)minW|((long)maxW<<16)|((long)minH<<32)|((long)maxH<<48);
+        }
+        public static int minW(long value){return (int)(value&65535);}
+        public static int maxW(long value){return (int)((value>>>16)&65535);}
+        public static int minH(long value){return (int)((value>>>32)&65535);}
+        public static int maxH(long value){return (int)((value>>>48)&65535);}
+    }
+    private static void constraints(NetworkIconOrder order)throws Exception{
+        field(order,"constraintMinWidth",Constraints.class.getMethod("minW",long.class));
+        field(order,"constraintMaxWidth",Constraints.class.getMethod("maxW",long.class));
+        field(order,"constraintMinHeight",Constraints.class.getMethod("minH",long.class));
+        field(order,"constraintMaxHeight",Constraints.class.getMethod("maxH",long.class));
+        field(order,"createConstraints",Constraints.class.getMethod("create",int.class,int.class,int.class,int.class));
+    }
+    /** Native Row consumes remaining parent width in child order before it places either child. */
+    public static final class BoundedPolicy implements androidx.compose.ui.layout.MeasurePolicy {
+        final NetworkIconOrder order;final Node row,signal,label;final Measured measuredSignal,measuredLabel;
+        int labelNatural=78,lastWidth,lastMinHeight,lastMaxHeight;boolean fail;
+        BoundedPolicy(NetworkIconOrder order,Node row,Node signal,Node label,Measured measuredSignal,Measured measuredLabel){
+            this.order=order;this.row=row;this.signal=signal;this.label=label;this.measuredSignal=measuredSignal;this.measuredLabel=measuredLabel;
+        }
+        public java.util.Map<String,Integer> measure(Object scope,List<?> children,long constraints) {
+            if(fail)throw new IllegalStateException("native measure failure");
+            int maximum=Constraints.maxW(constraints);lastMinHeight=Constraints.minH(constraints);lastMaxHeight=Constraints.maxH(constraints);
+            measuredSignal.width=Math.min(72,maximum);
+            measuredLabel.width=Math.min(labelNatural+16,Math.max(0,maximum-measuredSignal.width));
+            int[] positions={0,measuredSignal.width};
+            Object[] placed=order.placeHelperArguments(this,placement(children.toArray(),positions,measuredSignal.width+measuredLabel.width));
+            int[] actual=(int[])placed[3];lastWidth=(Integer)placed[4];
+            signal.coordinates.x=row.coordinates.x+actual[0];label.coordinates.x=row.coordinates.x+actual[1];
+            java.util.Map<String,Integer> result=new java.util.LinkedHashMap<>();result.put("signal",actual[0]);result.put("type",actual[1]);return result;
+        }
+        public int minIntrinsicWidth(Object scope,List<?> children,int height){return 72+labelNatural+16;}
+    }
+    private static final class ConstrainedMobile extends ViewGroup implements StatusIconDisplayable {
+        androidx.compose.ui.layout.MeasurePolicy policy;BoundedPolicy nativePolicy;List<?> children;
+        ConstrainedMobile(){super(null);}
+        public String getSlot(){return "stacked_mobile";}
+        public boolean isIconVisible(){return true;}
+        public boolean isIconBlocked(){return false;}
+        @Override protected void onMeasure(int width,int height){
+            int maximum=Math.max(0,View.MeasureSpec.getSize(width)-8);
+            policy.measure(null,children,Constraints.create(0,maximum,View.MeasureSpec.getSize(height),View.MeasureSpec.getSize(height)));
+            setMeasuredDimension(View.resolveSize(nativePolicy.lastWidth+8,width),80);
+        }
+    }
+    private static final class BoundedFixture {
+        final NetworkSharedSlotLayout bridge;final StatusIconContainer container=new StatusIconContainer();
+        final ConstrainedMobile mobile=new ConstrainedMobile();View owner=new View(null);
+        final NetworkIconOrder order=new NetworkIconOrder();final Node row,signal,label;
+        BoundedFixture()throws Exception{this(NetworkSharedSlotLayoutCheck.bridge());}
+        BoundedFixture(NetworkSharedSlotLayout bridge)throws Exception{
+        this.bridge=bridge;container.addView(mobile);mobile.addView(owner);order.sharedLayout(bridge);
+        order.resolve(NetworkSharedSlotLayoutCheck.class.getClassLoader());order.resolveCompose(NetworkSharedSlotLayoutCheck.class.getClassLoader());
+        android.os.Bundle settings=new android.os.Bundle();settings.putBoolean(StatusBarLayoutSettings.WIFI_LABEL_SHARED,true);order.configure(settings);
+        field(order,"nodeOwner",Node.class.getMethod("owner"));field(order,"nodeParent",Node.class.getMethod("parentNode"));
+        field(order,"nodeCoordinator",Node.class.getMethod("coordinates"));field(order,"coordinatorPosition",Coordinates.class.getMethod("root",long.class));
+        field(order,"placeableWidth",Measured.class.getMethod("getWidth"));
+        constraints(order);
+        row=new Node("row",166,owner,null);signal=new Node("signal",72,owner,row);label=new Node("type",94,owner,row);
+        row.coordinates.x=8;signal.coordinates.x=8;label.coordinates.x=80;
+        Modifier sm=(Modifier)order.signalModifier(new Modifier.Element()),lm=(Modifier)order.textModifier(new Modifier.Element());
+        signal.setModifier(sm);label.setModifier(lm);order.nodeChanged(signal,sm);order.nodeChanged(label,lm);
+        Measured measuredSignal=new Measured(signal),measuredLabel=new Measured(label);
+        mobile.children=Arrays.asList(measuredSignal,measuredLabel);mobile.nativePolicy=new BoundedPolicy(order,row,signal,label,measuredSignal,measuredLabel);
+        Method create=NetworkIconOrder.class.getDeclaredMethod("createPolicy",Object.class);create.setAccessible(true);
+        mobile.policy=(androidx.compose.ui.layout.MeasurePolicy)create.invoke(order,mobile.nativePolicy);
+        external(400);
+        }
+        void external(int width){
+            bridge.beginNativeMeasure(container);
+            try{mobile.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.AT_MOST),View.MeasureSpec.makeMeasureSpec(80,View.MeasureSpec.EXACTLY));}
+            finally{bridge.endNativeMeasure(container);}
+        }
+        void internal(int width,int height){
+            bridge.beginHullMeasure(mobile);
+            try{mobile.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(height,View.MeasureSpec.EXACTLY));}
+            finally{bridge.endHullMeasure(mobile);}
+        }
+        int target(){NetworkSharedSlotLayout.Frame frame=bridge.frame(mobile);int hull=frame.signalWidthPx+frame.labelWidthPx-7;
+            check(bridge.apply(frame,hull,73,1,true,true,true),"negative spacing retains both native fragments");return hull;}
+        Object backend()throws Exception{return ((java.util.Map<?,?>)field(order,"sharedRows")).get(mobile);}
+        void close(){order.releaseRuntime();bridge.releaseRuntime();}
+    }
+    private static void constrainedContentFeedback() throws Exception {
+        BoundedFixture f=new BoundedFixture();NetworkSharedSlotLayout bridge=f.bridge;ConstrainedMobile mobile=f.mobile;
+        check(mobile.getMeasuredWidth()==174&&bridge.frame(mobile).labelWidthPx==94,"native constraints establish 78px ink plus 16px label padding and 80px signal budget");
+        for(int cycle=0;cycle<12;cycle++){
+            int hull=f.target();f.internal(hull,80);
+            check(bridge.frame(mobile).labelWidthPx==94,"our compact EXACT hull must not become a smaller natural label budget");
+            check(mobile.getMeasuredWidth()==167,"repeated capsule traversals keep the intended overlap without shrinking the text or expanding its hull");
+            mobile.policy.measure(null,mobile.children,Constraints.create(0,159,80,80));
+            check(bridge.frame(mobile).labelWidthPx==94,"Compose-only delayed remeasure reuses real bounds, never the last 167px owned hull");
+        }
+        mobile.nativePolicy.labelNatural=120;f.internal(167,90);
+        check(bridge.frame(mobile).labelWidthPx==136,"larger text is freshly measured against actual parent capacity, not frozen old natural width");
+        check(mobile.nativePolicy.lastMinHeight==90&&mobile.nativePolicy.lastMaxHeight==90,"width protection keeps the current height constraints");
+        f.internal(f.target(),80);check(mobile.getMeasuredWidth()==209,"new larger text receives updated overlap hull");
+        mobile.nativePolicy.labelNatural=30;f.internal(209,80);
+        check(bridge.frame(mobile).labelWidthPx==46,"smaller text can reduce its natural budget");
+        f.internal(f.target(),80);check(mobile.getMeasuredWidth()==119,"smaller text receives smaller overlap hull");
+        mobile.nativePolicy.labelNatural=78;f.external(133);
+        check(bridge.frame(mobile).labelWidthPx==53,"real capsule constraint still limits the native remaining width immediately");
+        check(mobile.nativePolicy.lastWidth<=125,"native Row result obeys narrower real parent even while previous shared target remains installed");
+        f.internal(f.target(),80);check(bridge.frame(mobile).labelWidthPx==53&&mobile.getMeasuredWidth()==126,"internal compact measure cannot bypass the latest actual external limit");
+        f.external(400);check(bridge.frame(mobile).labelWidthPx==94,"real parent expansion restores full natural text");
+        mobile.nativePolicy.fail=true;
+        try{f.internal(f.target(),80);throw new AssertionError("native exception missing");}catch(IllegalStateException expected){}
+        check((Integer)field(f.backend(),"hullMeasureDepth")==0,"native failure leaves no hull scope behind");
+        mobile.nativePolicy.fail=false;f.external(133);
+        check(bridge.frame(mobile).labelWidthPx==53,"external limits still update after failed internal measure");
+        f.close();
+    }
+    private static void constraintsLifecycle()throws Exception{
+        BoundedFixture f=new BoundedFixture();f.internal(f.target(),80);Object old=f.backend();
+        f.bridge.beginHullMeasure(f.mobile);f.bridge.beginHullMeasure(f.mobile);
+        try{
+            f.mobile.removeView(f.owner);f.owner=new View(null);f.mobile.addView(f.owner);
+            f.row.owner=f.owner;f.signal.owner=f.owner;f.label.owner=f.owner;
+            f.mobile.measure(View.MeasureSpec.makeMeasureSpec(167,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(80,View.MeasureSpec.EXACTLY));
+            check(f.backend()!=old,"same Compose Row with replacement Android owner receives fresh ownership");
+            check(f.bridge.frame(f.mobile)==null,"replacement during owned measure cannot capture compressed width as fresh native bounds");
+            check((Integer)field(old,"hullMeasureDepth")==2&&(Integer)field(f.backend(),"hullMeasureDepth")==2,"new backend inherits all active scopes without abandoning old participant");
+        }finally{f.bridge.endHullMeasure(f.mobile);f.bridge.endHullMeasure(f.mobile);}
+        check((Integer)field(old,"hullMeasureDepth")==0&&(Integer)field(f.backend(),"hullMeasureDepth")==0,"replacement scope finally closes both backend identities");
+        f.external(400);check(f.bridge.frame(f.mobile).labelWidthPx==94,"replacement recovers only from real native measure");
+        f.internal(f.target(),80);
+        f.bridge.configure(false);f.bridge.configure(true);
+        f.internal(167,80);check(f.bridge.frame(f.mobile)==null,"disable drops old constraints; reopening inside a compact measure stays unknown");
+        f.external(133);check(f.bridge.frame(f.mobile).labelWidthPx==53,"re-enabled row accepts new actual native bound");
+        f.external(400);f.internal(f.target(),80);
+        long cached=Constraints.create(0,159,80,80);Constraints.fail=true;
+        try{f.mobile.policy.measure(null,f.mobile.children,cached);}finally{Constraints.fail=false;}
+        check(f.bridge.frame(f.mobile)==null,"unencodable replacement constraints cannot pollute captured natural width");
+        f.external(400);check(f.bridge.frame(f.mobile).labelWidthPx==94,"codec failure can recover on actual native traversal");
+        field(f.order,"createConstraints",null);
+        check(!f.bridge.apply(f.bridge.frame(f.mobile),167,73,1,true,true,true),"missing native constraint codec rejects overlap instead of guessing an unbounded width");
+        f.close();
+    }
+    private static void replacementAfterCompactReplay() throws Exception {
+        BoundedFixture f=new BoundedFixture();
+        f.internal(f.target(),80);
+        Object old=f.backend();
+        f.mobile.removeView(f.owner);f.owner=new View(null);f.mobile.addView(f.owner);
+        f.row.owner=f.owner;f.signal.owner=f.owner;f.label.owner=f.owner;
+        f.mobile.policy.measure(null,f.mobile.children,Constraints.create(0,159,80,80));
+        check(f.backend()!=old,"outside-scope replacement creates a fresh row backend");
+        check(f.bridge.frame(f.mobile)==null,"replacement must not treat Compose replay of compact hull as native measurement");
+        f.external(400);check(f.bridge.frame(f.mobile).labelWidthPx==94,"real traversal recovers full label budget after replacement");
+        f.internal(f.target(),80);
+        f.bridge.configure(false);f.bridge.configure(true);
+        f.mobile.policy.measure(null,f.mobile.children,Constraints.create(0,159,80,80));
+        check(f.bridge.frame(f.mobile)==null,"disable and enable cannot erase host's compact-hull witness");
+        f.external(400);check(f.bridge.frame(f.mobile).labelWidthPx==94,"real traversal recovers after disable and enable");
+        f.internal(f.target(),80);f.mobile.nativePolicy.fail=true;
+        try{f.external(133);throw new AssertionError("native exception missing");}catch(IllegalStateException expected){}
+        f.mobile.nativePolicy.fail=false;
+        f.mobile.policy.measure(null,f.mobile.children,Constraints.create(0,159,80,80));
+        check(f.bridge.frame(f.mobile)==null,"failed native traversal cannot publish or reuse captured native constraints");
+        f.external(400);check(f.bridge.frame(f.mobile).labelWidthPx==94,"successful native traversal restores failed measurement");
+        f.close();
+    }
+    private static void failedParentTraversal() throws Exception {
+        BoundedFixture f=new BoundedFixture();BoundedFixture other=new BoundedFixture(f.bridge);
+        f.internal(f.target(),80);other.internal(other.target(),80);
+        f.bridge.beginNativeMeasure(f.container);
+        Object old;
+        try {
+            f.mobile.measure(View.MeasureSpec.makeMeasureSpec(133,View.MeasureSpec.AT_MOST),View.MeasureSpec.makeMeasureSpec(80,View.MeasureSpec.EXACTLY));
+            old=f.backend();
+            check((Boolean)field(old,"nativeConstraintsKnown"),"first Row completed before parent failure");
+            f.mobile.removeView(f.owner);f.owner=new View(null);f.mobile.addView(f.owner);
+            f.row.owner=f.owner;f.signal.owner=f.owner;f.label.owner=f.owner;
+            f.mobile.policy.measure(null,f.mobile.children,Constraints.create(0,125,80,80));
+            check(f.backend()!=old,"same traversal can replace a participating Row");
+            f.container.removeView(f.mobile);
+        } finally { f.bridge.endNativeMeasure(f.container,false); }
+        check(!(Boolean)field(old,"nativeConstraintsKnown"),"failed parent invalidates earlier replaced participant");
+        check(!(Boolean)field(f.backend(),"nativeConstraintsKnown"),"failed parent invalidates replacement even after host detach");
+        check(other.bridge.frame(other.mobile).labelWidthPx==94,"other root's successful constraints are untouched");
+        f.container.addView(f.mobile);
+        f.mobile.policy.measure(null,f.mobile.children,Constraints.create(0,159,80,80));
+        check(f.bridge.frame(f.mobile)==null,"failed parent constraints cannot be reused on Compose-only replay");
+        f.external(400);check(f.bridge.frame(f.mobile).labelWidthPx==94,"later successful native traversal recovers participant");
+        f.close();other.close();
+    }
+    /** Compose localToRoot already includes the Row's position, unlike a child-local coordinate. */
+    @SuppressWarnings("unchecked") private static void composeRootCoordinates() throws Exception {
+        NetworkSharedSlotLayout bridge=bridge();StatusIconContainer container=new StatusIconContainer();
+        Mobile mobile=new Mobile();View owner=new View(null);container.addView(mobile);mobile.addView(owner);
+        owner.layout(7,0,181,80);owner.setTranslationX(19);
+        NetworkIconOrder order=new NetworkIconOrder();order.sharedLayout(bridge);
+        order.resolve(NetworkSharedSlotLayoutCheck.class.getClassLoader());order.resolveCompose(NetworkSharedSlotLayoutCheck.class.getClassLoader());
+        android.os.Bundle settings=new android.os.Bundle();settings.putBoolean(StatusBarLayoutSettings.WIFI_LABEL_SHARED,true);order.configure(settings);
+        field(order,"nodeOwner",Node.class.getMethod("owner"));field(order,"nodeParent",Node.class.getMethod("parentNode"));
+        field(order,"nodeCoordinator",Node.class.getMethod("coordinates"));field(order,"coordinatorPosition",Coordinates.class.getMethod("root",long.class));
+        field(order,"placeableWidth",Measured.class.getMethod("getWidth"));
+        Node row=new Node("row",166,owner,null),signal=new Node("signal",72,owner,row),label=new Node("type",94,owner,row);
+        row.coordinates.x=8;signal.coordinates.x=8;label.coordinates.x=80;
+        Modifier sm=(Modifier)order.signalModifier(new Modifier.Element()),lm=(Modifier)order.textModifier(new Modifier.Element());
+        signal.setModifier(sm);label.setModifier(lm);order.nodeChanged(signal,sm);order.nodeChanged(label,lm);
+        Object[] children={new Measured(signal),new Measured(label)};
+        Method measurement=NetworkIconOrder.class.getDeclaredMethod("sharedMeasurement",Object.class,List.class);measurement.setAccessible(true);
+        Object policy=new Object();ThreadLocal<Object> active=(ThreadLocal<Object>)field(order,"sharedMeasure");
+        active.set(measurement.invoke(order,policy,Arrays.asList(children)));
+        Object[] nativePlacement=placement(children,new int[]{0,72},166);order.placeHelperArguments(policy,nativePlacement);
+        NetworkSharedSlotLayout.Frame frame=bridge.frame(mobile);
+        check(frame.currentSignalLeftPx==0,"localToRoot signal includes Row origin exactly once while owner offset is preserved");
+        check(frame.signalWidthPx==87&&frame.nativeHostWidthPx==181,"physical owner prefix stays part of the native budget");
+        check(bridge.apply(frame,181,87,1,true,true,true),"shared target retains signed spacing");
+        for(int cycle=0;cycle<12;cycle++) {
+            Object[] placed=order.placeHelperArguments(policy,nativePlacement);int[] local=(int[])placed[3];
+            signal.coordinates.x=row.coordinates.x+local[0];label.coordinates.x=row.coordinates.x+local[1];
+            check(bridge.frame(mobile).currentSignalLeftPx==1,"repeated native/planned sampling does not invent an extra Row displacement");
+            check(owner.getTranslationX()==19,"native parent animation stays untouched");
+        }
+        active.remove();order.releaseRuntime();bridge.releaseRuntime();
+    }
     @SuppressWarnings("unchecked") private static void compose() throws Exception {
         NetworkSharedSlotLayout bridge = bridge(); StatusIconContainer container = new StatusIconContainer();
         Mobile mobile = new Mobile(); View owner = new View(null); container.addView(mobile); mobile.addView(owner);
@@ -233,11 +456,28 @@ public final class NetworkSharedSlotLayoutCheck {
             mobile.rowWidth=176;mobile.measure(View.MeasureSpec.makeMeasureSpec(184,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(80,View.MeasureSpec.EXACTLY));
             NetworkSharedSlotLayout.Frame data=bridge.frame(mobile);check(data!=null&&data.labelPresent&&data.nativeHostWidthPx==184,"single data native measurement is184");
             check(bridge.apply(data,184,80,0,true,true),"single data shared hull applies");
+            // SingleNetworkLabelControls releases its placement before setting
+            // GONE; a native binder can also update visibility directly.
+            if(radioCycle==1)placement.restore();
             label.setVisibility(View.GONE);
             if(radioCycle==0)check(bridge.frame(mobile)==null,"single first native visibility change restores LPs before recapturing geometry");
-            else check(!placement.apply(),"single local apply also drops stale native visibility target");
+            else check(bridge.frame(mobile)==null,"single explicit release also waits for genuine native layout");
             check(label.getLayoutParams()==nativeLabel&&signal.getLayoutParams()==nativeSignal&&parent.getLayoutParams()==nativeParent,"single visibility flip restores three native LP identities once");
+            // A radio callback can reach the outer flow repeatedly before the
+            // requested native traversal. Its host still has our former EXACT
+            // hull, so it is not yet a natural Wi-Fi-only frame.
+            for(int pending=0;pending<3;pending++)
+                check(bridge.frame(mobile)==null,"single pending native layout never recaptures the former EXACT data hull");
+            // A root onLayout-only callback, including Flow's internal
+            // restoration layouts, cannot witness a fresh natural measure.
+            bridge.nativeLaidOut(container);
+            check(bridge.frame(mobile)==null,"single layout-only callback cannot adopt the unchanged old EXACT hull");
             mobile.rowWidth=72;mobile.measure(View.MeasureSpec.makeMeasureSpec(80,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(80,View.MeasureSpec.EXACTLY));
+            parent.measure(0,0);signal.measure(0,0);
+            bridge.nativeMeasured(container);
+            check(bridge.frame(mobile)==null,"single root measurement alone cannot complete native placement");
+            signal.layout(signal.getLeft(),signal.getTop(),signal.getRight(),signal.getBottom());
+            bridge.nativeLaidOut(container);
             NetworkSharedSlotLayout.Frame wifi=bridge.frame(mobile);check(wifi!=null&&!wifi.labelPresent&&wifi.nativeHostWidthPx==80&&mobile.getMeasuredWidth()==80,"single Wi-Fi recaptures native80 rather than former184");
             int writes=label.layoutRequests+signal.layoutRequests+parent.layoutRequests;
             check(bridge.frame(mobile)!=null&&writes==label.layoutRequests+signal.layoutRequests+parent.layoutRequests,"single repeated Wi-Fi frame never restores or rewrites LPs again");
@@ -282,9 +522,12 @@ public final class NetworkSharedSlotLayoutCheck {
         check(!bridge.apply(frame,200,10,160,true,false),"signal suppression cannot alter native visibility");
         bridge.restore(mobile);
         check(label.getLayoutParams()==labelParams&&signal.getLayoutParams()==signalParams&&roam.getLayoutParams()==roamParams&&parent.getLayoutParams()==originalParent,"restore exact four native LP identities");
-        label.setVisibility(View.GONE); NetworkSharedSlotLayout.Frame withoutLabel=bridge.frame(mobile);
+        label.setVisibility(View.GONE);mobile.measure(0,0);parent.measure(0,0);signal.measure(0,0);
+        bridge.nativeMeasured(container);bridge.nativeLaidOut(container);
+        NetworkSharedSlotLayout.Frame withoutLabel=bridge.frame(mobile);
         check(withoutLabel!=null&&!withoutLabel.labelPresent&&bridge.apply(withoutLabel,200,0,160,false,true),"Wi-Fi-visible native GONE type still yields an independent signal fragment");
-        check(label.getVisibility()==View.GONE,"shared slot never forces a network label visible");bridge.restore(mobile);label.setVisibility(View.VISIBLE);frame=bridge.frame(mobile);
+        check(label.getVisibility()==View.GONE,"shared slot never forces a network label visible");bridge.restore(mobile);label.setVisibility(View.VISIBLE);
+        mobile.measure(0,0);parent.measure(0,0);signal.measure(0,0);bridge.nativeMeasured(container);bridge.nativeLaidOut(container);frame=bridge.frame(mobile);
         check(bridge.apply(frame,200,10,160,true,true),"target reapplies after restore");
         ConstraintLayout.LayoutParams replacement=new ConstraintLayout.LayoutParams(-2,-2);label.setLayoutParams(replacement);bridge.configure(false);
         check(label.getLayoutParams()==replacement&&signal.getLayoutParams()==signalParams,"new OEM LP ownership survives disable");
@@ -318,6 +561,7 @@ public final class NetworkSharedSlotLayoutCheck {
         bridge.restore(mobile);
         check(label.getLayoutParams()==originalLabel&&signal.getLayoutParams()==originalSignal&&parent.getLayoutParams()==originalParent,"single padded failure restores native identities");
         check(((ConstraintLayout.LayoutParams)label.getLayoutParams()).bottomMargin==38&&((ConstraintLayout.LayoutParams)label.getLayoutParams()).getMarginEnd()==58,"single shared restore recovers real native badge margins");
+        mobile.measure(0,0);parent.measure(0,0);signal.measure(0,0);bridge.nativeMeasured(container);bridge.nativeLaidOut(container);frame=bridge.frame(mobile);
         boolean wasLogging=ModuleDiagnostics.enabled();android.os.Bundle logging=new android.os.Bundle();logging.putBoolean(ModuleDiagnostics.KEY_ENABLED,true);ModuleDiagnostics.configure(logging);
         try {
             for(int i=0;i<100;i++)check(!bridge.apply(frame,60,32,0,true,true),"same unsafe prefix target remains rejected");
@@ -393,5 +637,5 @@ public final class NetworkSharedSlotLayoutCheck {
         }
         active.remove();nativeLabel.sharedLayout(null);order.releaseRuntime();shared.releaseRuntime();
     }
-    public static void main(String[] args) throws Exception { defaultSingleComposeParity();compose();paddedCompose();singleVisibility();single();singlePadded();System.out.println("NetworkSharedSlotLayoutCheck: "+checks+" checks passed"); }
+    public static void main(String[] args) throws Exception { constrainedContentFeedback();constraintsLifecycle();replacementAfterCompactReplay();failedParentTraversal();composeRootCoordinates();defaultSingleComposeParity();compose();paddedCompose();singleVisibility();single();singlePadded();System.out.println("NetworkSharedSlotLayoutCheck: "+checks+" checks passed"); }
 }

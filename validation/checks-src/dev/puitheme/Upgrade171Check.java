@@ -28,7 +28,7 @@ public final class Upgrade171Check {
                 Upgrade101.DEFAULTS,Upgrade103.DEFAULTS,Upgrade105.DEFAULTS,Upgrade106.DEFAULTS,Upgrade107.DEFAULTS,
                 Upgrade108.DEFAULTS,Upgrade117.DEFAULTS,Upgrade118.DEFAULTS,Upgrade135.DEFAULTS,Upgrade136.DEFAULTS,
                 Upgrade144.DEFAULTS,Upgrade146.DEFAULTS,Upgrade154.DEFAULTS,Upgrade157.DEFAULTS,Upgrade160.DEFAULTS,
-                Upgrade166.DEFAULTS,Upgrade168.DEFAULTS,Upgrade169.DEFAULTS,Upgrade171.DEFAULTS,Upgrade172.DEFAULTS,Upgrade173.DEFAULTS,Upgrade174.DEFAULTS,Upgrade175.DEFAULTS,Upgrade177.DEFAULTS,Upgrade184.DEFAULTS,Upgrade185.DEFAULTS,Upgrade186.DEFAULTS,Upgrade187.DEFAULTS,Upgrade188.DEFAULTS);
+                Upgrade166.DEFAULTS,Upgrade168.DEFAULTS,Upgrade169.DEFAULTS,Upgrade171.DEFAULTS,Upgrade172.DEFAULTS,Upgrade173.DEFAULTS,Upgrade174.DEFAULTS,Upgrade175.DEFAULTS,Upgrade177.DEFAULTS,Upgrade184.DEFAULTS,Upgrade185.DEFAULTS,Upgrade186.DEFAULTS,Upgrade187.DEFAULTS,Upgrade188.DEFAULTS,Upgrade195.DEFAULTS,Upgrade196.DEFAULTS,Upgrade209.DEFAULTS,Upgrade279.DEFAULTS);
         for(int index=0;index<batches.size();index++)if(schema<index+2)for(String key:batches.get(index).keySet())result.remove(key);
         if(schema<12)result.remove(FluidCloudStyle.BACKGROUND_COLOR_CUSTOMIZED);
         result.put(SettingsFrameworkMirror.SCHEMA,schema);result.put(SettingsFrameworkMirror.REVISION,171L);return result;
@@ -38,8 +38,8 @@ public final class Upgrade171Check {
         checks++;try{ConfigTransfer.prepare(document(settings),true);}catch(IOException expected){return;}throw new AssertionError("accepted "+why);
     }
     private static void registration(Bundle full) {
-        equal(48,SettingsFrameworkMirror.VERSION,"current schema");equal(23,Upgrade171.DEFAULTS.size(),"exact new batch size");equal(additions(),Upgrade171.DEFAULTS,"frozen literals/types/defaults");
-        equal(979,full.keySet().size(),"complete snapshot size");equal(966,ConfigTransfer.types().size(),"portable size");equal(922,wire(full,37).size()-2,"schema37 stays frozen");equal(904,wire(full,36).size()-2,"schema36 stays frozen");equal(890,wire(full,35).size()-2,"schema35 stays frozen");
+        equal(52,SettingsFrameworkMirror.VERSION,"current schema");equal(23,Upgrade171.DEFAULTS.size(),"exact new batch size");equal(additions(),Upgrade171.DEFAULTS,"frozen literals/types/defaults");
+        equal(1000,full.keySet().size(),"complete snapshot size");equal(987,ConfigTransfer.types().size(),"portable size");equal(922,wire(full,37).size()-2,"schema37 stays frozen");equal(904,wire(full,36).size()-2,"schema36 stays frozen");equal(890,wire(full,35).size()-2,"schema35 stays frozen");
         Map<ConfigTransfer.Type,Integer> counts=new EnumMap<>(ConfigTransfer.Type.class);
         for(Map.Entry<String,Object> item:additions().entrySet()){
             equal(item.getValue(),full.get(item.getKey()),"snapshot default "+item.getKey());ConfigTransfer.Type type=ConfigTransfer.types().get(item.getKey());equal(true,type!=null,"portable "+item.getKey());counts.put(type,counts.getOrDefault(type,0)+1);
@@ -95,7 +95,7 @@ public final class Upgrade171Check {
         for(Map.Entry<String,Object> item:additions().entrySet())if(item.getValue() instanceof Boolean)for(String malformed:new String[]{"null","0","\"true\""})invalid("\""+item.getKey()+"\":"+malformed,"strict new Boolean");
         ConfigTransfer.PreparedImport imported=ConfigTransfer.prepare(ConfigTransfer.exportJson(choices,choices.keySet()),true);equal(choices,imported.values(),"new settings round trip exactly");
         ActivationGuardPreferencesCheck.MemoryPreferences store=new ActivationGuardPreferencesCheck.MemoryPreferences();store.values.put("private_note","keep");store.values.put(NotificationBigClockSettings.MASTER,false);equal(true,ConfigTransfer.commit(store,imported),"partial import commits");
-        for(Map.Entry<String,Object> item:choices.entrySet())equal(item.getValue(),store.values.get(item.getKey()),"partial choice saved");equal(false,store.values.get(NotificationBigClockSettings.MASTER),"import never enables parent");equal("keep",store.values.get("private_note"),"unrelated value remains");equal(966,ConfigTransfer.prepare(ConfigTransfer.exportJson(choices),true).count,"full portable export count");
+        for(Map.Entry<String,Object> item:choices.entrySet())equal(item.getValue(),store.values.get(item.getKey()),"partial choice saved");equal(false,store.values.get(NotificationBigClockSettings.MASTER),"import never enables parent");equal("keep",store.values.get("private_note"),"unrelated value remains");equal(987,ConfigTransfer.prepare(ConfigTransfer.exportJson(choices),true).count,"full portable export count");
     }
     public static void main(String[] args)throws Exception {Bundle full=SettingsSnapshot.fromPreferences(Collections.emptyMap());registration(full);migration();mirrors(full);portable();System.out.println("Upgrade171Check: "+checks+" checks passed");}
 }

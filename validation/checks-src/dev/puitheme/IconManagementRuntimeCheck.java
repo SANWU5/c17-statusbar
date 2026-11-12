@@ -36,7 +36,9 @@ public final class IconManagementRuntimeCheck {
     private static void settle()throws Exception{
         Field worker=IconManagementRuntime.class.getDeclaredField("WORK");worker.setAccessible(true);
         ExecutorService queue=(ExecutorService)worker.get(null);
-        for(int n=0;n<3;n++){queue.submit(()->{}).get(30,TimeUnit.SECONDS);Handler.drainForCheck();}
+        // Windows reports no file key, so the verified-pack cache never hits on a desktop and each provider read re-hashes
+        // the pack; Android's inode keys keep it cached. The bound only catches a real hang.
+        for(int n=0;n<3;n++){queue.submit(()->{}).get(600,TimeUnit.SECONDS);Handler.drainForCheck();}
     }
     private static Bundle settings(String records){Bundle values=new Bundle();values.putString(IconManagementSettings.KEY,records);return values;}
     private static byte[] png(int color,int width,int height)throws Exception{
@@ -67,7 +69,7 @@ public final class IconManagementRuntimeCheck {
         final AtomicInteger opens=new AtomicInteger(),changes=new AtomicInteger();
         final List<Watch> watches=new CopyOnWriteArrayList<>();
         final Set<Thread> readThreads=Collections.newSetFromMap(new ConcurrentHashMap<>());
-        volatile boolean available=true;volatile String corruptSuffix;volatile Gate gate;
+        volatile boolean available=true;volatile String corruptSuffix,failOnceSuffix;volatile Gate gate;
         Provider(FilesContext module){this.module=module;}
         @Override public void registerContentObserver(Uri uri,boolean descendants,ContentObserver observer){watches.add(new Watch(uri,descendants,observer));}
         @Override public void unregisterContentObserver(ContentObserver observer){watches.removeIf(item->item.observer==observer);}
@@ -77,6 +79,7 @@ public final class IconManagementRuntimeCheck {
         @Override public InputStream openInputStream(Uri uri)throws FileNotFoundException{
             opens.incrementAndGet();readThreads.add(Thread.currentThread());
             if(!available)throw new FileNotFoundException("controlled provider unavailable");
+            if(failOnceSuffix!=null&&uri.toString().endsWith(failOnceSuffix)){failOnceSuffix=null;throw new FileNotFoundException("controlled first family peer read failure");}
             try{
                 File file=IconManagementRepository.providerFile(module,uri);byte[] source=Files.readAllBytes(file.toPath());
                 Gate waiting=gate;if(waiting!=null&&uri.toString().endsWith(waiting.suffix)&&gate==waiting){gate=null;waiting.entered.countDown();if(!waiting.resume.await(6,TimeUnit.SECONDS))throw new IOException("provider gate timed out");}
@@ -118,7 +121,7 @@ public final class IconManagementRuntimeCheck {
             IconManagementRepository.clear(module);try(java.util.stream.Stream<Path> files=Files.walk(directory)){for(Path file:files.sorted(Comparator.reverseOrder()).toList())Files.deleteIfExists(file);}
         }
     }
-    private static final class Graphic extends Drawable{
+    private static class Graphic extends Drawable{
         int alpha=200,draws,tints;ColorFilter filter=new PorterDuffColorFilter(0xff445566,PorterDuff.Mode.SRC_IN),drawFilter;int drawAlpha;boolean nativeGuard,fail;
         Graphic(){setBounds(10,20,110,120);}
         @Override public void draw(Canvas canvas){draws++;drawFilter=filter;drawAlpha=alpha;nativeGuard=IconManagementRuntime.nativeDrawing(this);if(fail)throw new IllegalStateException("controlled native draw failure");}
@@ -220,7 +223,7 @@ public final class IconManagementRuntimeCheck {
             equal(false,IconManagementRuntime.animationEnabled("tile.flashlight"),"animation preference can revoke transition permission");equal(revision,IconManagementRuntime.sourceRevision(),"animation permission change keeps source revision");equal(reads,fixture.provider.opens.get(),"revoking animation permission opens no assets");equal(color,IconManagementRuntime.bitmapForWifi(2,true),"animation permission does not replace static artwork");
             String allowed=IconManagementSettings.applyTarget(disabled,"tile.flashlight",Collections.emptyMap(),null,Collections.emptyMap(),true);fixture.configure(allowed);
             equal(true,IconManagementRuntime.animationEnabled("tile.flashlight"),"animation preference restores permission only");equal(null,IconManagementRuntime.animation("tile.flashlight","off_to_on"),"permission alone never fabricates a playable animation");equal(revision,IconManagementRuntime.sourceRevision(),"restoring animation permission keeps source revision");equal(reads,fixture.provider.opens.get(),"restoring animation permission does not decode sources");
-            fixture.notifyResources();require(IconManagementRuntime.sourceRevision()>revision,"actual resource publication advances source revision");require(fixture.provider.opens.get()>reads,"actual resource publication revalidates provider bytes");require(color!=IconManagementRuntime.bitmapForWifi(2,true),"actual resource publication produces a newly validated decoded bitmap");
+            fixture.notifyResources();equal(revision,IconManagementRuntime.sourceRevision(),"revalidation of identical sources preserves native bindings");require(fixture.provider.opens.get()>reads,"actual resource publication revalidates provider bytes");require(color!=IconManagementRuntime.bitmapForWifi(2,true),"actual resource publication produces a newly validated decoded bitmap");
             revision=IconManagementRuntime.sourceRevision();String system=IconManagementSettings.applyTarget(allowed,"wifi",Collections.singletonMap("wifi.1",new IconManagementSettings.Override("system","","")),null,Collections.emptyMap(),true);fixture.configure(system);
             require(IconManagementRuntime.sourceRevision()>revision,"explicit source switch advances source revision");equal(null,IconManagementRuntime.bitmapForWifi(1,true),"explicit system clears decoded source");require(IconManagementRuntime.bitmapForWifi(2,true)!=null,"source switch preserves selected sibling behavior");
             java.lang.ref.Reference.reachabilityFence(owner);
@@ -296,7 +299,9 @@ public final class IconManagementRuntimeCheck {
         equal(1,edge.left,"alpha=1 outer edge remains visible");equal(2,edge.right,"one visible pixel exclusive right");equal(1,edge.height,"single-row height valid");equal(null,IconVisibleBounds.scan(new int[6],3,2),"empty raster has no invented box");
         equal(null,IconVisibleBounds.scan(new int[2],3,2),"truncated raster rejected");equal(null,IconVisibleBounds.scan(new int[2],Integer.MAX_VALUE,2),"overflowing dimensions rejected");near(0,edge.fitScale(Float.NaN,20),"NaN host region rejected");near(0,edge.fitScale(20,Float.POSITIVE_INFINITY),"infinite host region rejected");
         try(Fixture fixture=new Fixture()){
-            Map<String,Object> icons=map("wifi.0",map("source","assets/blank.png","render","color"),"wifi.1",map("source","assets/small.png","render","color"),"wifi.2",map("source","assets/padded.png","render","color"),"wifi.3",map("source","assets/narrow.xml","render","color"),"wifi.4",map("source","assets/wide.png","render","color"));
+            // Keep per-source visible-bounds assertions independent of a failed numeric
+            // signal family; familyRecovery below covers that conservative fallback.
+            Map<String,Object> icons=map("wifi.none",map("source","assets/blank.png","render","color"),"wifi.1",map("source","assets/small.png","render","color"),"wifi.2",map("source","assets/padded.png","render","color"),"wifi.3",map("source","assets/narrow.xml","render","color"),"wifi.4",map("source","assets/wide.png","render","color"));
             Map<String,byte[]> assets=new LinkedHashMap<>();assets.put("assets/blank.png",artwork(32,32,0,0,0,0,0));assets.put("assets/small.png",artwork(32,32,14,4,18,28,RED));assets.put("assets/padded.png",artwork(128,32,62,4,66,28,RED));assets.put("assets/wide.png",artwork(128,64,4,28,124,36,RED));
             assets.put("assets/narrow.xml",bytes("<vector xmlns:android=\"http://schemas.android.com/apk/res/android\" android:width=\"32dp\" android:height=\"32dp\" android:viewportWidth=\"32\" android:viewportHeight=\"32\"><path android:fillColor=\"#80ee2211\" android:pathData=\"M14,4 L18,4 L18,28 L14,28 Z\"/></vector>"));
             byte[] layered=bytes("<vector xmlns:android=\"http://schemas.android.com/apk/res/android\" android:viewportWidth=\"32\" android:viewportHeight=\"32\" android:alpha=\"0.5\"><group android:translateX=\"14\" android:translateY=\"4\"><path android:fillColor=\"#ffee2211\" android:pathData=\"M0,0 h4 v24 h-4 Z\"/><path android:fillColor=\"#ffee2211\" android:pathData=\"M0,0 h4 v24 h-4 Z\"/></group></vector>");
@@ -310,7 +315,7 @@ public final class IconManagementRuntimeCheck {
             View failureOwner=new View(fixture.system);Graphic failedNative=new Graphic();failedNative.filter=null;Drawable failureWrapper=IconManagementRuntime.wrap(failureOwner,"wifi.2",failedNative);settle();
             failureWrapper.draw(new Canvas(){@Override public void drawBitmap(Bitmap image,Rect source,RectF target,Paint paint){throw new IllegalStateException("controlled GPU bitmap failure");}});equal(1,failedNative.draws,"bitmap draw exception safely retains native graphic");equal(200,failedNative.alpha,"bitmap exception does not alter native alpha");equal(null,failedNative.filter,"bitmap exception does not alter native filter");Capture retry=new Capture();failureWrapper.draw(retry);equal(1,retry.calls,"later valid draw reuses source after transient canvas failure");java.lang.ref.Reference.reachabilityFence(failureOwner);
             Graphic graphic=new Graphic();graphic.filter=null;graphic.alpha=255;Capture wide=draw(fixture,"wifi.4",graphic,0xffffffff);near(100,wide.bounds.width(),"wide source respects available width");near(100f*8/120,wide.bounds.height(),"wide source remains proportional when width-limited");
-            Graphic blank=new Graphic();Capture empty=draw(fixture,"wifi.0",blank,0xffffffff);equal(0,empty.calls,"fully transparent asset never draws an invented icon");equal(1,blank.draws,"fully transparent asset retains native graphic");equal(null,IconManagementRuntime.imageVisibleBounds("wifi.0"),"empty source has no published box");
+            Graphic blank=new Graphic();Capture empty=draw(fixture,"wifi.none",blank,0xffffffff);equal(0,empty.calls,"fully transparent asset never draws an invented icon");equal(1,blank.draws,"fully transparent asset retains native graphic");equal(null,IconManagementRuntime.imageVisibleBounds("wifi.none"),"empty source has no published box");
             // This traverses the real default IconPackDrawing assets port, not a successful fake bitmap port.
             IconPackDrawing helper=new IconPackDrawing();Graphic host=new Graphic();host.filter=null;host.alpha=255;Capture nativePath=new Capture();
             require(helper.drawSignal("stat_signal_wifi_signal_2",host,nativePath,0xffffffff,255,null,false),"native signal pipeline draws loaded real v3 resource");near(100,nativePath.bounds.height(),"outer Mask does not pre-fit padded canvas");near(100f/6,nativePath.bounds.width(),"double-layer signal pipeline fits visible aspect");
@@ -322,7 +327,7 @@ public final class IconManagementRuntimeCheck {
             Bitmap xmlPreview=IconAssetDecoder.preview(pack.manifest.icons.get("wifi.3"),assets.get("assets/narrow.xml"),128,128*128);equal(16,xmlPreview.getWidth(),"XML preview crops actual raster bounds");equal(96,xmlPreview.getHeight(),"XML preview matches runtime visible height");equal(center(IconManagementRuntime.bitmapForWifi(3,true)),center(xmlPreview),"XML preview preserves actual raster RGB/alpha exactly");equal(128,center(xmlPreview)>>>24,"XML semitransparent alpha remains unchanged");xmlPreview.recycle();
 
             Bitmap layeredPreview=IconAssetDecoder.preview(pack.manifest.icons.get("hint.location.default"),layered,128,128*128);equal(16,layeredPreview.getWidth(),"transformed XML group produces measured width");equal(96,layeredPreview.getHeight(),"transformed XML group produces measured height");equal(128,center(layeredPreview)>>>24,"root alpha composites overlapping paths once");layeredPreview.recycle();
-            checks++;try{IconAssetDecoder.preview(pack.manifest.icons.get("wifi.0"),assets.get("assets/blank.png"),128,128*128);throw new AssertionError("empty preview accepted");}catch(IOException expected){}
+            checks++;try{IconAssetDecoder.preview(pack.manifest.icons.get("wifi.none"),assets.get("assets/blank.png"),128,128*128);throw new AssertionError("empty preview accepted");}catch(IOException expected){}
             Capture hot=new Capture();helper.drawSignal("stat_signal_wifi_signal_2",host,hot,0xffffffff,255,null,false);opens=fixture.provider.opens.get();reads=Bitmap.reads;allocations=Bitmap.creations;Rect cachedSource=hot.bitmapLog.get(0).source,sourceIdentity=hot.actualSource;RectF targetIdentity=hot.actualTarget;
             for(int n=0;n<120;n++)helper.drawSignal("stat_signal_wifi_signal_2",host,hot,0xffffffff,255,null,false);equal(opens,fixture.provider.opens.get(),"double-layer hot draw no IO");equal(reads,Bitmap.reads,"double-layer hot draw never scans bbox again");equal(allocations,Bitmap.creations,"double-layer hot draw no bitmap allocations");equal(cachedSource,hot.sourceBounds,"visible source region stays stable across frames");require(sourceIdentity==hot.actualSource,"hot draw reuses immutable crop Rect");require(targetIdentity==hot.actualTarget,"hot draw reuses per-thread destination RectF");
             long revision=IconManagementRuntime.sourceRevision();String plain=suite(pack.id,"wifi");fixture.configure(plain);require(padded==IconManagementRuntime.imageVisibleBounds("wifi.2"),"appearance-only change reuses visible bounds object");equal(revision,IconManagementRuntime.sourceRevision(),"appearance-only change does not regenerate sources");helper.drawSignal("stat_signal_wifi_signal_2",host,hot,0xffffffff,255,null,false);require(sourceIdentity==hot.actualSource,"appearance-only change reuses immutable source Rect");
@@ -394,9 +399,141 @@ public final class IconManagementRuntimeCheck {
             nativeGraphic.fail=true;try{wrapper.draw(new Canvas());throw new AssertionError("native sized draw should fail");}catch(IllegalStateException expected){}equal(200,nativeGraphic.alpha,"failed sized draw restores original alpha");equal(nativeFilter,nativeGraphic.filter,"failed sized draw restores original filter");equal(false,IconManagementRuntime.nativeDrawing(nativeGraphic),"failed sized draw releases recursion guard");java.lang.ref.Reference.reachabilityFence(owner);
         }
     }
+    private static void atomicPublication()throws Exception{
+        try(Fixture fixture=new Fixture()){
+            IconManagementRepository.Pack old=fixture.mixed();
+            Map<String,Object> icons=map("wifi.1",map("source","assets/first.png","render","mask"),"wifi.2",map("source","assets/last.png","render","color"));
+            Map<String,byte[]> assets=new LinkedHashMap<>();assets.put("assets/first.png",png(GREEN,8,4));assets.put("assets/last.png",png(RED,8,4));
+            IconManagementRepository.Pack replacement=fixture.install("next",icons,assets);
+            fixture.configure(suite(old.id,"wifi"));Bitmap first=IconManagementRuntime.bitmapForWifi(1,true),second=IconManagementRuntime.bitmapForWifi(2,true);
+            View owner=new View(fixture.system);Graphic nativeGraphic=new Graphic();nativeGraphic.filter=null;Drawable bound=IconManagementRuntime.wrap(owner,"wifi.2",nativeGraphic);settle();
+            long revision=IconManagementRuntime.sourceRevision();Gate renamed=new Gate(old.id+"/manifest.json");fixture.provider.gate=renamed;
+            IconManagementRepository.rename(fixture.module,old.id,"renamed");renamed.await();
+            try{
+                equal(first,IconManagementRuntime.bitmapForWifi(1,true),"library rename keeps the visible family during manifest validation");
+                equal(second,IconManagementRuntime.bitmapForWifi(2,true),"library metadata event never exposes an empty bitmap cache");
+                equal(revision,IconManagementRuntime.sourceRevision(),"metadata-only refresh does not restart native icon interactions");
+                Capture canvas=new Capture();bound.draw(canvas);equal(second,canvas.bitmap,"already attached drawable keeps its image while the worker is pending");
+            }finally{renamed.resume.countDown();settle();}
+            equal(revision,IconManagementRuntime.sourceRevision(),"verified same source family preserves native bindings after publication");
+            first=IconManagementRuntime.bitmapForWifi(1,true);second=IconManagementRuntime.bitmapForWifi(2,true);
+            Gate switching=new Gate(replacement.id+"/assets/last.png");fixture.provider.gate=switching;
+            String next=suite(replacement.id,"wifi");IconManagementRuntime.configure(fixture.system,settings(next));switching.await();
+            try{
+                equal(first,IconManagementRuntime.bitmapForWifi(1,true),"first decoded state is not published before the rest of the family");
+                equal(second,IconManagementRuntime.bitmapForWifi(2,true),"pack change retains the last complete presentation until ready");
+                String styled=IconManagementSettings.applyAppearance(next,"target:wifi",new IconManagementSettings.Appearance("custom",0xff123456,0xffabcdef,50f,150f));
+                IconManagementRuntime.configure(fixture.system,settings(styled));Capture canvas=new Capture();IconManagementRuntime.nativeTint(bound,0xff111111);bound.draw(canvas);
+                equal(100,canvas.alpha,"appearance edits apply once while a source batch is pending");
+            }finally{switching.resume.countDown();settle();}
+            require(first!=IconManagementRuntime.bitmapForWifi(1,true),"complete next family replaces the prior first state");
+            require(second!=IconManagementRuntime.bitmapForWifi(2,true),"complete next family replaces the prior second state");
+            Capture canvas=new Capture();bound.draw(canvas);equal(100,canvas.alpha,"completed source batch keeps the latest opacity edit");equal(0xff123456,((PorterDuffColorFilter)canvas.filter).getColor(),"completed source batch keeps the latest color edit");
+            Gate restoring=new Gate(old.id+"/manifest.json");fixture.provider.gate=restoring;
+            String system=IconManagementSettings.applyTarget(suite(old.id,"wifi"),"wifi",Collections.singletonMap("wifi.2",new IconManagementSettings.Override("system","","")),null,Collections.emptyMap(),true);
+            IconManagementRuntime.configure(fixture.system,settings(system));restoring.await();
+            try{equal(null,IconManagementRuntime.bitmapForWifi(2,true),"explicit system selection removes the prior replacement immediately");canvas=new Capture();bound.draw(canvas);equal(0,canvas.calls,"restore system does not wait for unrelated pending assets");}
+            finally{restoring.resume.countDown();settle();}
+            java.lang.ref.Reference.reachabilityFence(owner);
+        }
+    }
+    private static class ProtocolGraphic extends Graphic {
+        boolean mirrored;int jumps;float hotspotX,hotspotY;Rect hotspot=new Rect();
+        @Override public void setAutoMirrored(boolean value){mirrored=value;}
+        @Override public boolean isAutoMirrored(){return mirrored;}
+        @Override public void setHotspot(float x,float y){hotspotX=x;hotspotY=y;}
+        @Override public void setHotspotBounds(int l,int t,int r,int b){hotspot.set(l,t,r,b);}
+        @Override public void getHotspotBounds(Rect out){out.set(hotspot);}
+        @Override public void jumpToCurrentState(){jumps++;}
+    }
+    private static final class MotionGraphic extends ProtocolGraphic implements android.graphics.drawable.Animatable {
+        boolean running;public void start(){running=true;}public void stop(){running=false;}public boolean isRunning(){return running;}
+    }
+    private static void bindingProtocol()throws Exception{
+        try(Fixture fixture=new Fixture()){
+            IconManagementRepository.Pack pack=fixture.mixed();fixture.configure(suite(pack.id,"wifi"));View owner=new View(fixture.system);
+            ProtocolGraphic graphic=new ProtocolGraphic();graphic.setLayoutDirection(1);graphic.setVisible(false,false);Drawable bound=IconManagementRuntime.wrap(owner,"wifi.1",graphic);settle();
+            equal(1,bound.getLayoutDirection(),"bound replacement retains the native layout direction");equal(false,bound.isVisible(),"bound replacement retains native visibility before the first draw");
+            bound.setLayoutDirection(0);equal(0,graphic.getLayoutDirection(),"direction changes continue to reach the original drawable");
+            bound.setAutoMirrored(true);equal(true,graphic.mirrored,"mirror policy reaches the native graphic");equal(true,bound.isAutoMirrored(),"mirror policy remains readable from the wrapper");
+            bound.setHotspot(2.5f,7.5f);near(2.5f,graphic.hotspotX,"interaction hotspot X forwards unchanged");near(7.5f,graphic.hotspotY,"interaction hotspot Y forwards unchanged");
+            bound.setHotspotBounds(2,3,17,19);Rect region=new Rect();bound.getHotspotBounds(region);equal(new Rect(2,3,17,19),region,"hotspot bounds survive the replacement");
+            bound.jumpToCurrentState();equal(1,graphic.jumps,"settle native state is not swallowed");bound.setVisible(true,false);equal(true,graphic.isVisible(),"visible change reaches native object");
+            AtomicInteger scheduled=new AtomicInteger(),removed=new AtomicInteger(),invalidated=new AtomicInteger();bound.setCallback(new Drawable.Callback(){
+                public void invalidateDrawable(Drawable who){invalidated.incrementAndGet();}public void scheduleDrawable(Drawable who,Runnable task,long time){scheduled.incrementAndGet();}public void unscheduleDrawable(Drawable who,Runnable task){removed.incrementAndGet();}
+            });Runnable frame=()->{};graphic.scheduleSelf(frame,10);graphic.unscheduleSelf(frame);graphic.invalidateSelf();
+            equal(1,scheduled.get(),"native frame scheduling reaches host");equal(1,removed.get(),"native cancellation reaches host");equal(1,invalidated.get(),"native invalidation reaches host");
+            MotionGraphic animated=new MotionGraphic();equal(animated,IconManagementRuntime.wrap(owner,"wifi.1",animated),"native animation type protocol remains intact");
+            java.lang.ref.Reference.reachabilityFence(owner);
+        }
+    }
+    private static byte[] familyPng(boolean full)throws Exception{
+        BufferedImage image=new BufferedImage(32,32,BufferedImage.TYPE_INT_ARGB);
+        for(int y=full?4:24;y<28;y++)for(int x=full?4:14;x<(full?28:18);x++)image.setRGB(x,y,RED);
+        ByteArrayOutputStream output=new ByteArrayOutputStream();ImageIO.write(image,"png",output);return output.toByteArray();
+    }
+    private static void familyRecovery()throws Exception{
+        try(Fixture fixture=new Fixture()){
+            Map<String,Object> icons=map("wifi.0",map("source","assets/low.png","render","color"),"wifi.4",map("source","assets/full.png","render","color"),
+                    "cellular.0",map("source","assets/low.png","render","color"),"cellular.4",map("source","assets/full.png","render","color"));
+            Map<String,byte[]> assets=new LinkedHashMap<>();assets.put("assets/low.png",familyPng(false));assets.put("assets/full.png",familyPng(true));
+            IconManagementRepository.Pack pack=fixture.install("family-recovery",icons,assets);fixture.provider.failOnceSuffix="/assets/full.png";
+            fixture.configure(suite(pack.id,"wifi","cellular"));equal(null,fixture.provider.failOnceSuffix,"first peer transport failure was exercised");
+            Graphic host=new Graphic();host.filter=null;Capture low=draw(fixture,"wifi.0",host,0xffffffff),full=draw(fixture,"wifi.4",host,0xffffffff);
+            require(low.bitmap!=null&&full.bitmap!=null,"selected family states survive a transient peer failure");
+            IconVisibleBounds visible=IconManagementRuntime.imageVisibleBounds("wifi.4");
+            require(full.sourceBounds.left<=visible.left&&full.sourceBounds.top<=visible.top&&full.sourceBounds.right>=visible.right&&full.sourceBounds.bottom>=visible.bottom,"recovered peer is never clipped by an incomplete cached family frame");
+            equal(low.sourceBounds,full.sourceBounds,"earlier and recovered states publish one stable family frame");equal(new Rect(0,0,32,32),full.sourceBounds,"incomplete family uses conservative full canvas for this batch");
+            near(low.bounds.left,full.bounds.left,"recovered family left remains stable");near(low.bounds.top,full.bounds.top,"recovered family top remains stable");
+            Capture mobile=draw(fixture,"cellular.4",host,0xffffffff);equal(new Rect(4,4,28,28),mobile.sourceBounds,"unaffected family keeps its compact union");
+            Bitmap preview=IconManagementRepository.preview(fixture.module,pack.id,"wifi.4",128);equal(24,preview.getWidth(),"healthy preview uses normal union rather than transient runtime fallback");preview.recycle();
+            fixture.notifyResources();Capture refreshedLow=draw(fixture,"wifi.0",host,0xffffffff),refreshedFull=draw(fixture,"wifi.4",host,0xffffffff);
+            equal(new Rect(4,4,28,28),refreshedFull.sourceBounds,"next successful resource refresh restores compact family geometry");equal(refreshedLow.sourceBounds,refreshedFull.sourceBounds,"refreshed family still publishes aligned states");
+        }
+        try(Fixture fixture=new Fixture()){
+            Map<String,Object> icons=map("wifi.0",map("source","assets/low.png","render","color"),"wifi.4",map("source","assets/blank.png","render","color"));
+            Map<String,byte[]> assets=new LinkedHashMap<>();assets.put("assets/low.png",familyPng(false));assets.put("assets/blank.png",artwork(32,32,0,0,0,0,0));
+            IconManagementRepository.Pack pack=fixture.install("family-invalid-peer",icons,assets);fixture.configure(suite(pack.id,"wifi"));
+            Capture low=draw(fixture,"wifi.0",new Graphic(),0xffffffff);equal(new Rect(0,0,32,32),low.sourceBounds,"peer decode failure also keeps a safe family canvas");
+            Graphic blank=new Graphic();Capture missing=draw(fixture,"wifi.4",blank,0xffffffff);equal(0,missing.calls,"invalid family state does not become an invented image");equal(1,blank.draws,"invalid family state still falls back to native");
+        }
+    }
+    /** The public repository ships only the original C17 library; the PUI pack is optional local input. */
+    private static String[] bundledArchives(){
+        java.util.List<String> present=new java.util.ArrayList<>();
+        for(String archive:new String[]{"c17-rounded-27.zip","pui-coloros17.zip"})
+            if(Path.of("app/src/main/assets/icon-management-v3",archive).toFile().isFile())present.add(archive);
+        require(present.contains("c17-rounded-27.zip"),"the original C17 library is always bundled");
+        return present.toArray(new String[0]);
+    }
+    private static void familyGeometry()throws Exception{
+        for(String archive:bundledArchives())try(Fixture fixture=new Fixture()){
+            IconManagementRepository.Pack pack;
+            try(IconManagementRepository.PreparedPack prepared=IconManagementRepository.prepare(fixture.module,Path.of("app/src/main/assets/icon-management-v3",archive).toFile(),"")){pack=prepared.commit(()->true);}
+            fixture.configure(suite(pack.id,"wifi","cellular"));
+            for(String family:new String[]{"wifi","cellular"}){
+                // PUI explicitly gives wifi.4 a different 20.5 x 15 viewport; levels 0–3 use 20 x 14.4.
+                // Do not force unrelated canvas dimensions into the same family frame.
+                boolean differentCanvas=archive.startsWith("pui")&&family.equals("wifi");int anchor=differentCanvas?3:4;
+                Graphic host=new Graphic();host.filter=null;Capture full=draw(fixture,family+'.'+anchor,host,0xffffffff);require(full.bitmap!=null,"real bundled family decodes its reference state: "+archive);
+                for(int level=0;level<4;level++){
+                    Capture lower=draw(fixture,family+'.'+level,host,0xffffffff);
+                    equal(full.sourceBounds,lower.sourceBounds,"signal levels share one source frame instead of enlarging each partial glyph: "+archive+' '+family+'.'+level);
+                    near(full.bounds.left,lower.bounds.left,"family draw anchor remains stable across levels");near(full.bounds.top,lower.bounds.top,"family top remains stable across levels");
+                }
+                if(differentCanvas)require(!full.sourceBounds.equals(draw(fixture,"wifi.4",host,0xffffffff).sourceBounds),"different declared PUI canvas dimensions retain their own frame");
+                Bitmap fullPreview=IconManagementRepository.preview(fixture.module,pack.id,family+'.'+anchor,128);
+                for(int level=0;level<4;level++){Bitmap preview=IconManagementRepository.preview(fixture.module,pack.id,family+'.'+level,128);equal(fullPreview.getWidth(),preview.getWidth(),"preview uses the same family frame width");equal(fullPreview.getHeight(),preview.getHeight(),"preview uses the same family frame height");preview.recycle();}fullPreview.recycle();
+            }
+            if(archive.startsWith("c17")){
+                Graphic host=new Graphic();host.filter=null;Capture dot=draw(fixture,"wifi.0",host,0xffffffff);IconVisibleBounds visible=IconManagementRuntime.imageVisibleBounds("wifi.0");
+                require(visible.width<dot.sourceBounds.width()/2,"weak signal point remains small inside the family frame");require(visible.top>dot.sourceBounds.top+dot.sourceBounds.height()/2,"weak signal point keeps its designed lower anchor");
+            }
+        }
+    }
     public static void main(String[] args)throws Exception{
-        if(args.length>0){if("size".equals(args[0]))individualSize();else if("stacked".equals(args[0]))stackedSignals();else throw new IllegalArgumentException("Unknown focused check");System.out.println("IconManagementRuntimeCheck "+args[0]+" passed: "+checks);return;}
-        idleAndMalformed();selectorsAndHotPath();appearanceAndRestore();sourceRevisionAndStyle();resourcesAndGeneration();budgetAndResidentCache();managerSwitch();visibleBoundsAndNativePipeline();stackedSignals();individualSize();
+        if(args.length>0){if("size".equals(args[0]))individualSize();else if("stacked".equals(args[0]))stackedSignals();else if("atomic".equals(args[0]))atomicPublication();else if("protocol".equals(args[0]))bindingProtocol();else if("family".equals(args[0]))familyGeometry();else if("recovery".equals(args[0]))familyRecovery();else throw new IllegalArgumentException("Unknown focused check");System.out.println("IconManagementRuntimeCheck "+args[0]+" passed: "+checks);return;}
+        idleAndMalformed();selectorsAndHotPath();appearanceAndRestore();sourceRevisionAndStyle();resourcesAndGeneration();budgetAndResidentCache();managerSwitch();visibleBoundsAndNativePipeline();stackedSignals();individualSize();atomicPublication();bindingProtocol();familyGeometry();familyRecovery();
         System.out.println("IconManagementRuntimeCheck passed: "+checks+" (real file/provider/PNG worker/draw path; no injected runtime images)");
     }
 }

@@ -24,6 +24,9 @@ final class IconNativeAppearance {
 
     static void draw(Drawable drawable,Canvas canvas,IconManagementSelection.ColorPlan style){draw(drawable,canvas,style,0xffffffff);}
     static void draw(Drawable drawable,Canvas canvas,IconManagementSelection.ColorPlan style,int nativeTint){
+        draw(drawable,canvas,style,nativeTint,false);
+    }
+    static void draw(Drawable drawable,Canvas canvas,IconManagementSelection.ColorPlan style,int nativeTint,boolean hostScalePlaced){
         if(drawable==null||canvas==null)return;
         if(!IconManagementRuntime.enterNative(drawable)){drawable.draw(canvas);return;}
         Tree tree=null;Throwable drawingFailure=null;int canvasSave=-1;
@@ -31,7 +34,7 @@ final class IconNativeAppearance {
             Map<Drawable,Tree> cache=TREES.get();tree=cache.get(drawable);
             if(tree==null||!tree.matches()){tree=new Tree(drawable);cache.put(drawable,tree);}
             if(tree.safe){tree.capture(drawable);tree.apply(style,nativeTint);}
-            if(style.scale!=1f){canvasSave=canvas.save();android.graphics.Rect bounds=drawable.getBounds();canvas.scale(style.scale,style.scale,bounds.exactCenterX(),bounds.exactCenterY());}
+            if(!hostScalePlaced&&style.scale!=1f){canvasSave=canvas.save();android.graphics.Rect bounds=drawable.getBounds();canvas.scale(style.scale,style.scale,bounds.exactCenterX(),bounds.exactCenterY());}
             drawable.draw(canvas);
         }catch(RuntimeException|Error failure){drawingFailure=failure;throw failure;}
         finally{
@@ -55,8 +58,8 @@ final class IconNativeAppearance {
             Drawable drawable=reference.get();if(drawable==null)return false;
             if(children!=null){
                 if(drawable instanceof LayerDrawable){LayerDrawable layer=(LayerDrawable)drawable;if(layer.getNumberOfLayers()!=children.length)return false;
-                    for(int i=0;i<children.length;i++)if(layer.getDrawable(i)!=children[i].reference.get())return false;}
-                else if(((DrawableWrapper)drawable).getDrawable()!=children[0].reference.get())return false;
+                    for(int i=0;i<children.length;i++)if(layer.getDrawable(i)!=(children[i]==null?null:children[i].reference.get()))return false;}
+                else if(((DrawableWrapper)drawable).getDrawable()!=(children[0]==null?null:children[0].reference.get()))return false;
             }
             return true;
         }
@@ -84,7 +87,7 @@ final class IconNativeAppearance {
         final Node[] nodes;final boolean safe;
         IconManagementSelection.ColorPlan planned;ColorFilter replacement;
         Tree(Drawable drawable){Builder builder=new Builder();builder.build(drawable,0);nodes=builder.order.toArray(new Node[0]);safe=builder.safe;}
-        boolean matches(){if(!safe)return true;for(Node node:nodes)if(!node.matches())return false;return true;}
+        boolean matches(){for(Node node:nodes)if(!node.matches())return false;return true;}
         void capture(Drawable root){
             for(Node node:nodes){Drawable drawable=node.reference.get();node.current=drawable;
                 if(drawable==null)continue;

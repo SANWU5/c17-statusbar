@@ -17,16 +17,16 @@ public final class Upgrade172Check {
                 Upgrade101.DEFAULTS,Upgrade103.DEFAULTS,Upgrade105.DEFAULTS,Upgrade106.DEFAULTS,Upgrade107.DEFAULTS,
                 Upgrade108.DEFAULTS,Upgrade117.DEFAULTS,Upgrade118.DEFAULTS,Upgrade135.DEFAULTS,Upgrade136.DEFAULTS,
                 Upgrade144.DEFAULTS,Upgrade146.DEFAULTS,Upgrade154.DEFAULTS,Upgrade157.DEFAULTS,Upgrade160.DEFAULTS,
-                Upgrade166.DEFAULTS,Upgrade168.DEFAULTS,Upgrade169.DEFAULTS,Upgrade171.DEFAULTS,Upgrade172.DEFAULTS,Upgrade173.DEFAULTS,Upgrade174.DEFAULTS,Upgrade175.DEFAULTS,Upgrade177.DEFAULTS,Upgrade184.DEFAULTS,Upgrade185.DEFAULTS,Upgrade186.DEFAULTS,Upgrade187.DEFAULTS,Upgrade188.DEFAULTS);
+                Upgrade166.DEFAULTS,Upgrade168.DEFAULTS,Upgrade169.DEFAULTS,Upgrade171.DEFAULTS,Upgrade172.DEFAULTS,Upgrade173.DEFAULTS,Upgrade174.DEFAULTS,Upgrade175.DEFAULTS,Upgrade177.DEFAULTS,Upgrade184.DEFAULTS,Upgrade185.DEFAULTS,Upgrade186.DEFAULTS,Upgrade187.DEFAULTS,Upgrade188.DEFAULTS,Upgrade195.DEFAULTS,Upgrade196.DEFAULTS,Upgrade209.DEFAULTS,Upgrade279.DEFAULTS);
         for(int index=0;index<batches.size();index++)if(schema<index+2)for(String key:batches.get(index).keySet())result.remove(key);
         if(schema<12)result.remove(FluidCloudStyle.BACKGROUND_COLOR_CUSTOMIZED);
         result.put(SettingsFrameworkMirror.SCHEMA,schema);result.put(SettingsFrameworkMirror.REVISION,172L);return result;
     }
     private static String document(String raw){return "{\"package\":\""+ConfigTransfer.PACKAGE_NAME+"\",\"schema\":1,\"settings\":{\""+KEY+"\":"+raw+"}}";}
     private static void registration(Bundle full) {
-        equal(KEY,ClockBackdropSettings.NOTIFICATION_RELIEF,"stable global protocol name");equal(48,SettingsFrameworkMirror.VERSION,"mirror schema");
+        equal(KEY,ClockBackdropSettings.NOTIFICATION_RELIEF,"stable global protocol name");equal(52,SettingsFrameworkMirror.VERSION,"mirror schema");
         equal(Collections.<String,Object>singletonMap(KEY,false),Upgrade172.DEFAULTS,"one neutral addition");equal(23,Upgrade171.DEFAULTS.size(),"published schema38 batch stays frozen");equal(false,Upgrade171.DEFAULTS.containsKey(KEY),"schema38 cannot claim the later global option");
-        equal(979,full.keySet().size(),"full snapshot");equal(966,ConfigTransfer.types().size(),"portable count");equal(945,wire(full,38).size()-2,"published schema38 wire count unchanged");equal(922,wire(full,37).size()-2,"published schema37 wire count unchanged");
+        equal(1000,full.keySet().size(),"full snapshot");equal(987,ConfigTransfer.types().size(),"portable count");equal(945,wire(full,38).size()-2,"published schema38 wire count unchanged");equal(922,wire(full,37).size()-2,"published schema37 wire count unchanged");
         equal(false,full.get(KEY),"notification relief defaults off");equal(ConfigTransfer.Type.BOOLEAN,ConfigTransfer.types().get(KEY),"portable Boolean type");equal(false,NotificationBigClockSettings.BOOLEANS.containsKey(KEY),"global option is not copied by orientation");
         equal(true,full.get(ClockBackdropSettings.EDGE_ENABLED),"big clock keeps its own edge default");equal(40f,full.get(ClockBackdropSettings.HIGHLIGHT_STRENGTH),"big clock keeps its highlight default");
     }
@@ -60,7 +60,7 @@ public final class Upgrade172Check {
             equal(true,ConfigTransfer.commit(store,imported),"partial import commits");equal(enabled,store.values.get(KEY),"explicit relief flag stored");equal(false,store.values.get(ClockBackdropSettings.NOTIFICATION_FOLLOW),"import never enables follow");equal(false,store.values.get(NotificationBigClockSettings.DIGIT_REVEAL_ENABLED),"import never enables background material");equal(true,store.values.get(ClockBackdropSettings.EDGE_ENABLED),"import leaves main-clock edge choice intact");
         }
         for(String bad:new String[]{"null","0","1","\"true\"","[]","{}"}){checks++;try{ConfigTransfer.prepare(document(bad),true);throw new AssertionError("accepted non-Boolean relief: "+bad);}catch(IOException expected){}}
-        equal(966,ConfigTransfer.prepare(ConfigTransfer.exportJson(Collections.emptyMap()),true).count,"full JSON1 export count");
+        equal(987,ConfigTransfer.prepare(ConfigTransfer.exportJson(Collections.emptyMap()),true).count,"full JSON1 export count");
     }
     public static void main(String[] args)throws Exception {
         Map<String,Object> saved=new LinkedHashMap<>();saved.put(ClockBackdropSettings.NOTIFICATION_FOLLOW,true);saved.put(ClockBackdropSettings.EDGE_WIDTH,2f);Bundle full=SettingsSnapshot.fromPreferences(saved);

@@ -18,8 +18,8 @@ public final class Upgrade174Check {
         Bundle full=SettingsSnapshot.fromPreferences(Collections.emptyMap());
         equal(KEY,BigClockWidgetsSettings.SWAP_WITH_DATE,"stable portrait key");
         equal(Collections.<String,Object>singletonMap(KEY,false),Upgrade174.DEFAULTS,"singleton frozen batch");
-        equal(48,SettingsFrameworkMirror.VERSION,"new mirror schema");equal(1,ConfigTransfer.SCHEMA_VERSION,"JSON unchanged");
-        equal(979,full.keySet().size(),"full count");equal(966,ConfigTransfer.types().size(),"portable count");
+        equal(52,SettingsFrameworkMirror.VERSION,"new mirror schema");equal(1,ConfigTransfer.SCHEMA_VERSION,"JSON unchanged");
+        equal(1000,full.keySet().size(),"full count");equal(987,ConfigTransfer.types().size(),"portable count");
         equal(false,full.get(KEY),"fresh layout keeps its current order");equal(ConfigTransfer.Type.BOOLEAN,ConfigTransfer.types().get(KEY),"portable Boolean");
         equal(6,Upgrade173.DEFAULTS.size(),"six 173 strengths stay frozen");
         equal(false,NotificationBigClockSettings.BOOLEANS.containsKey(KEY),"not duplicated into landscape");
@@ -43,7 +43,7 @@ public final class Upgrade174Check {
         for(Object value:new Object[]{true,false,null,0,"invalid"}){store.values.put(KEY,value);before=new LinkedHashMap<>(store.values);Upgrade174.migrate(store);equal(before,store.values,"any present choice survives migration");}
         for(boolean enabled:new boolean[]{false,true}){ConfigTransfer.PreparedImport prepared=ConfigTransfer.prepare(document(Boolean.toString(enabled)),true);equal(1,prepared.count,"partial import stays partial");equal(true,ConfigTransfer.commit(store,prepared),"merge commits");equal(enabled,store.values.get(KEY),"explicit choice survives JSON");}
         for(String bad:new String[]{"null","0","1","\"true\"","[]","{}"}){checks++;try{ConfigTransfer.prepare(document(bad),true);throw new AssertionError("accepted non Boolean");}catch(IOException expected){}}
-        equal(966,ConfigTransfer.prepare(ConfigTransfer.exportJson(store.values),true).count,"full portable export");
+        equal(987,ConfigTransfer.prepare(ConfigTransfer.exportJson(store.values),true).count,"full portable export");
         SettingsCatalog.Item item=SettingsCatalog.item(KEY);equal(true,item!=null,"reachable editor");equal("与日期互换位置",item.title,"clear action");equal("组件布局",item.section,"component page layout group");equal(false,item.defaultValue,"UI default off");equal(true,item.description.contains("空间不足"),"bounded fallback explained");
         Map<String,Object> values=new LinkedHashMap<>();values.put(NotificationBigClockSettings.DATE_ENABLED,false);values.put(BigClockWidgetsSettings.LEFT_ENABLED,true);values.put(KEY,true);
         equal("请先开启有效日期",SettingsCatalog.unavailableReason(KEY,values),"date dependency");values.put(NotificationBigClockSettings.DATE_ENABLED,true);values.put(BigClockWidgetsSettings.LEFT_ENABLED,false);

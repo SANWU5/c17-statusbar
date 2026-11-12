@@ -23,9 +23,15 @@ public final class IconManagementSelection {
         String pack=settings.scopePacks.get(IconRoleRegistry.scopeOfRole(role));if(pack!=null)add(result,packs,pack,role);
         return new Plan(false,result);
     }
+    /** The editor, previews and runtime must resolve the same audited source identity. */
+    public static String sourceRole(IconManagementManifest manifest,String role){
+        if(manifest==null||role==null)return null;
+        String selected=PuiIconAliases.sourceRole(manifest,role);if(selected!=null)return selected;
+        IconRoleRegistry.Target target=IconRoleRegistry.targetForRole(role);
+        return target!=null&&"hint".equals(target.scope)&&manifest.icons.containsKey(target.id)?target.id:null;
+    }
     private static void add(List<AssetRef> result,Map<String,IconManagementManifest> packs,String id,String role){
-        IconManagementManifest manifest=packs.get(id);if(manifest==null)return;String selected=PuiIconAliases.sourceRole(manifest,role);IconManagementManifest.Asset asset=selected==null?null:manifest.icons.get(selected);
-        if(asset==null){IconRoleRegistry.Target target=IconRoleRegistry.targetForRole(role);if(target!=null&&"hint".equals(target.scope)){asset=manifest.icons.get(target.id);selected=target.id;}}
+        IconManagementManifest manifest=packs.get(id);if(manifest==null)return;String selected=sourceRole(manifest,role);IconManagementManifest.Asset asset=selected==null?null:manifest.icons.get(selected);
         if(asset==null)return;for(AssetRef old:result)if(old.packId.equals(id)&&old.asset.source.equals(asset.source)&&old.asset.render.equals(asset.render))return;result.add(new AssetRef(id,selected,asset));
     }
     public static Set<String> referencedPacks(IconManagementSettings.State state){Set<String> ids=new LinkedHashSet<>(state.scopePacks.values());for(IconManagementSettings.Override selected:state.overrides.values())if("pack".equals(selected.mode))ids.add(selected.packId);return Collections.unmodifiableSet(ids);}

@@ -56,13 +56,24 @@ public final class StatusBarLayoutSettings {
     public static boolean marginKey(String key) { return NUMBERS.containsKey(key) && !orderKey(key); }
     public static boolean sideKey(String key) { return STRINGS.containsKey(key); }
     public static boolean validSide(Object value) { return NATIVE.equals(value) || LEFT.equals(value) || RIGHT.equals(value); }
-    /** Editor alias only: the independently saved label gaps are never copied or overwritten. */
+    /** Editor aliases never overwrite the label's independently saved position. */
     public static String editingKey(String key, Map<String, ?> values) {
         if (values != null && Boolean.TRUE.equals(values.get(WIFI_LABEL_SHARED))) {
             if (key(LABEL, "margin_left").equals(key)) return key(WIFI, "margin_left");
             if (key(LABEL, "margin_right").equals(key)) return key(WIFI, "margin_right");
+            if (StatusBarSettings.LABEL_OFFSET_X.equals(key)) return StatusBarSettings.WIFI_OFFSET_X;
+            if (StatusBarSettings.LABEL_OFFSET_Y.equals(key)) return StatusBarSettings.WIFI_OFFSET_Y;
+            if ("label_position_enabled".equals(key)) return "wifi_position_enabled";
         }
         return key;
+    }
+    /** Position only: feature masters, size switches and scales remain independent. */
+    public static boolean sharedPositionKey(String key) {
+        return StatusBarSettings.WIFI_OFFSET_X.equals(key) || StatusBarSettings.LABEL_OFFSET_X.equals(key)
+                || StatusBarSettings.WIFI_OFFSET_Y.equals(key) || StatusBarSettings.LABEL_OFFSET_Y.equals(key)
+                || "wifi_position_enabled".equals(key) || "label_position_enabled".equals(key)
+                || key(WIFI,"margin_left").equals(key) || key(WIFI,"margin_right").equals(key)
+                || key(LABEL,"margin_left").equals(key) || key(LABEL,"margin_right").equals(key);
     }
     public static String label(String token) {
         if (CLOCK.equals(token)) return "时间";
@@ -100,6 +111,13 @@ public final class StatusBarLayoutSettings {
     public static Bundle runtime(Bundle raw) {
         Bundle result = raw == null ? new Bundle() : new Bundle(raw);
         if (!enabled(raw)) return result;
+        if (raw.getBoolean(WIFI_LABEL_SHARED, false)) {
+            // Share only effective position. Each group's own master still
+            // gates that effect; disabling Wi-Fi customization cannot stop
+            // an independently enabled label from using the shared position.
+            result.putBoolean("label_position_enabled", raw.getBoolean("wifi_position_enabled", true));
+            result.putFloat(StatusBarSettings.LABEL_OFFSET_Y, NumericPolicy.finite(raw.get(StatusBarSettings.WIFI_OFFSET_Y), 0f));
+        }
         for (String key : new String[]{StatusBarSettings.CLOCK_OFFSET_X, ClockLayoutSettings.DUAL_OFFSET_X,
                 StatusBarSettings.CARRIER_OFFSET_X, StatusBarSettings.BATTERY_OFFSET_X,
                 StatusBarSettings.SPEED_OFFSET_X, StatusBarSettings.WIFI_OFFSET_X,
@@ -118,6 +136,13 @@ public final class StatusBarLayoutSettings {
     /** Immutable parsed values. Renderers still resolve the native host, visibility and density. */
     public static final class Snapshot {
         public final boolean enabled, orderingEnabled, wifiLabelShared;
+        /**
+         * Fixed signal/Wi-Fi width (dp) held right of the network speed, or 0. The flow owns the
+         * speed's X once any margin is set. This keeps the code130 radio envelope while retaining
+         * explicit margins; wider radios and insufficient capacity still use the ordinary flow.
+         */
+        public final float speedRadioReserve;
+        private final float sharedX;
         private final NativeStatusIconLayout.Snapshot hintLayout;
         private final String[] sides;
         private final int[] orders;
@@ -128,6 +153,13 @@ public final class StatusBarLayoutSettings {
             hintLayout=NativeStatusIconLayout.parse(hintSource instanceof String?(String)hintSource:NativeStatusIconLayout.DEFAULT);
             boolean safe = values != null && Boolean.TRUE.equals(values.get(StatusBarSettings.SAFE_MODE));
             wifiLabelShared = !safe && values != null && Boolean.TRUE.equals(values.get(WIFI_LABEL_SHARED));
+            sharedX = wifiLabelShared && values.getBoolean("wifi_position_enabled",true)
+                    ? NumericPolicy.finite(values.get(StatusBarSettings.WIFI_OFFSET_X),0f) : 0f;
+            // The flow packs the speed beside the radios like the native bar. A reserve kept
+            // after it while Wi-Fi or data was missing showed as an empty gap (49dp before both
+            // had been seen), and it was gated by the speed position switch, which in flow mode
+            // is the vertical-only switch.
+            speedRadioReserve = 0f;
             boolean hasMargin = false;
             sides = new String[TOKENS.size()];
             orders = new int[TOKENS.size() + 1];
@@ -150,6 +182,7 @@ public final class StatusBarLayoutSettings {
         }
         private Snapshot(Snapshot source, boolean ordering) {
             orderingEnabled = ordering && source.orderingEnabled; wifiLabelShared = source.wifiLabelShared;
+            sharedX = source.sharedX; speedRadioReserve = source.speedRadioReserve;
             hintLayout=source.hintLayout;
             sides = source.sides; orders = source.orders; left = source.left; right = source.right;
             boolean hasMargin = false;
@@ -157,6 +190,13 @@ public final class StatusBarLayoutSettings {
             enabled = orderingEnabled || hasMargin || wifiLabelShared;
         }
         public static Snapshot parse(Bundle values) { return new Snapshot(values); }
+        boolean sameGeometry(Snapshot other){
+            return other!=null&&enabled==other.enabled&&orderingEnabled==other.orderingEnabled&&wifiLabelShared==other.wifiLabelShared
+                    &&Float.compare(sharedX,other.sharedX)==0&&Float.compare(speedRadioReserve,other.speedRadioReserve)==0
+                    &&java.util.Arrays.equals(sides,other.sides)
+                    &&java.util.Arrays.equals(orders,other.orders)&&java.util.Arrays.equals(left,other.left)&&java.util.Arrays.equals(right,other.right)
+                    &&hintLayout.serialize().equals(other.hintLayout.serialize());
+        }
         /** Margins (and the shared Wi-Fi slot) without region/order: used while a fluid-cloud
          * capsule occupies the bar, whose native hiding follows the native sides and order. */
         public Snapshot withoutOrdering() { return orderingEnabled ? new Snapshot(this, false) : this; }
@@ -173,6 +213,7 @@ public final class StatusBarLayoutSettings {
         public int order(String token) { int index = index(token); return !orderingEnabled || index < 0 ? 0 : orders[index]; }
         public float left(String token) { int index = index(token); return index < 0 ? 0f : left[index]; }
         public float right(String token) { int index = index(token); return index < 0 ? 0f : right[index]; }
+        public float offsetX(String token) { return WIFI.equals(token)?sharedX:0f; }
         private int index(String token) { return LABEL.equals(token) ? TOKENS.size() : TOKENS.indexOf(token); }
         private static Object value(Bundle values, String key) { return values == null ? null : values.get(key); }
     }

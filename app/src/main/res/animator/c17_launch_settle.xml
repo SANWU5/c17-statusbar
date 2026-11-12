@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<set xmlns:android="http://schemas.android.com/apk/res/android" android:ordering="together">
+    <objectAnimator android:duration="1300" android:interpolator="@android:interpolator/fast_out_slow_in">
+        <propertyValuesHolder android:propertyName="scaleX" android:valueType="floatType">
+            <keyframe android:fraction="0" android:value="0.82" />
+            <keyframe android:fraction="0.45" android:value="1.045" />
+            <keyframe android:fraction="0.72" android:value="0.985" />
+            <keyframe android:fraction="0.92" android:value="1" />
+            <keyframe android:fraction="1" android:value="1" />
+        </propertyValuesHolder>
+    </objectAnimator>
+    <objectAnimator android:duration="1300" android:interpolator="@android:interpolator/fast_out_slow_in">
+        <propertyValuesHolder android:propertyName="scaleY" android:valueType="floatType">
+            <keyframe android:fraction="0" android:value="0.82" />
+            <keyframe android:fraction="0.45" android:value="1.045" />
+            <keyframe android:fraction="0.72" android:value="0.985" />
+            <keyframe android:fraction="0.92" android:value="1" />
+            <keyframe android:fraction="1" android:value="1" />
+        </propertyValuesHolder>
+    </objectAnimator>
+</set>

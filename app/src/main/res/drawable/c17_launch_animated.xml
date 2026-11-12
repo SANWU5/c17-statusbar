@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/c17_launch_icon">
+    <target android:name="clock_hands" android:animation="@animator/c17_launch_clock" />
+    <target android:name="mark" android:animation="@animator/c17_launch_settle" />
+    <target android:name="orbit_track" android:animation="@animator/c17_launch_track" />
+    <target android:name="digit_one" android:animation="@animator/c17_launch_one" />
+    <target android:name="digit_seven" android:animation="@animator/c17_launch_seven" />
+</animated-vector>

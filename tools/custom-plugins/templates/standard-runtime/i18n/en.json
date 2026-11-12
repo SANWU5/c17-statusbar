@@ -1,0 +1,18 @@
+{
+"配置记录开发示例": "Configuration journal example",
+"开发模板：按开关记录配置摘要，展示设置分类、管理状态与一次性操作。不是 ROM 适配插件。": "Development template: records a configuration summary while its switch is on, and shows settings categories, management status and one-time actions. It is not a ROM adaptation plugin.",
+"说明页申请所需作用域并按需重启。设置页启用插件后，可开启自动记录并修改备注；管理页查看或手动保存最近记录。关闭插件停止记录，已有记录在再次启用时保留。": "Request the needed scopes on the About page and restart them when asked. After enabling the plugin on the Settings page you can turn on automatic recording and change the note; the Manage page shows the latest record and saves it by hand. Disabling the plugin stops recording; the existing record is kept for the next time it is enabled.",
+"自动记录配置变化": "Record configuration changes automatically",
+"记录设置": "Recording",
+"记录备注": "Record note",
+"备注": "Note",
+"最近记录": "Latest record",
+"运行状态": "Status",
+"保存当前记录": "Save the current record",
+"清空记录": "Clear the record",
+"清空本示例保存的最近记录？配置备注和自动记录开关不变。": "Clear the latest record saved by this example? The note and the automatic recording switch stay as they are.",
+"记录管理": "Record management",
+"尚无记录": "No record yet",
+"记录已保存": "Record saved",
+"记录已清空": "Record cleared"
+}

@@ -7,8 +7,8 @@ package dev.puitheme;
 public final class RadioState {
     private RadioState() { }
 
-    // Post-1.8.2 configuration keys remain readable for existing backups/UI only.
-    // They do not change the public 1.8.2 radio or label decisions below.
+    // Historical policy keys remain readable for existing backups/UI only.
+    // Visibility follows the current radio/data state, not these retired knobs.
     public static final String ALWAYS_SHOWN = "label_always_shown";
     public static final String WIFI_MERGED = "label_wifi_merged";
     public static final String BOTH_VISIBLE = "network_both_visible";
@@ -35,9 +35,15 @@ public final class RadioState {
     public static String cellularLabel(boolean enabled, boolean wifiInUse, boolean airplaneMode,
                                        String nativeLabel, String activeDataFallback, boolean normalize,
                                        Boolean wifiEnabled,Boolean mobileDataEnabled) {
-        if (!enabled || wifiInUse || airplaneMode || NetworkLabel.radiosDisabled(wifiEnabled,mobileDataEnabled)) return "";
+        if (!cellularLabelAllowed(enabled, wifiInUse, airplaneMode, mobileDataEnabled)) return "";
         String result = label(nativeLabel, normalize);
         return result.isEmpty() ? label(activeDataFallback, normalize) : result;
+    }
+
+    /** Wi-Fi being enabled is not evidence of active cellular data. Native RAT
+     * models may retain voice-registration text after the data switch is OFF. */
+    static boolean cellularLabelAllowed(boolean enabled, boolean wifiInUse, boolean airplaneMode, Boolean mobileDataEnabled) {
+        return enabled && !wifiInUse && !airplaneMode && !Boolean.FALSE.equals(mobileDataEnabled);
     }
 
     private static String label(String value, boolean normalize) {

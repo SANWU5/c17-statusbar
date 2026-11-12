@@ -201,6 +201,9 @@ public final class SettingsCatalog {
                 StatusBarSettings.CARRIER_SCALE, StatusBarSettings.CARRIER_WEIGHT, StatusBarSettings.CARRIER_SPACING,
                 "carrier_color_light", "carrier_color_dark"));
         hidden.add(StatusBarShadeIconSettings.MASTER);
+        hidden.addAll(QsCardSettings.BOOLEANS.keySet());
+        hidden.addAll(QsCardSettings.NUMBERS.keySet());
+        hidden.addAll(QsCardSettings.STRINGS.keySet());
         hidden.add(NativeClockMeasurement.SCALE_BASIS_VERSION);
         hidden.add(NativeClockMeasurement.LEGACY_SCALE_FACTOR);
         hidden.add(NotificationBigClockSettings.INTERACTIVE_STACK);
@@ -254,20 +257,26 @@ public final class SettingsCatalog {
         hidden.add("data_roaming_hidden");
         // Drawing offsets remain portable legacy data; the layout editor uses measured gaps instead.
         hidden.addAll(Arrays.asList(StatusBarSettings.CLOCK_OFFSET_X, ClockLayoutSettings.DUAL_OFFSET_X,
-                StatusBarSettings.SPEED_OFFSET_X, StatusBarSettings.DATA_OFFSET_X, StatusBarSettings.WIFI_OFFSET_X,
+                StatusBarSettings.SPEED_OFFSET_X, StatusBarSettings.DATA_OFFSET_X,
                 StatusBarSettings.LABEL_OFFSET_X, StatusBarSettings.BATTERY_OFFSET_X, NotificationIconArea.X,
                 NativeStatusIcons.X, SpeedPosition.POSITION, SpeedPosition.SAFE_GAP_ENABLED, SpeedPosition.SAFE_GAP,
                 SpeedPosition.EDGE_RESERVE, ClockLayoutSettings.MARGIN_ENABLED, ClockLayoutSettings.MARGIN_START,
                 ClockLayoutSettings.MARGIN_END, NetworkIconOrder.SWAP));
+        // One display-mode choice edits these two historical booleans together.
+        hidden.add(StatusBarSettings.LABEL_HIDDEN);
+        hidden.add("data_badge_hidden");
+        // Text width is measured automatically; retain the old numeric key for portable backups only.
+        hidden.add(StatusBarSettings.SLOT_WIDTH);
         // Retired code175 parents keep their stored protocol keys, with no editor or effect ownership.
         hidden.addAll(Arrays.asList("statusbar_layout_adjustments_enabled", "notification_stack_effects_enabled",
                 "notification_clear_controls_enabled", "lock_notification_effects_enabled"));
         HIDDEN = Collections.unmodifiableSet(hidden);
         List<Group> groups = new ArrayList<>();
         groups.add(statusBarLayout());
-        groups.add(speed()); groups.add(data()); groups.add(wifi()); groups.add(label()); groups.add(nativeNetworkBadge());
+        groups.add(speed()); groups.add(data()); groups.add(network());
         groups.add(clock("clock", STATUSBAR)); groups.add(carrier()); groups.add(font()); groups.add(battery()); groups.add(notificationIcons());
         groups.add(nativeStatusIcons());
+        groups.add(privacyDot());
         groups.add(notificationOverrides()); groups.add(iconLibrary());
         groups.add(qs()); groups.add(tileFullFill()); groups.add(tileCorners()); groups.add(tileIconSize()); groups.add(qsEntrances());
         groups.add(clock("shade_clock", NOTIFICATION));
@@ -276,6 +285,7 @@ public final class SettingsCatalog {
         groups.add(classicText()); groups.add(shadeWallpaperPage(false)); groups.add(shadeWallpaperPage(true));
         groups.add(lockscreenDate()); groups.add(lockscreenLock()); groups.add(lockscreenBlur()); groups.add(fluidAccent()); groups.add(fluidStyle()); groups.add(fluidCapsule());
         groups.add(lockAwake()); groups.add(lockAod());
+        groups.add(wifiAlias());
         Map<String, Group> byId = new LinkedHashMap<>();
         Map<String, Item> byKey = new LinkedHashMap<>();
         for (Group group : groups) {
@@ -290,12 +300,20 @@ public final class SettingsCatalog {
         ITEM_BY_KEY = Collections.unmodifiableMap(byKey);
     }
 
+    private static Group wifiAlias() {
+        Builder b=builder(QsWifiAlias.GROUP,"WiFi 名称","只修改控制中心已连接 WiFi 的显示名称；按系统已保存或模块已识别的网络分别设置，同名网络共用一个别名。未知网络或未连接时保留系统显示。",CONTROL_CENTER,QsWifiAlias.ENABLED);
+        b.choice(QsWifiAlias.MODE,"显示方式","按网络单独设置，或让已识别的连接统一显示同一个名称。","名称",new String[]{"per_network","unified"},new String[]{"各 WiFi 独立设置","统一显示"});
+        b.text(QsWifiAlias.UNIFIED,"统一显示名称","最多 32 个字符，留空使用系统原名。","名称",null,null);
+        b.text(QsWifiAlias.RULES,"按网络设置名称","选择系统已保存或模块实际识别过的 WiFi；不包含已被系统删除且模块从未识别过的记录。","名称",null,null);
+        return new Group(b);
+    }
     private static Builder builder(String id, String title, String description, String category, String master) {
         return new Builder(id, title, description, category, master);
     }
     private static String organizedSection(String groupId, String key, String section) {
         // The camera-area capsule names its own sections; the key-suffix rules below pulled "调整音乐封面大小" out into a lone "大小" section.
         if ("fluid_cloud_capsule".equals(groupId)) return section;
+        if ("privacy_dot".equals(groupId)) return section;
         if (StatusBarLayoutSettings.GROUP.equals(groupId)) return section;
         if ("battery".equals(groupId) && (BatteryTextStyle.MASTER.equals(key) || BatteryTextStyle.NUMBERS.containsKey(key))) return "电池内文字";
         String theme = key.contains("_light_") ? "浅色界面 · " : key.contains("_dark_") ? "深色界面 · " : "";
@@ -334,15 +352,17 @@ public final class SettingsCatalog {
         if (key.endsWith("_position_enabled")) return scene + "位置";
         if (key.endsWith("_size_enabled")) return scene + "大小";
         if (key.endsWith("_color_enabled") && (section.endsWith("独立开关") || "独立开关".equals(section))) return scene + "颜色与透明度";
-        if (key.endsWith("_text_style_enabled")) return scene + ("speed".equals(groupId) || "label".equals(groupId) ? "文字与间距" : "文字样式");
+        if (key.endsWith("_text_style_enabled")) return scene + ("speed".equals(groupId) || "label".equals(groupId) || "network".equals(groupId) ? "文字与间距" : "文字样式");
         if ("speed_lines_enabled".equals(key)) return "文字与间距";
         if ("独立开关".equals(section)) return "显示样式";
         return section;
     }
     private static void controls(Builder b, String prefix, String section, boolean text) {
-        boolean outer = outerPosition(prefix);
+        boolean outer = outerPosition(prefix) && !"network".equals(b.id);
         b.toggle(prefix + "_position_enabled", outer ? "垂直位置调整" : "位置调整",
-                outer ? "调整上下位置；左右间距在本页独立设置" : "应用所设置的水平与垂直位置", section);
+                outer ? "调整上下位置；左右间距在本页独立设置"
+                        + ("wifi".equals(prefix)||"label".equals(prefix)?"。开启共用位置后，两页共用此开关和上下偏移":"")
+                        : "应用所设置的水平与垂直位置", section);
         b.toggle(prefix + "_size_enabled", "大小调整", "应用所设置的大小比例", section);
         b.toggle(prefix + "_color_enabled", "颜色调整", "浅色与深色背景分别设置", section);
         if (text) b.toggle(prefix + "_text_style_enabled", "文字粗细与字距", "应用所设置的文字样式", section);
@@ -414,10 +434,9 @@ public final class SettingsCatalog {
         return new Group(b);
     }
     private static Group data() {
-        Builder b = builder("data", "蜂窝信号", "信号格数跟随真实系统信号。数据小箭头默认隐藏，可在原生角标调整中独立开启和调节。", STATUSBAR, "data_enabled");
+        Builder b = builder("data", "蜂窝信号", "信号格数跟随真实系统信号。制式文字、角标与数据小箭头在“网络组合”统一设置。", STATUSBAR, "data_enabled");
         controls(b, "data", "独立开关", false);
         b.toggle("data_icon_enabled", "仿 iOS 信号样式", "保留真实信号强度", "独立开关");
-        b.toggle("data_badge_hidden", "隐藏系统网络角标", "减少重复网络标识", "独立开关");
         b.toggle(DataBatterySpacing.ENABLED, "无网络标识间距", "系统确认 Wi-Fi 图标和网络制式文字均不显示、蜂窝直接邻接电池时生效；状态未知时保留原生间距。", "电池边界间距");
         b.add(DataBatterySpacing.SPACING, "蜂窝与电池间距微调", "相对原生边界增加或减少，0 保留原生；仅改变蜂窝与电池边界，不改变其他图标间距与偏移。", NUMERIC,
                 "电池边界间距", "dp", -12, 24, .01f, null, null, null, null);
@@ -427,10 +446,24 @@ public final class SettingsCatalog {
         normalColors(b, "data", "蜂窝信号");
         return new Group(b);
     }
-    private static Group nativeNetworkBadge() {
-        Builder b=builder("native_network_badge", "原生角标调整",
-                "角标1与角标2可独立设置位置、大小、字体、字重和隐藏。独立信号布局对应主流量卡、副卡；双排布局保留原生前、后段设置。只显示主信号单排时自动隐藏副卡角标。须先关闭网络制式文字；数据小箭头独立设置，默认隐藏。",
-                STATUSBAR,NativeNetworkBadgeControls.MASTER);
+    private static Group network() {
+        Builder b=new Builder("network", "网络组合",
+                "Wi-Fi、独立制式文字、原生角标在这里统一配置。Wi-Fi 与独立制式文字可共用位置，大小各自设置；角标保持信号角位置并独立微调。制式可选文字、原生角标或隐藏，切换保留各项参数。",
+                STATUSBAR,null,true,"","");
+        b.toggle(StatusBarLayoutSettings.WIFI_LABEL_SHARED,"Wi-Fi 与制式文字共用位置",
+                "Wi-Fi 与独立制式文字共用水平、垂直位置和左右间距；所在区域与顺序在状态栏排序中一起调整。大小各自独立，关闭后恢复各自保存的位置。原生角标保持信号角位置，在角标与箭头中独立微调。","位置模式");
+        b.toggle("wifi_position_enabled","位置调整","共用时调整 Wi-Fi 与独立制式文字；关闭共用或使用原生角标时只调整 Wi-Fi。","位置");
+        b.number(StatusBarSettings.WIFI_OFFSET_X,"水平位置","位置","dp",-80,80,.01f);
+        b.number(StatusBarSettings.WIFI_OFFSET_Y,"垂直位置","位置","dp",-24,24,.01f);
+        layoutMargins(b,StatusBarLayoutSettings.WIFI,"左右间距");
+        networkWifi(b);networkLabel(b);networkBadges(b);
+        return new Group(b);
+    }
+    private static void networkBadges(Builder b) {
+        b.toggle("label_color_enabled","制式配色","独立制式文字与原生角标共用这一组浅色、深色配色；关闭后跟随系统颜色。","制式配色");
+        b.colorPair("label_color_light","label_color_dark","制式颜色","制式配色");
+        b.toggle(NativeNetworkBadgeControls.MASTER,"自定义原生角标",
+                "制式选择原生角标时生效。关闭后使用原生角标样式，保留下面两段参数。","角标自定义");
         for(int part=1;part<=2;part++) {
             String p=NativeNetworkBadgeSettings.group(part),s="角标"+part;
             b.toggle(p+"_enabled","调整"+s,part==1?"主流量卡角标；双排布局对应前段文字":"副卡角标；双排布局对应后段文字",s+" · 开关");
@@ -448,26 +481,24 @@ public final class SettingsCatalog {
         scale(b,NativeDataActivity.SCALE,"箭头大小","数据小箭头");
         b.toggle(NativeDataActivity.COLOR_ENABLED,"自定义箭头颜色","关闭使用系统随背景变化的原生颜色。","数据小箭头");
         b.colorPair(NativeDataActivity.COLOR_LIGHT,NativeDataActivity.COLOR_DARK,"箭头颜色","数据小箭头");
-        return new Group(b);
     }
 
-    private static Group wifi() {
-        Builder b = builder("wifi", "Wi-Fi 图标", "位置、大小与颜色分别设置，透明度跟随原生状态。", STATUSBAR, "wifi_enabled");
-        controls(b, "wifi", "独立开关", false);
+    private static void networkWifi(Builder b) {
+        b.toggle(NetworkDisplaySettings.WIFI_HIDDEN,"隐藏 Wi-Fi 图标","只隐藏状态栏 Wi-Fi 图标，不改变实际连接；独立于自定义开关。","显示");
+        b.toggle("wifi_enabled","自定义 Wi-Fi 图标","关闭后恢复原生外观，保留位置、大小与颜色参数。","显示");
+        b.toggle("wifi_size_enabled","大小调整","只应用 Wi-Fi 图标的大小，不改变制式大小。","大小");
+        b.toggle("wifi_color_enabled","颜色调整","浅色与深色背景分别设置。","颜色与透明度");
         b.toggle("wifi_icon_enabled", "仿 iOS Wi-Fi 样式", "保留真实 Wi-Fi 信号强度", "独立开关");
         b.toggle("wifi_activity_hidden", "隐藏 Wi-Fi 上传下载箭头", "保留 Wi-Fi 图标与连接状态", "独立开关");
         b.toggle("wifi_badge_hidden", "隐藏 Wi-Fi 角标", "减少重复网络标识", "独立开关");
-        b.toggle(StatusBarLayoutSettings.WIFI_LABEL_SHARED, "Wi-Fi 与网络制式共用位置",
-                "Wi-Fi 与网络制式使用同一相对位置、排序和左右边距。", "共用位置");
-        position(b, "wifi", "位置"); layoutMargins(b, StatusBarLayoutSettings.WIFI, "左右间距");
         scale(b, StatusBarSettings.WIFI_ICON_SCALE, "图标大小", "大小");
         normalColors(b, "wifi", "Wi-Fi 图标");
-        return new Group(b);
     }
-    private static Group label() {
-        Builder b = builder("label", "网络制式文字", "跟随主流量卡。“统一”与“自定义”二选一：开统一，5G 系列都显示 5G、4G 系列都显示 4G；开自定义，每种制式显示你写的文字。Wi-Fi 接通后隐藏，Wi-Fi 与移动数据都关闭时也自动隐藏。", STATUSBAR, "label_enabled");
-        controls(b, "label", "独立开关", true);
-        b.toggle(StatusBarSettings.LABEL_HIDDEN, "隐藏网络制式文字", "隐藏 5G、4G 等文字标识", "独立开关");
+    private static void networkLabel(Builder b) {
+        b.toggle("label_enabled","制式显示方式","文字：显示独立制式文字；原生角标：恢复信号旁的原生制式；隐藏：隐藏制式文字和角标。关闭文字会转为原生角标。","显示方式");
+        b.toggle("label_position_enabled","独立文字位置","关闭共用位置后应用文字自己的垂直偏移；左右间距独立设置。","位置");
+        b.toggle("label_size_enabled","大小调整","只应用制式文字大小，不改变 Wi-Fi 与角标大小。","大小");
+        b.toggle("label_text_style_enabled","文字粗细","应用设置的文字粗细；宽度自动按文字内容、字体和大小计算，无需手动调整。","文字与间距");
         b.toggle("label_normalize_enabled", "统一网络制式名称", "5G、5G+、5GA 等都显示 5G；4G、4G+、4.5G 等都显示 4G；H、H+ 显示 3G。与“自定义制式显示内容”互斥：开启它会关闭自定义。", "独立开关");
         b.toggle(NetworkLabelFormats.ENABLED, "自定义制式显示内容", "每种制式分别设置文字或表情，例如 5G 显示“XX”、5GA 显示“5Ga”。留空则隐藏这种制式；未识别的运营商标识保留系统原文。与“统一网络制式名称”互斥：开启它会关闭统一。", "显示内容");
         for (NetworkLabel.Level level : NetworkLabel.Level.values())
@@ -476,16 +507,13 @@ public final class SettingsCatalog {
                     level.family + " · 自定义显示内容", null, null);
         position(b, "label", "位置"); layoutMargins(b, StatusBarLayoutSettings.LABEL, "左右间距");
         scale(b, StatusBarSettings.LABEL_SCALE, "文字大小", "大小");
-        b.number(StatusBarSettings.SLOT_WIDTH, "预留宽度", "文字与间距", "dp", 0, 80, .01f);
         b.number(StatusBarSettings.FONT_WEIGHT, "文字粗细", "文字与间距", "", 100, 900, 1);
-        normalColors(b, "label", "网络制式文字");
-        return new Group(b);
     }
     private static Group clock(String id, String category) {
         boolean shade = "shade_clock".equals(id);
         Builder b = builder(id, shade ? "通知栏与控制中心时钟" : "状态栏时间", shade ? "独立设置下拉时钟；关闭后跟随状态栏时间格式与文字样式。竖屏通知页的大时钟优先显示。" : "默认时钟与双排时钟二选一，开关在各自标签的顶部。等宽数字、数字间距、冒号对齐和左右间距在“通用设置”中调整，两种模式共用。", category, id + "_controls_enabled");
         controls(b, id, "独立开关", true);
-        b.toggle(id + "_enabled", "自定义时间格式", "支持时分秒、日期、星期与中文时段", "时间格式");
+        b.toggle(id + "_enabled", "自定义时间格式", "支持中文、英文和混合日期时间格式，保留中文时段", "时间格式");
         b.text(id + "_pattern", "时间格式", "时间显示的内容，可选常用格式或自定义", "时间格式", CLOCK_VALUES, CLOCK_LABELS);
         position(b, id, "位置"); textSize(b, id, "文字样式"); normalColors(b, id, "时间文字");
         digitCells(b, id, "数字对齐");
@@ -685,7 +713,7 @@ public final class SettingsCatalog {
     }
     private static Group tileFullFill() {
         return new Group(builder("tile_2x1_fill", "2×1 磁贴铺满",
-                "开启的 2×1 磁贴铺满整张卡片，类似已连接的耳机卡片。关闭的磁贴保留系统玻璃；开启和关闭时都不显示图标后面的小圆框。颜色可在“磁贴颜色”中调整。关闭本功能恢复原生效果。",
+                "所有普通 2×1 磁贴统一隐藏图标后的独立圆形底片，正常、编辑和拖动时保持一致；启用的磁贴铺满整张卡片，关闭或不可用的磁贴保留系统玻璃。通过原生磁贴视图显示的第三方 QS 磁贴遵循相同规则，音乐和设备卡片不受影响。颜色可在“磁贴颜色”中调整；关闭本功能恢复原生外观，自由编辑插件启用时按其圆形底片规则显示。",
                 CONTROL_CENTER, QsTileFullFill.ENABLED));
     }
 
@@ -800,9 +828,11 @@ public final class SettingsCatalog {
         b.number(NotificationBigClockSettings.COMPACT_OFFSET_X, "收起水平位置", "位置与对齐", "dp", -160, 160, .01f);
         b.number(NotificationBigClockSettings.COMPACT_OFFSET_Y, "收起垂直位置", "位置与对齐", "dp", -120, 120, .01f);
         b.toggle(NotificationBigClockSettings.NOTIFICATION_GAP_ENABLED, "自动保留时钟与首张通知的距离", "", "通知留白");
-        b.number(NotificationBigClockSettings.NOTIFICATION_GAP, "时间与通知间距", "通知留白", "dp", 0, 100, .01f);
+        b.add(NotificationBigClockSettings.NOTIFICATION_GAP, "时间与通知间距", "正值增加留白，负值让通知靠近并进入时钟区域；不受回弹开关影响。",
+                NUMERIC, "通知留白", "dp", -100, 100, .01f, null, null, null, null);
         b.toggle(NotificationBigClockSettings.NOTIFICATION_EDGE_ENABLED, "通知进入顶部边缘时模糊与渐隐", "效果随真实通知位置变化", "通知顶部边缘");
-        b.number(NotificationBigClockSettings.NOTIFICATION_EDGE_SAFE_DISTANCE, "顶部安全距离", "通知顶部边缘", "dp", 0, 100, .01f);
+        b.add(NotificationBigClockSettings.NOTIFICATION_EDGE_SAFE_DISTANCE, "顶部安全距离", "相对时钟实际底边调整清晰区域起点，负值向上移动模糊与渐隐区域；保留屏幕顶部安全区，不受回弹开关影响。",
+                NUMERIC, "通知顶部边缘", "dp", -100, 100, .01f, null, null, null, null);
         b.add(NotificationBigClockSettings.NOTIFICATION_EDGE_RANGE, "过渡范围", "通知从顶部安全距离处开始模糊与渐隐。" + RANGE_DISTANCE,
                 NUMERIC, "通知顶部边缘", "dp", 0, 120, .01f, null, null, null, null);
         b.number(NotificationBigClockSettings.NOTIFICATION_EDGE_BLUR_RADIUS, "边缘模糊半径", "通知顶部边缘", "dp", 0, 32, .01f);
@@ -916,7 +946,7 @@ public final class SettingsCatalog {
     }
     private static Group fluidAccent() {
         Builder b=builder("fluid_cloud_accent", "流体云媒体强调色",
-                "音乐流体云使用系统取色的强调色，其他卡片可跟随当前媒体色。总开关关闭时暂停本页的媒体强调色。锁屏与 AOD 上的渐变、不透明度、提亮和通知跟随，在“锁屏 → 亮屏锁屏 / AOD 息屏显示”里分别设置，这里只管颜色来源。作用于悬浮展开、锁屏和 AOD；通知栏不受影响，该场景已停用。",
+                "音乐流体云使用系统取色的强调色，其他卡片可跟随当前媒体色。关闭总开关后，锁屏与 AOD 的卡片、普通通知和底部胶囊也停止媒体取色；各页的渐变、不透明度、提亮和跟随设置仍会保留。锁屏与 AOD 的样式在“锁屏 → 亮屏锁屏 / AOD 息屏显示”里分别设置。作用于悬浮展开、锁屏和 AOD；通知栏不受影响，该场景已停用。",
                 OTHER, FluidCloudAccent.ENABLED);
         b.toggle(FluidCloudAccent.MASK_ENABLED,"强调色遮罩","在媒体色上叠一层颜色，强调色与跟随色共用。","遮罩");
         b.add(FluidCloudAccent.MASK_COLOR,"遮罩颜色","",COLOR,"遮罩","",0,0,0,null,null,null,null);
@@ -932,7 +962,7 @@ public final class SettingsCatalog {
      */
     private static Group lockAwake() {
         Builder b = new Builder("lock_awake", "亮屏锁屏",
-                "屏幕亮着时锁屏上的样子：音乐、秒表、计时等流体云卡片怎么铺颜色、渐变到哪里、提亮和遮罩，底部的小胶囊，以及普通通知（微信、短信等）是否跟随音乐主色。息屏显示在“AOD”页单独设置，也可以在这一页开启“统一样式”让两边一致。这一页单独生效，不需要开启“流体云样式”和“流体云媒体强调色”（它们只管桌面悬浮卡片等其他场景）：打开下面的“亮屏渐变样式”或“亮屏自定义”，锁屏上的卡片就按当前音乐的主色着色；普通通知用“通知跟随媒体色”或“统一样式”。",
+                "屏幕亮着时锁屏上的样子：音乐、秒表、计时等流体云卡片怎么铺颜色、渐变到哪里、提亮和遮罩，底部的小胶囊，以及普通通知（微信、短信等）是否跟随音乐主色。息屏显示在“AOD”页单独设置；“统一样式”让普通通知采用流体云卡片的样式。媒体取色需要开启“流体云媒体强调色”；关闭后，锁屏停止媒体取色，这一页的样式设置仍保留，中性玻璃与自定义底色按各自设置生效。",
                 LOCK_SCREEN, FluidCloudAccent.LOCK_GRADIENT, true, "亮屏渐变样式", "音乐卡在亮屏锁屏用顶部主色渐变到透明（到哪里完全淡出由下面的“过渡范围”决定）；默认关闭，整张卡片和秒表等其他卡片一样填充，锁屏观感统一。");
         b.toggle(LockNotificationSettings.UNIFY_AOD,"统一样式","开启后，锁屏与 AOD 上的普通通知按流体云卡片的样子着色——颜色、渐变、浓淡与卡片完全一致（亮屏按本页的样式，AOD 按“AOD”页的样式），不再用单独的跟随开关和强度；没有音乐在播放时，AOD 里的通知和流体云卡片沿用亮屏锁屏卡片的中性玻璃底色和同一套颜色层。亮屏和 AOD 的样式仍然各自设置，互不影响。关闭则通知用各自的跟随设置。默认关闭。","统一样式");
         b.add(FluidCloudAccent.GRADIENT_RANGE,"过渡范围","亮屏锁屏音乐卡和锁屏底部胶囊的渐变，从顶部开始。"+RANGE_FADE,
@@ -941,29 +971,44 @@ public final class SettingsCatalog {
                 new String[]{"solid","gradient"},
                 new String[]{"纯色","原生渐变"});
         b.toggle(FluidCloudStyle.LOCK_CAPSULE,"锁屏底部胶囊着色","锁屏和 AOD 底部、手电筒与相机按钮之间的小胶囊。默认关闭，保持系统原样；开启后它按“强调色 → 跟随媒体色 → 自定义底色”的顺序着色。","亮屏样式");
-        b.toggle(FluidCloudAccent.LOCK_CUSTOM,"亮屏自定义","亮屏锁屏用下面的不透明度和遮罩着色（有“流体云媒体强调色”时，代替那一页的共用设置）。打开它，亮屏锁屏上的卡片就会按当前音乐的主色着色，不需要先开启“流体云媒体强调色”。","亮屏自定义");
+        b.toggle(FluidCloudAccent.LOCK_CUSTOM,"亮屏自定义","亮屏锁屏用下面的不透明度和遮罩，代替媒体强调色页的共用设置。媒体取色需要开启“流体云媒体强调色”；关闭总开关时保留这些设置。","亮屏自定义");
         b.add(FluidCloudAccent.LOCK_OPACITY,"亮屏填充不透明度","亮屏锁屏上颜色铺在卡片上的浓淡：100% 完全不透明，0% 完全透明。它只决定透不透明，颜色深浅由“亮屏提亮底色”决定。",NUMERIC,"亮屏自定义","%",0,100,.1f,null,null,null,null);
         b.add(FluidCloudAccent.LOCK_MASK_COLOR,"亮屏遮罩颜色","",COLOR,"亮屏自定义","",0,0,0,null,null,null,null);
         b.add(FluidCloudAccent.LOCK_MASK_OPACITY,"亮屏遮罩不透明度","亮屏锁屏上遮罩的浓淡：100% 完全不透明，0% 完全透明。",NUMERIC,"亮屏自定义","%",0,100,.1f,null,null,null,null);
         b.add(FluidCloudAccent.LOCK_LIGHT,"亮屏提亮底色","锁屏的背景是暗的，半透明的颜色叠上去会发暗发灰，和解锁后（悬浮、下拉）亮玻璃上的样子差很多。提亮让颜色像放在白色上看那样变浅：0 不提亮，100 最浅。它只改颜色深浅，不改透明度：透不透明只由填充不透明度决定。",
                 NUMERIC,"亮屏自定义","%",0,100,1f,null,null,null,null);
-        b.toggle(FluidCloudStyle.NOTIFICATION_FOLLOW,"通知跟随媒体色","让锁屏与 AOD 的普通通知跟随音乐主色，使用与流体云卡片相同的渐变、透明过渡和高光。此开关独立控制普通通知，跟随强度在下方调整；开了“统一样式”则按流体云卡片的样子，不再用这个开关。","通知");
+        b.toggle(FluidCloudStyle.NOTIFICATION_FOLLOW,"通知跟随媒体色","让锁屏与 AOD 的普通通知跟随音乐主色，使用与流体云卡片相同的渐变、透明过渡和高光。需要开启“流体云媒体强调色”，跟随强度在下方调整；开了“统一样式”则按流体云卡片的样子，不再用这个开关。","通知");
         b.number(FluidCloudStyle.NOTIFICATION_FOLLOW_OPACITY,"跟随强度","通知","%",0,100,.1f);
         return new Group(b);
     }
     /** Lock screen in AOD: the same look as the lit lock screen, set on its own; "unify style" on the lit page turns this page off. */
     private static Group lockAod() {
         Builder b = new Builder("lock_aod", "AOD 息屏显示",
-                "息屏显示（AOD）上流体云卡片和普通通知的样子，和亮屏锁屏分开设置；初始值与亮屏相同，之后各改各的。“亮屏锁屏”页的“统一样式”只决定普通通知是否按流体云卡片的样子着色，不影响这一页的设置。这一页同样单独生效，不需要开启“流体云样式”和“流体云媒体强调色”：打开下面的“AOD 渐变样式”或“AOD 自定义”，AOD 上的卡片就按当前音乐的主色着色；普通通知的着色由“亮屏锁屏”页的“通知跟随媒体色”或“统一样式”决定，强度在这一页调。",
+                "息屏显示（AOD）上流体云卡片和普通通知的样子，和亮屏锁屏分开设置；初始值与亮屏相同，之后各改各的。“亮屏锁屏”页的“统一样式”只决定普通通知是否按流体云卡片的样子着色，不影响这一页的设置。媒体取色需要开启“流体云媒体强调色”；关闭后，AOD 停止媒体取色，这一页的渐变、透明度、提亮等设置仍保留。普通通知的跟随设置在“亮屏锁屏”页，强度在这一页调。",
                 LOCK_SCREEN, FluidCloudAccent.AOD_GRADIENT, true, "AOD 渐变样式", "音乐卡在 AOD 用顶部主色渐变到透明。AOD 的背景是纯黑，渐变的下半截会露出黑底，所以默认关闭，整张卡片同一种颜色。");
         b.toggle(AodNotificationBackground.ENABLED,"AOD 通知白色玻璃背景","仅在 AOD 中，为已适配的普通通知、流体云通知和媒体卡片背景增加一层轻白玻璃质感，保留原生模糊、壁纸颜色与细节、透明度、圆角和过渡，仍可透出壁纸。文字、图标和卡片内容保持系统配色。独立生效，亮屏锁屏不受影响；关闭后恢复原背景。默认关闭。","通知背景");
-        b.toggle(FluidCloudAccent.AOD_CUSTOM,"AOD 自定义","AOD 用下面的不透明度和遮罩着色（有“流体云媒体强调色”时，代替那一页的共用设置）。打开它，AOD 上的卡片就会按当前音乐的主色着色，不需要先开启“流体云媒体强调色”。","AOD 自定义");
+        b.toggle(FluidCloudAccent.AOD_CUSTOM,"AOD 自定义","AOD 用下面的不透明度和遮罩，代替媒体强调色页的共用设置。媒体取色需要开启“流体云媒体强调色”；关闭总开关时保留这些设置。","AOD 自定义");
         b.add(FluidCloudAccent.AOD_OPACITY,"AOD 填充不透明度","AOD 上颜色铺在卡片上的浓淡：100% 完全不透明，0% 完全透明。它只决定透不透明，颜色深浅由“AOD 提亮底色”决定。",NUMERIC,"AOD 自定义","%",0,100,.1f,null,null,null,null);
         b.add(FluidCloudAccent.AOD_MASK_COLOR,"AOD 遮罩颜色","",COLOR,"AOD 自定义","",0,0,0,null,null,null,null);
         b.add(FluidCloudAccent.AOD_MASK_OPACITY,"AOD 遮罩不透明度","AOD 上遮罩的浓淡：100% 完全不透明，0% 完全透明。",NUMERIC,"AOD 自定义","%",0,100,.1f,null,null,null,null);
         b.add(FluidCloudAccent.AOD_LIGHT,"AOD 提亮底色","让颜色像放在白色上看那样变浅：0 不提亮，100 最浅。它只改颜色深浅，不改透明度。",
                 NUMERIC,"AOD 自定义","%",0,100,1f,null,null,null,null);
         b.number(LockNotificationSettings.AOD_NOTIFICATION_FOLLOW_OPACITY,"AOD 通知跟随强度","通知","%",0,100,.1f);
+        return new Group(b);
+    }
+    /** The system privacy dot and a camera-area capsule that can replace it; two independent switches. */
+    private static Group privacyDot() {
+        Builder b = new Builder("privacy_dot", "隐私小点",
+                "相机、麦克风或位置信息正在被使用时，系统会在屏幕角落显示一个小圆点。可以去掉这个小圆点，也可以在摄像头处显示「相机 使用中」这样的胶囊。",
+                STATUSBAR, PrivacyIndicatorSettings.HIDE_DOT, true, "去除隐私小点",
+                "不再显示屏幕角落的隐私小圆点，以及状态栏里随之出现的橙色或绿色提示动画。下拉面板里的隐私图标和系统的使用记录不受影响。");
+        b.toggle(PrivacyIndicatorSettings.CAPSULE, "隐私小点上流体云",
+                "用系统流体云在摄像头处显示使用中胶囊，左边是图标和名称，右边是「使用中」，点开可查看使用记录；开启时会同时打开「去除隐私小点」，之后可以单独关掉。", "胶囊");
+        b.toggle(PrivacyIndicatorSettings.CAMERA, "相机", "相机使用中时显示胶囊。", "显示类型");
+        b.toggle(PrivacyIndicatorSettings.MICROPHONE, "麦克风", "麦克风使用中时显示胶囊。", "显示类型");
+        b.toggle(PrivacyIndicatorSettings.LOCATION, "位置信息", "位置信息使用中时显示胶囊。很多应用会在后台频繁定位，开启后胶囊可能经常出现。", "显示类型");
+        b.add(PrivacyIndicatorSettings.DURATION, "显示时长", "开始使用后胶囊最多显示多久，最短 1 秒；拖到最右是一直显示到停止使用。停止使用时胶囊会立即收起。", NUMERIC, "显示时长", "秒",
+                PrivacyIndicatorSettings.MIN_DURATION, PrivacyIndicatorSettings.MAX_DURATION, 1f, null, null, null, null);
         return new Group(b);
     }
     /** Camera-area appearance plus an independent persistence switch shared by its tabs. */
@@ -1129,12 +1174,13 @@ public final class SettingsCatalog {
         if (STATUSBAR.equals(category)) return Arrays.asList(
                 new NavigationSection("排列顺序", StatusBarLayoutSettings.GROUP),
                 new NavigationSection("时间与电量", "clock", "battery"),
-                new NavigationSection("网络信号", "speed", "data", "wifi", "label", "native_network_badge"),
+                new NavigationSection("网络信号", "speed", "data", "network"),
                 new NavigationSection("通知图标", "notification_icons", "notification_icon_overrides"),
-                new NavigationSection("系统图标", "status_hint_icons"));
+                new NavigationSection("系统图标", "status_hint_icons", "privacy_dot"));
         if (CONTROL_CENTER.equals(category)) return Arrays.asList(
                 new NavigationSection("磁贴与滑块", "tile_2x1_fill", "tile_corners", "tile_icon_size", "qs_appearance"),
-                new NavigationSection("音乐卡片", "qs_media"),
+                new NavigationSection("音乐与卡片", "qs_media"),
+                new NavigationSection("WiFi", QsWifiAlias.GROUP),
                 new NavigationSection("顶部时间与文字", "shade_clock", "carrier"),
                 new NavigationSection("顶部按钮", QsEntrances.GROUP));
         if (NOTIFICATION.equals(category)) return Arrays.asList(
@@ -1166,8 +1212,9 @@ public final class SettingsCatalog {
             labels.put("notification", "通知栏"); labels.put("control", "控制中心"); labels.put("lockscreen", "锁屏");
         } else if ("classic_text".equals(group.id)) {
             labels.put("carrier", "运营商"); labels.put("clock", "时间与日期");
-        } else if ("native_network_badge".equals(group.id)) {
-            labels.put("part1", "角标1"); labels.put("part2", "角标2"); labels.put("activity", "数据小箭头");
+        } else if ("network".equals(group.id)) {
+            labels.put("common", "共用位置"); labels.put("wifi", "Wi-Fi");
+            labels.put("text", "制式文字"); labels.put("badge", "角标与箭头");
         } else if ("battery".equals(group.id)) {
             labels.put("style", "样式"); labels.put("text", "内文字"); labels.put("layout", "布局"); labels.put("colors", "颜色");
         } else if ("qs_media".equals(group.id) || "qs_appearance".equals(group.id)) {
@@ -1190,6 +1237,8 @@ public final class SettingsCatalog {
         boolean wallpaper = group.id.startsWith("shade_wallpaper");
         for (List<Item> items : buckets.values()) items.sort((left, right) -> wallpaper
                 ? Integer.compare(wallpaperSectionPriority(left.section), wallpaperSectionPriority(right.section))
+                : "network".equals(group.id)
+                ? Integer.compare(networkSectionPriority(left.section),networkSectionPriority(right.section))
                 : Integer.compare(sectionPriority(left.section), sectionPriority(right.section)));
         for (Map.Entry<String, List<Item>> entry : buckets.entrySet()) if (!entry.getValue().isEmpty())
             pages.add(new DetailPage(entry.getKey(), labels.get(entry.getKey()), entry.getValue()));
@@ -1225,10 +1274,6 @@ public final class SettingsCatalog {
         return Collections.unmodifiableList(result);
     }
     public static List<Item> commonDetailItems(Group group) {
-        if (group != null && ("wifi".equals(group.id) || "label".equals(group.id))) {
-            Item shared = ITEM_BY_KEY.get(StatusBarLayoutSettings.WIFI_LABEL_SHARED);
-            return shared == null ? Collections.emptyList() : Collections.singletonList(shared);
-        }
         if (group != null && "carrier".equals(group.id)) {
             String token = StatusBarLayoutSettings.CARRIER;
             List<Item> shared = new ArrayList<>();
@@ -1258,6 +1303,13 @@ public final class SettingsCatalog {
         if ("显示".equals(section)) return 10;
         if ("大时钟区域".equals(section)) return 20;
         return 50;
+    }
+    private static int networkSectionPriority(String section) {
+        if ("位置模式".equals(section)||"显示方式".equals(section)||"显示".equals(section)||"角标自定义".equals(section)) return -1;
+        if (section.startsWith("角标1")) return 100+(section.endsWith(" · 开关")?0:sectionPriority(section));
+        if (section.startsWith("角标2")) return 200+(section.endsWith(" · 开关")?0:sectionPriority(section));
+        if ("数据小箭头".equals(section)) return 300;
+        return sectionPriority(section);
     }
     private static int sectionPriority(String section) {
         String title = section.contains(" · ") ? section.substring(section.indexOf(" · ") + 3) : section;
@@ -1316,8 +1368,7 @@ public final class SettingsCatalog {
             return "notification";
         }
         if ("classic_text".equals(group.id)) return item.key.startsWith(ClassicTextSettings.CLOCK + "_") ? "clock" : "carrier";
-        if ("native_network_badge".equals(group.id)) return item.key.startsWith(NativeNetworkBadgeSettings.PART_ONE+"_") ? "part1"
-                : item.key.startsWith(NativeNetworkBadgeSettings.PART_TWO+"_") ? "part2" : "activity";
+        if ("network".equals(group.id)) return networkDetailPageId(item.key);
         if ("battery".equals(group.id)) {
             if ("电池内文字".equals(section)) return "text";
             if (COLOR.equals(item.type) || item.key.endsWith("_color_enabled")) return "colors";
@@ -1333,6 +1384,34 @@ public final class SettingsCatalog {
         return "all";
     }
     public static Group group(String id) { return GROUP_BY_ID.get(id); }
+    /** Old destinations resolve to the one editor without adding duplicate catalogue groups or fields. */
+    public static String canonicalGroupId(String id) {
+        return "wifi".equals(id)||"label".equals(id)||"native_network_badge".equals(id)?"network":id;
+    }
+    public static String networkRoutePage(String id) {
+        return "wifi".equals(id)?"wifi":"label".equals(id)?"text":"native_network_badge".equals(id)?"badge":"common";
+    }
+    /** Historical portable sections remain independent from the current editor's ownership. */
+    public static String networkOwner(String key) {
+        if (key == null) return "";
+        if (key.startsWith("native_network_badge_")||key.startsWith("native_data_activity_")) return "native_network_badge";
+        if (key.startsWith("label_")||StatusBarSettings.FONT_WEIGHT.equals(key)||StatusBarSettings.SLOT_WIDTH.equals(key)
+                ||key.equals(StatusBarLayoutSettings.key(StatusBarLayoutSettings.LABEL,"margin_left"))
+                ||key.equals(StatusBarLayoutSettings.key(StatusBarLayoutSettings.LABEL,"margin_right"))) return "label";
+        if (key.startsWith("wifi_")||StatusBarLayoutSettings.WIFI_LABEL_SHARED.equals(key)
+                ||key.equals(StatusBarLayoutSettings.key(StatusBarLayoutSettings.WIFI,"margin_left"))
+                ||key.equals(StatusBarLayoutSettings.key(StatusBarLayoutSettings.WIFI,"margin_right"))) return "wifi";
+        return "";
+    }
+    public static String networkDetailPageId(String key) {
+        if("label_color_enabled".equals(key)||"label_color_light".equals(key)||"label_color_dark".equals(key)) return "badge";
+        if (StatusBarLayoutSettings.WIFI_LABEL_SHARED.equals(key)||"wifi_position_enabled".equals(key)
+                ||StatusBarSettings.WIFI_OFFSET_X.equals(key)||StatusBarSettings.WIFI_OFFSET_Y.equals(key)
+                ||StatusBarLayoutSettings.key(StatusBarLayoutSettings.WIFI,"margin_left").equals(key)
+                ||StatusBarLayoutSettings.key(StatusBarLayoutSettings.WIFI,"margin_right").equals(key)) return "common";
+        String owner=networkOwner(key);
+        return "wifi".equals(owner)?"wifi":"label".equals(owner)?"text":"badge";
+    }
     public static List<Item> items(String groupId) {
         Group group = group(groupId);
         return group == null ? Collections.emptyList() : group.items;
@@ -1373,6 +1452,8 @@ public final class SettingsCatalog {
     public static String unavailableReason(String key, Map<String,?> values) {
         String shelved = ShadeWallpaperSettings.unavailableReason(key);
         if (!shelved.isEmpty()) return shelved;
+        if(StatusBarSettings.WIFI_OFFSET_X.equals(key)&&!StatusBarSettings.bool(values,StatusBarLayoutSettings.WIFI_LABEL_SHARED))
+            return "请先开启 Wi-Fi 与制式文字共用位置；独立模式的左右位置使用左右间距调整";
         if(BigClockWidgetsSettings.SWAP_WITH_DATE.equals(key)) {
             if(!StatusBarSettings.bool(values,NotificationBigClockSettings.DATE_ENABLED)
                     ||!(StatusBarSettings.settingNumber(values,NotificationBigClockSettings.DATE_SIZE,15f)>0f))return "请先开启有效日期";
@@ -1479,6 +1560,10 @@ public final class SettingsCatalog {
             return "请先开启流体云样式";
         if(capsuleChild(key)&&!StatusBarSettings.bool(values,FluidCloudCapsule.MASTER))
             return "请先开启摄像头区域流体云";
+        if((PrivacyIndicatorSettings.CAMERA.equals(key)||PrivacyIndicatorSettings.MICROPHONE.equals(key)
+                ||PrivacyIndicatorSettings.LOCATION.equals(key)||PrivacyIndicatorSettings.DURATION.equals(key))
+                &&!StatusBarSettings.bool(values,PrivacyIndicatorSettings.CAPSULE))
+            return "请先开启隐私小点上流体云";
         if(glassOverridesFill(key)&&StatusBarSettings.bool(values,FluidCloudCapsule.BLUR_ENABLED))
             return "背景模糊开启后底色由遮罩色决定，这一项不再起作用";
         if(FluidCloudCapsule.BLUR_MASK_COLOR.equals(key)&&!StatusBarSettings.bool(values,FluidCloudCapsule.BLUR_ENABLED))
@@ -1571,11 +1656,10 @@ public final class SettingsCatalog {
             if(!StatusBarSettings.bool(values,NotificationBigClockSettings.STACK_ENABLED))return "请先开启堆叠通知";
             if(!StatusBarSettings.bool(values,NotificationMiniStack.ENABLED))return "请先开启小堆叠（同应用）";
         }
-        Item item=item(key);
-        if(item!=null && "native_network_badge".equals(item.groupId)
+        if("native_network_badge".equals(networkOwner(key))
                 && !key.startsWith("native_data_activity_")
-                && StatusBarSettings.bool(values,"label_enabled"))
-            return "请先关闭网络制式文字，再启用原生角标调整";
+                && !NetworkDisplaySettings.BADGE.equals(NetworkDisplaySettings.mode(values)))
+            return "制式选择原生角标后使用这些参数，当前保存值会保留";
         return unavailableReason(key);
     }
 
@@ -1676,14 +1760,13 @@ public final class SettingsCatalog {
                 + NotificationMiniStackSource.DECLARATION + NotificationMiniStackSource.TECHNICAL_ORIGIN;
         if ("notification_stack".equals(groupId)) return "依赖：请先开启对应方向的大时钟，避免通知无法滚动。竖屏需竖屏大时钟；横屏还需“横屏也生效”和横屏大时钟。仅折叠外层通知列表，应用内分组保持系统原生逻辑。";
         if ("shade_status_icons".equals(groupId)) return "优先级：此开关或大时钟任一开启，顶部原生小时间、通知图标与右侧图标及通知页的小时间和右侧图标在整个下拉、左右切页期间持续隐藏。两页都收起或两个开关都关闭时恢复原生。控制中心自己的右侧始终保留原生，左侧小时间与通知图标仅由此开关管理。通知图标样式和数量继续在“通知图标区域”中设置。";
-        if ("label".equals(groupId)) return "优先级：隐藏网络制式、Wi-Fi 已连接或两个网络开关都关闭时，隐藏优先于名称、位置、字体和颜色设置。";
-        if ("native_network_badge".equals(groupId)) return "互斥：网络制式文字开启时暂停本页调整；关闭后按原生角标的隐藏开关显示，保留本页参数。隐藏系统网络角标优先于位置、大小和字重。";
+        if ("network".equals(groupId)) return "制式文字、原生角标与隐藏互斥，切换保留各自参数。Wi-Fi 真隐藏与自定义外观独立；Wi-Fi 与独立制式文字共用位置，不共享大小，原生角标保持信号角位置并独立微调。数据小箭头独立设置。";
         if ("battery".equals(groupId)) return "优先级：电池内文字调整只作用于数字；充电数字与闪电交替开启时，数字阶段使用文字设置。切换电池样式后按该样式的原生字形重新应用。";
         if ("qs_media".equals(groupId)) return "互斥：外发光使用封面反色时，自定义发光颜色不生效。背景来源的优先级：自定义颜色 > 封面主色 > 封面图片；叠加色只作用于封面图片和封面主色。封面背景和统一圆角可同时使用。";
         if ("c17_highlight_removal".equals(groupId)) return "共同使用：去除高光可与磁贴颜色、音乐封面背景同时开启。这两类自定义背景保留；本页亚克力底色作用于其他原生材质。";
         if ("fluid_cloud_style".equals(groupId)) return "颜色优先级：媒体强调色 > 跟随媒体色 > 这里的自定义底色；强调色与跟随色用“流体云媒体强调色”页的遮罩与透明度，只有其余情况才用这里的底色。通知类跟随系统样式只提供材质，可与颜色叠加。颜色只作用于悬浮展开、锁屏与 AOD（AOD 与锁屏一致），不改动通知栏。去高光由 C17 高光去除统一控制。";
-        if ("fluid_cloud_accent".equals(groupId)) return "优先级 1：总开关开启后音乐卡始终使用强调色，覆盖悬浮、锁屏和 AOD；其他卡片可跟随当前媒体色（优先级 2，高于自定义底色）。强调色与跟随色共用本页的遮罩与填充透明度；锁屏与 AOD 可单独用“锁屏自定义”。总开关关闭时整页的开关都不可用。没有媒体或不在播放（开启“仅播放时跟随”时）则回到“流体云样式”里的自定义底色。";
-        if ("data".equals(groupId)) return "优先级：隐藏网络角标不会隐藏独立网络制式文字；该文字在“网络制式文字”中设置。蜂窝数据小箭头在“原生角标调整”独立开启，不受蜂窝样式或网络文字开关限制。";
+        if ("fluid_cloud_accent".equals(groupId)) return "优先级 1：总开关开启后音乐卡始终使用强调色，覆盖悬浮、锁屏和 AOD；其他卡片可跟随当前媒体色（优先级 2，高于自定义底色）。强调色与跟随色共用本页的遮罩与填充透明度；锁屏与 AOD 可各用自己的自定义设置。关闭总开关后，锁屏与 AOD 的所有媒体取色一起停止，原有样式设置保留。没有媒体或不在播放（开启“仅播放时跟随”时）则回到“流体云样式”里的自定义底色。";
+        if ("data".equals(groupId)) return "制式文字、原生角标与隐藏在“网络组合”中选择。数据小箭头也在该页独立设置，不受蜂窝样式或制式文字开关限制。";
         return "";
     }
     public static List<Item> allItems() { return Collections.unmodifiableList(new ArrayList<>(ITEM_BY_KEY.values())); }
@@ -1692,6 +1775,11 @@ public final class SettingsCatalog {
     /** Scene-specific editors never change the saved compatibility keys. */
     public static boolean applicable(Item item,Map<String,?> saved) {
         if(item==null)return false;
+        if("network".equals(item.groupId)&&StatusBarLayoutSettings.sharedPositionKey(item.key)
+                &&"label".equals(networkOwner(item.key)))
+            return !StatusBarSettings.bool(saved,StatusBarLayoutSettings.WIFI_LABEL_SHARED);
+        if(QsWifiAlias.UNIFIED.equals(item.key))return "unified".equals(StatusBarSettings.string(saved,QsWifiAlias.MODE));
+        if(QsWifiAlias.RULES.equals(item.key))return !"unified".equals(StatusBarSettings.string(saved,QsWifiAlias.MODE));
         int widgetSide=BigClockWidgetsSettings.textSide(item.key);
         if(widgetSide>=0&&(BigClockWidgetsSettings.colorKey(widgetSide,false).equals(item.key)||BigClockWidgetsSettings.colorKey(widgetSide,true).equals(item.key)))
             return !StatusBarSettings.bool(saved,BigClockWidgetsSettings.followTimeColorKey(widgetSide));
@@ -1709,6 +1797,10 @@ public final class SettingsCatalog {
     /** Search may reveal an inactive mode's saved setting; explain it without changing that mode. */
     public static String inactivePresentationReason(Item item, Map<String,?> saved) {
         if (item == null || applicable(item, saved)) return "";
+        if("network".equals(item.groupId)&&"label".equals(networkOwner(item.key)))
+            return "当前与 Wi-Fi 共用位置；关闭共用后恢复这里保存的独立位置。";
+        if(QsWifiAlias.UNIFIED.equals(item.key))return "当前按 WiFi 独立设置；切换到统一显示后使用这个名称。";
+        if(QsWifiAlias.RULES.equals(item.key))return "当前使用统一名称；切换到各 WiFi 独立设置后使用这里保存的别名。";
         if (BigClockWidgetsSettings.textSide(item.key) >= 0) return "当前组件跟随主时间颜色；关闭跟随后使用这里保存的独立颜色";
         String key = NotificationBigClockSettings.portraitKey(item.key);
         if (NotificationBigClockSettings.DATE_COLOR_LIGHT.equals(key) || NotificationBigClockSettings.DATE_COLOR_DARK.equals(key)
@@ -1718,8 +1810,7 @@ public final class SettingsCatalog {
     }
     public static String displayTitle(Item item,Map<String,?> saved) {
         if(item==null)return "";
-        if (StatusBarLayoutSettings.marginKey(item.key)
-                && ("wifi".equals(item.groupId) || "label".equals(item.groupId))
+        if (StatusBarLayoutSettings.sharedPositionKey(item.key)
                 && StatusBarSettings.bool(saved, StatusBarLayoutSettings.WIFI_LABEL_SHARED)) return item.title + " · 共用";
         if(NotificationBigClockSettings.MAX_SIZE.equals(item.key)
                 && NotificationBigClockSettings.nativeHeightFont(StatusBarSettings.string(saved,NotificationBigClockSettings.FONT)))return "展开字体高度";
@@ -1815,6 +1906,8 @@ public final class SettingsCatalog {
         if (COLOR.equals(item.type)) return value instanceof Number ? null : "请输入有效颜色";
         if (!(value instanceof String)) return "请输入文字";
         String text = (String) value;
+        if(QsWifiAlias.UNIFIED.equals(item.key))return QsWifiAlias.aliasError(text);
+        if(QsWifiAlias.RULES.equals(item.key))try{QsWifiAlias.parse(text);return null;}catch(IllegalArgumentException invalid){return invalid.getMessage();}
         if (IconManagementSettings.KEY.equals(item.key)) {
             try { IconManagementSettings.parse(text); return null; }
             catch (java.io.IOException invalid) { return invalid.getMessage(); }

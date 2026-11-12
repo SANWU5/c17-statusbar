@@ -18,4 +18,6 @@ public class RuntimeShader extends Shader {
     public void setFloatUniform(String name,float x,float y,float z,float w){uploadCount++;floatWrite(name);floats.put(name,new float[]{x,y,z,w});}
     public void setIntUniform(String name,int value){uploadCount++;ints.put(name,value);}
     public void setInputShader(String name,Shader shader){uploadCount++;inputs.put(name,shader);}
+    public void setInputBuffer(String name,BitmapShader shader){uploadCount++;inputs.put(name,shader);}
+    public void setColorUniform(String name,int value){uploadCount++;ints.put(name,value);}
 }

@@ -600,17 +600,29 @@ public final class QsTileAppearance {
     private static final Object[] NO_ARGUMENTS=new Object[0];
     static Object call(Object target,String name){return call(target,name,NO_ARGUMENTS);}
     static Object call(Object target,String name,Object... args) {
-        if(target==null)return null;try{return invoke(target,name,args);}catch(ReflectiveOperationException|RuntimeException absent){return null;}
+        if(target==null)return null;
+        try {
+            Class<?> start=target instanceof Class?(Class<?>)target:target.getClass();
+            NativeMethod method=matchingMethod(start,name,args);
+            // Optional OEM getters are often absent. A cached miss must not create
+            // a discarded exception on every drawable/theme/attach callback.
+            return method==null?null:method.invoke(target instanceof Class?null:target,args);
+        }catch(ReflectiveOperationException|RuntimeException absent){return null;}
     }
     static Object invoke(Object target,String name,Object... args) throws ReflectiveOperationException {
         if(target==null)throw new NoSuchMethodException(name);
         Class<?> start=target instanceof Class?(Class<?>)target:target.getClass();
+        NativeMethod method=matchingMethod(start,name,args);
+        if(method!=null)return method.invoke(target instanceof Class?null:target,args);
+        throw new NoSuchMethodException(start.getName()+"."+name);
+    }
+    private static NativeMethod matchingMethod(Class<?> start,String name,Object[] args) {
         for(NativeMethod method:nativeMembers(start).methods(name)) {
             if(method.parameters.length!=args.length)continue;
             boolean match=true;
             for(int i=0;i<method.parameters.length;i++)if(args[i]!=null&&!method.parameters[i].isInstance(args[i])){match=false;break;}
-            if(match)return method.invoke(target instanceof Class?null:target,args);
-        }throw new NoSuchMethodException(start.getName()+"."+name);
+            if(match)return method;
+        }return null;
     }
     private static Class<?> boxed(Class<?> type){if(type==int.class)return Integer.class;if(type==float.class)return Float.class;if(type==boolean.class)return Boolean.class;if(type==long.class)return Long.class;return type;}
     static Object field(Object target,String name) {try{Field field=findField(target,name);return field==null?null:field.get(target);}catch(ReflectiveOperationException|RuntimeException unavailable){return null;}}

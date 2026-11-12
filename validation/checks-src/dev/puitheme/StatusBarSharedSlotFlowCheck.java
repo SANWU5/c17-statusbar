@@ -193,6 +193,7 @@ public final class StatusBarSharedSlotFlowCheck {
     private static final class Backend implements NetworkSharedSlotLayout.Backend {
         final Icon host; final Leaf label, signal; boolean present, valid = true, accept = true, labelBefore = true;
         NetworkSharedSlotLayout.Target target; int targets, restores, labelWidth = 12;
+        int hullDepth, ownedMeasures, restoredMeasures;
         Backend(Icon host, Leaf label, Leaf signal) { this.host = host; this.label = label; this.signal = signal; }
         public NetworkSharedSlotLayout.Frame frame(View actual) {
             return new NetworkSharedSlotLayout.Frame(actual, this, valid, present, present ? labelWidth : 0, 18,
@@ -200,7 +201,12 @@ public final class StatusBarSharedSlotFlowCheck {
                     present ? labelWidth + 18 : 18, signal.getLeft());
         }
         public boolean target(NetworkSharedSlotLayout.Target value) { if (!accept) return false; target = value; targets++; return true; }
+        public void beginHullMeasure() { hullDepth++; }
+        public void endHullMeasure() { check(hullDepth > 0, "hull measure scopes remain balanced"); hullDepth--; }
         void measure() {
+            check(hullDepth > 0, "flow-owned exact measure does not become a real native content constraint");
+            ownedMeasures++;
+            if (target == null) restoredMeasures++;
             if (target == null) return;
             label.layout(target.labelLeft, 0, target.labelLeft + labelWidth, 30);
             signal.layout(target.signalLeft, 0, target.signalLeft + 18, 30);
@@ -267,6 +273,7 @@ public final class StatusBarSharedSlotFlowCheck {
             coordinator.afterMeasure(root); coordinator.afterLayout(root);
         }
         void ownership() {
+            near(0, backend.hullDepth, "native content constraints are restored outside each flow measure");
             for (int i = 0; i < views.size(); i++) { check(views.get(i).getParent() == parents.get(i), "native parent retained"); check(views.get(i).getLayoutParams() == params.get(i), "native LP identity retained"); }
             check(icons.getChildAt(0) == wifi && icons.getChildAt(1) == mobile, "IconManager native child order retained");
             near(wifi.nativeApplications + wifi.nativeRebases + wifi.nativeFrames, wifi.translations, "only native apply/rebase/animator seams write Wi-Fi animation translation");
@@ -307,6 +314,37 @@ public final class StatusBarSharedSlotFlowCheck {
         rig.ownership();
         for (int i = 0; i < 12; i++) { rig.pass(); near(center, screenX(rig.label) + 6, "repeated native layouts have no shared-slot drift"); }
         rig.mode(true); rig.pass(); near(center, screenX(rig.wifi) + 10, "returning to Wi-Fi preserves the slot and margins"); rig.ownership();
+    }
+    private static void sharedHorizontalPosition() throws Exception {
+        for(String side:new String[]{"left","right"})for(int direction:new int[]{View.LAYOUT_DIRECTION_LTR,View.LAYOUT_DIRECTION_RTL}) {
+            Rig rig=new Rig(300);rig.root.direction=direction;Bundle raw=settings(side,"right",true);
+            raw.putBoolean("wifi_enabled",true);raw.putBoolean("label_enabled",true);
+            rig.flow.configure(raw);rig.pass();
+            float center=screenX(rig.wifi)+10,signal=screenX(rig.mobile);
+            raw.putFloat(StatusBarSettings.WIFI_OFFSET_X,6f);raw.putFloat(StatusBarSettings.LABEL_OFFSET_X,-18);
+            rig.flow.configure(raw);rig.pass();
+            near(center+6f,screenX(rig.wifi)+10,"shared X moves visible Wi-Fi once through native layout");
+            near(signal,screenX(rig.mobile),"shared X leaves independent signal budget fixed");
+            rig.mode(false);rig.pass();
+            near(center+6f,screenX(rig.label)+6,"network switch inherits the identical shared horizontal center");
+            near(signal,screenX(rig.signal),"network switch retains independent signal position with shared X");
+            for(int i=0;i<4;i++){rig.pass();near(center+6f,screenX(rig.label)+6,"shared X remains stable after repeated native layout");}
+            rig.mode(true);rig.pass();near(center+6f,screenX(rig.wifi)+10,"returning Wi-Fi retains shared X");
+            raw.putBoolean("wifi_position_enabled",false);rig.flow.configure(raw);rig.pass();
+            near(center,screenX(rig.wifi)+10,"closing common position restores the unshifted slot");rig.ownership();
+        }
+    }
+    private static void sharedHorizontalMasters() throws Exception {
+        for(int masters=0;masters<4;masters++)for(boolean wifiOn:new boolean[]{false,true}) {
+            Rig rig=new Rig(300);Bundle raw=settings("left","right",true);
+            raw.putBoolean("wifi_enabled",(masters&1)!=0);raw.putBoolean("label_enabled",(masters&2)!=0);
+            rig.mode(wifiOn);rig.flow.configure(raw);rig.pass();
+            View content=wifiOn?rig.wifi:rig.label;float center=screenX(content)+content.getWidth()/2f;
+            raw.putFloat(StatusBarSettings.WIFI_OFFSET_X,6f);rig.flow.configure(raw);rig.pass();
+            boolean ownMaster=wifiOn?(masters&1)!=0:(masters&2)!=0;
+            near(center+(ownMaster?6f:0f),screenX(content)+content.getWidth()/2f,"shared X honors the visible endpoint's independent customization master");
+            rig.ownership();
+        }
     }
     static void measurementRegression() throws Exception {
         Rig rig = new Rig(300); Bundle gap = new Bundle(); gap.putFloat(StatusBarLayoutSettings.key("clock", "margin_left"), 12);
@@ -977,6 +1015,84 @@ public final class StatusBarSharedSlotFlowCheck {
         near(requests + 1, rig.root.layoutRequests, "settled narrower label does not repeatedly request root layout");
         rig.ownership();
     }
+    private static void hiddenLabelWidthInvalidation() throws Exception {
+        for(String key:new String[]{"label_text_style_enabled","label_size_enabled","font_enabled",StatusBarSettings.FONT_WEIGHT,
+                StatusBarSettings.FONT_MODE,StatusBarSettings.FONT_REVISION,FontScopes.KEY,StatusBarSettings.LABEL_SCALE}) {
+            Rig rig=new Rig(400);Bundle values=settings("right",true);
+            values.putFloat(StatusBarLayoutSettings.key("wifi","margin_left"),0);values.putFloat(StatusBarLayoutSettings.key("wifi","margin_right"),0);
+            values.putBoolean("label_enabled",true);values.putBoolean("label_text_style_enabled",true);values.putBoolean("label_size_enabled",true);
+            values.putBoolean("label_color_enabled",false);values.putFloat(StatusBarSettings.FONT_WEIGHT,600);values.putFloat(StatusBarSettings.LABEL_SCALE,100);
+            if(key.equals(StatusBarSettings.FONT_MODE)||key.equals(StatusBarSettings.FONT_REVISION)||key.equals(FontScopes.KEY))values.putBoolean("font_enabled",true);
+            rig.flow.configure(values);rig.mode(false);rig.backend.captureNativeFragments(true,40);rig.pass();
+            check("ready".equals(rig.flow.reason(rig.root))&&rig.backend.target!=null,"visible label enters real shared-slot flow: "+key);
+            near(40,screenX(rig.signal)-screenX(rig.label),"visible forty-pixel label has its full native allocation: "+key);
+            rig.mode(true);rig.pass();near(20,screenX(rig.mobile)-(screenX(rig.wifi)+10),"Wi-Fi keeps the forty-pixel shared slot after hiding label: "+key);
+            values.putBoolean("label_color_enabled",true);rig.flow.configure(values);rig.pass();
+            near(20,screenX(rig.mobile)-(screenX(rig.wifi)+10),"color-only update preserves hidden label width: "+key);
+            if(key.equals("label_text_style_enabled")||key.equals("label_size_enabled"))values.putBoolean(key,false);
+            else if(key.equals("font_enabled"))values.putBoolean(key,true);
+            else if(key.equals(StatusBarSettings.FONT_WEIGHT))values.putFloat(key,900);
+            else if(key.equals(StatusBarSettings.FONT_MODE))values.putString(key,"pingfang");
+            else if(key.equals(StatusBarSettings.FONT_REVISION))values.putString(key,"b".repeat(64));
+            else if(key.equals(FontScopes.KEY))values.putString(key,"{\"network_type\":\"pingfang\"}");
+            else values.putFloat(key,150);
+            rig.flow.configure(values);rig.pass();
+            near(10,screenX(rig.mobile)-(screenX(rig.wifi)+10),"hidden label typography/size change releases obsolete forty-pixel budget: "+key);
+            for(int i=0;i<3;i++){rig.pass();near(10,screenX(rig.mobile)-(screenX(rig.wifi)+10),"released hidden budget remains stable: "+key);}
+            rig.mode(false);rig.backend.captureNativeFragments(true,26);rig.pass();
+            near(26,screenX(rig.signal)-screenX(rig.label),"new visible label supplies its current measured width: "+key);
+            rig.mode(true);rig.pass();near(13,screenX(rig.mobile)-(screenX(rig.wifi)+10),"Wi-Fi retains only the newly measured label width: "+key);
+            rig.ownership();rig.flow.releaseRuntime();
+        }
+    }
+    private static void hiddenLabelInactiveEdits() throws Exception {
+        for(boolean active:new boolean[]{false,true}){
+            Rig rig=new Rig(400);Bundle values=settings("right",true);
+            values.putFloat(StatusBarLayoutSettings.key("wifi","margin_left"),0);values.putFloat(StatusBarLayoutSettings.key("wifi","margin_right"),0);
+            values.putBoolean("label_enabled",true);values.putBoolean("wifi_enabled",true);
+            values.putBoolean("label_text_style_enabled",active);values.putBoolean("label_size_enabled",active);values.putBoolean("wifi_size_enabled",active);values.putBoolean("font_enabled",false);
+            rig.flow.configure(values);rig.mode(false);rig.backend.captureNativeFragments(true,40);rig.pass();
+            check("ready".equals(rig.flow.reason(rig.root))&&rig.backend.target!=null,"saved-value fixture enters real shared flow");
+            rig.mode(true);rig.pass();near(20,screenX(rig.mobile)-(screenX(rig.wifi)+10),"saved-value fixture retains hidden forty-pixel label");
+            for(String key:new String[]{StatusBarSettings.SLOT_WIDTH,StatusBarSettings.FONT_WEIGHT,StatusBarSettings.LABEL_SCALE,StatusBarSettings.WIFI_ICON_SCALE,
+                    StatusBarSettings.FONT_MODE,StatusBarSettings.FONT_REVISION,FontScopes.KEY}){
+                if(key.equals(StatusBarSettings.SLOT_WIDTH))values.putFloat(key,active?80:60);
+                else if(key.equals(StatusBarSettings.FONT_WEIGHT))values.putInt(key,active?600:900);
+                else if(key.equals(StatusBarSettings.LABEL_SCALE)||key.equals(StatusBarSettings.WIFI_ICON_SCALE))values.putInt(key,active?100:250);
+                else if(key.equals(StatusBarSettings.FONT_MODE))values.putString(key,"pingfang");
+                else if(key.equals(StatusBarSettings.FONT_REVISION))values.putString(key,"c".repeat(64));
+                else values.putString(key,"{\"network_type\":\"pingfang\"}");
+                rig.flow.configure(values);rig.pass();
+                near(20,screenX(rig.mobile)-(screenX(rig.wifi)+10),(active?"equivalent effective default or disabled font":"disabled size/style/font saved edit")+" preserves hidden width: "+key);
+                rig.pass();near(20,screenX(rig.mobile)-(screenX(rig.wifi)+10),"unchanged effective sizing stays stable: "+key);
+            }
+            rig.ownership();rig.flow.releaseRuntime();
+        }
+    }
+    private static void nativeContentMeasureScope() throws Exception {
+        Rig rig = new Rig(400); rig.flow.configure(settings("right", true)); rig.mode(false); rig.pass();
+        StatusBarFlowCallbacks callbacks = new StatusBarFlowCallbacks(rig.flow);
+        for (boolean fail : new boolean[]{false, true}) {
+            RuntimeException expected = new RuntimeException("native measure failed");
+            try {
+                callbacks.dispatch(rig.root, true, () -> {
+                    check(rig.bridge.nativeMeasuring(rig.mobile), "actual root measure owns fresh native constraints");
+                    callbacks.dispatch(rig.root, true, () -> {
+                        check(rig.bridge.nativeMeasuring(rig.mobile), "inherited nested measure keeps the outer native scope"); return null;
+                    });
+                    check(rig.bridge.nativeMeasuring(rig.mobile), "nested return does not release the real outer measure");
+                    if (fail) throw expected;
+                    return null;
+                });
+                check(!fail, "failing native call propagates its original exception");
+            } catch (Throwable failure) { check(fail && failure == expected, "original native failure is preserved"); }
+            check(!rig.bridge.nativeMeasuring(rig.mobile), "native constraint ownership ends on normal and exceptional returns");
+            near(0, rig.backend.hullDepth, "native callback leaves no owned hull measure open");
+        }
+        try { callbacks.dispatch(rig.root, false, () -> {
+            check(!rig.bridge.nativeMeasuring(rig.mobile), "layout-only capsule callbacks cannot overwrite native content constraints"); return null;
+        }); } catch (Throwable failure) { throw new AssertionError(failure); }
+    }
     public static void main(String[] arguments) throws Exception {
         if (arguments.length == 1 && arguments[0].equals("disable")) disableAndMeasure();
         else if (arguments.length == 1 && arguments[0].equals("fallback")) fallback();
@@ -1011,6 +1127,11 @@ public final class StatusBarSharedSlotFlowCheck {
         else if (arguments.length == 1 && arguments[0].equals("fragment-refresh")) nativeFragmentWidthRefreshesUnchangedHost();
         else if (arguments.length == 1 && arguments[0].equals("height-zero")) unresolvedSharedHostHeight();
         else if (arguments.length == 1 && arguments[0].equals("height-restore")) restoringOwnedWidthKeepsNativeHeight();
+        else if (arguments.length == 1 && arguments[0].equals("shared-x")) { sharedHorizontalPosition(); sharedHorizontalMasters(); }
+        else if (arguments.length == 1 && arguments[0].equals("shared-x-masters")) sharedHorizontalMasters();
+        else if (arguments.length == 1 && arguments[0].equals("hidden-label-width")) { hiddenLabelWidthInvalidation();hiddenLabelInactiveEdits(); }
+        else if (arguments.length == 1 && arguments[0].equals("hidden-label-inactive")) hiddenLabelInactiveEdits();
+        else if (arguments.length == 1 && arguments[0].equals("content-scope")) nativeContentMeasureScope();
         else {
             for (int direction : new int[]{View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL})
                 for (String side : new String[]{"left", "right"}) switching(side, direction, true);
@@ -1026,6 +1147,7 @@ public final class StatusBarSharedSlotFlowCheck {
             measureWithoutLayoutCompletesNativeScope(); coordinatorVisibilityHasOneNativeCycle(); nativeOnlyEligibilityRequestsOneRootLayout();
             bothRadiosOffRemovesSharedBudget(); nativeFragmentWidthRefreshesUnchangedHost();
             unresolvedSharedHostHeight(); restoringOwnedWidthKeepsNativeHeight();
+            sharedHorizontalPosition(); sharedHorizontalMasters();hiddenLabelWidthInvalidation();hiddenLabelInactiveEdits();nativeContentMeasureScope();
         }
         System.out.println("StatusBarSharedSlotFlowCheck: " + checks + " checks passed");
     }

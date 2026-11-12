@@ -22,14 +22,14 @@ public final class Upgrade144Check {
     private static Map<String, Object> wire(Bundle snapshot, int schema) {
         Map<String, Object> result = new LinkedHashMap<>();
         for (String key : snapshot.keySet()) result.put(key, snapshot.get(key));
-        if(schema<37)for(String key:Upgrade169.DEFAULTS.keySet())result.remove(key); if(schema<38)for(String key:Upgrade171.DEFAULTS.keySet())result.remove(key); if(schema<39)for(String key:Upgrade172.DEFAULTS.keySet())result.remove(key); if(schema<40)for(String key:Upgrade173.DEFAULTS.keySet())result.remove(key); if(schema<41)for(String key:Upgrade174.DEFAULTS.keySet())result.remove(key); if(schema<42)for(String key:Upgrade175.DEFAULTS.keySet())result.remove(key); if(schema<44)for(String key:Upgrade184.DEFAULTS.keySet())result.remove(key); if(schema<45)for(String key:Upgrade185.DEFAULTS.keySet())result.remove(key); if(schema<46)for(String key:Upgrade186.DEFAULTS.keySet())result.remove(key); if(schema<47)for(String key:Upgrade187.DEFAULTS.keySet())result.remove(key); if(schema<48)for(String key:Upgrade188.DEFAULTS.keySet())result.remove(key); if(schema<43)for(String key:Upgrade177.DEFAULTS.keySet())result.remove(key); if(schema<36)for(String key:Upgrade168.DEFAULTS.keySet())result.remove(key); if(schema<35)for(String key:Upgrade166.DEFAULTS.keySet())result.remove(key); if(schema<34)for(String key:Upgrade160.DEFAULTS.keySet())result.remove(key); if(schema<33)for(String key:Upgrade157.DEFAULTS.keySet())result.remove(key); if(schema<32)for(String key:Upgrade154.DEFAULTS.keySet())result.remove(key); if (schema < 31) for (String key : Upgrade146.DEFAULTS.keySet()) result.remove(key);
+        if(schema<37)for(String key:Upgrade169.DEFAULTS.keySet())result.remove(key); if(schema<38)for(String key:Upgrade171.DEFAULTS.keySet())result.remove(key); if(schema<39)for(String key:Upgrade172.DEFAULTS.keySet())result.remove(key); if(schema<40)for(String key:Upgrade173.DEFAULTS.keySet())result.remove(key); if(schema<41)for(String key:Upgrade174.DEFAULTS.keySet())result.remove(key); if(schema<42)for(String key:Upgrade175.DEFAULTS.keySet())result.remove(key); if(schema<44)for(String key:Upgrade184.DEFAULTS.keySet())result.remove(key); if(schema<45)for(String key:Upgrade185.DEFAULTS.keySet())result.remove(key); if(schema<46)for(String key:Upgrade186.DEFAULTS.keySet())result.remove(key); if(schema<47)for(String key:Upgrade187.DEFAULTS.keySet())result.remove(key); if(schema<48)for(String key:Upgrade188.DEFAULTS.keySet())result.remove(key); if(schema<49)for(String key:Upgrade195.DEFAULTS.keySet())result.remove(key); if(schema<50)for(String key:Upgrade196.DEFAULTS.keySet())result.remove(key); if(schema<52)for(String key:Upgrade279.DEFAULTS.keySet())result.remove(key); if(schema<51)for(String key:Upgrade209.DEFAULTS.keySet())result.remove(key); if(schema<43)for(String key:Upgrade177.DEFAULTS.keySet())result.remove(key); if(schema<36)for(String key:Upgrade168.DEFAULTS.keySet())result.remove(key); if(schema<35)for(String key:Upgrade166.DEFAULTS.keySet())result.remove(key); if(schema<34)for(String key:Upgrade160.DEFAULTS.keySet())result.remove(key); if(schema<33)for(String key:Upgrade157.DEFAULTS.keySet())result.remove(key); if(schema<32)for(String key:Upgrade154.DEFAULTS.keySet())result.remove(key); if (schema < 31) for (String key : Upgrade146.DEFAULTS.keySet()) result.remove(key);
         if (schema < 30) for (String key : Upgrade144.DEFAULTS.keySet()) result.remove(key);
         result.put(SettingsFrameworkMirror.SCHEMA, schema);
         result.put(SettingsFrameworkMirror.REVISION, 144L);
         return result;
     }
     private static void mirrors() {
-        equal(48,SettingsFrameworkMirror.VERSION, "current wire schema");
+        equal(52,SettingsFrameworkMirror.VERSION, "current wire schema");
         equal(36, Upgrade144.DEFAULTS.size(), "one master, eight outer elements and three inner label fields");
         Map<String, Object> source = new LinkedHashMap<>();
         source.put(StatusBarSettings.CLOCK_OFFSET_X, -5.25f);
@@ -137,7 +137,7 @@ public final class Upgrade144Check {
             equal(true, NumericPolicy.signed(gap.key), "physical gap is signed " + token);
         }
         for (String key : new String[]{StatusBarSettings.CLOCK_OFFSET_X, ClockLayoutSettings.DUAL_OFFSET_X,
-                StatusBarSettings.BATTERY_OFFSET_X, StatusBarSettings.SPEED_OFFSET_X, StatusBarSettings.WIFI_OFFSET_X,
+                StatusBarSettings.BATTERY_OFFSET_X, StatusBarSettings.SPEED_OFFSET_X,
                 StatusBarSettings.DATA_OFFSET_X, StatusBarSettings.LABEL_OFFSET_X, NotificationIconArea.X, NativeStatusIcons.X,
                 SpeedPosition.POSITION, SpeedPosition.SAFE_GAP, SpeedPosition.SAFE_GAP_ENABLED, SpeedPosition.EDGE_RESERVE,
                 ClockLayoutSettings.MARGIN_START, ClockLayoutSettings.MARGIN_END, ClockLayoutSettings.MARGIN_ENABLED, NetworkIconOrder.SWAP}) {
@@ -145,6 +145,13 @@ public final class Upgrade144Check {
             equal(true, ConfigTransfer.types().containsKey(key), "legacy import/export type retained " + key);
             equal(true, SettingsCatalog.hiddenKeys().contains(key), "legacy uncovered-key check excludes " + key);
         }
+        equal("network",SettingsCatalog.item(StatusBarSettings.WIFI_OFFSET_X).groupId,"shared horizontal position has one network editor");
+        equal(true,ConfigTransfer.types().containsKey(StatusBarSettings.WIFI_OFFSET_X),"shared position reuses the existing portable key");
+        Map<String,Object> sharedPosition=new LinkedHashMap<>();
+        sharedPosition.put(StatusBarLayoutSettings.WIFI_LABEL_SHARED,false);
+        equal(true,!SettingsCatalog.unavailableReason(StatusBarSettings.WIFI_OFFSET_X,sharedPosition).isEmpty(),"independent mode keeps legacy horizontal drawing retired");
+        sharedPosition.put(StatusBarLayoutSettings.WIFI_LABEL_SHARED,true);
+        equal("",SettingsCatalog.unavailableReason(StatusBarSettings.WIFI_OFFSET_X,sharedPosition),"shared mode exposes its planner-owned horizontal position");
         equal(true, SettingsCatalog.item(StatusBarSettings.CLOCK_OFFSET_Y) != null, "vertical adjustment remains reachable");
         equal(true, SettingsCatalog.item(BatteryTextStyle.X) != null, "battery inner text X remains reachable");
         equal(true, SettingsCatalog.item(NativeDataActivity.X) != null, "activity inner X remains reachable");

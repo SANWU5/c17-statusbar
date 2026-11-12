@@ -25,6 +25,8 @@ final class IconNativeControlCenter {
     static final String DETAIL_BRIGHTNESS="com.oplus.systemui.qs.slider.OplusQsDetailHookClipBrightnessView";
     static final String VOLUME="com.oplus.systemui.qs.base.seek.OplusQsVolumeIconView";
     static final String VOLUME_STATE="com.android.systemui.plugins.qs.QSVolume$VolumeState";
+    private static final String LOTTIE="com.airbnb.lottie.LottieDrawable";
+    private static final String VOLUME_COLORS="com.oplus.systemui.qs.base.tile.QSLottieAnimationView$ColorfulConfig";
     static final String MEDIA="com.oplus.systemui.qs.media.OplusQsBaseMediaPanelView";
     static final String BUTTON="com.oplus.systemui.qs.media.OplusLottieButton";
     static final String PLAY_PAUSE="com.oplus.systemui.qs.media.OplusQsPlayPauseButton";
@@ -248,6 +250,9 @@ final class IconNativeControlCenter {
         int pixels=extent(owner,nativeGraphic);
         if(binding.requestedPixels!=pixels){graphics.request(owner,binding.role,pixels);binding.requestedPixels=pixels;}
         long tint=nativeColor(owner,nativeGraphic);
+        // A Lottie palette is not exposed by Drawable.getColorFilter(). If its
+        // audited native state is unavailable, keep that native drawing intact.
+        if(tint==Long.MIN_VALUE&&type(owner,VOLUME)&&type(nativeGraphic,LOTTIE)){restore(binding);return;}
         if(current==binding.applied.get()){
             if(current!=nativeGraphic&&tint!=Long.MIN_VALUE&&tint!=binding.tint){graphics.nativeTint(current,(int)tint);binding.tint=tint;}return;
         }
@@ -336,7 +341,51 @@ final class IconNativeControlCenter {
         }
         if(view instanceof ImageView){ColorStateList colors=((ImageView)view).getImageTintList();
             if(colors!=null)return colors.getColorForState(view.getDrawableState(),colors.getDefaultColor())&0xffffffffL;}
-        return Long.MIN_VALUE;
+        return volumeLottieColor(view,drawable);
+    }
+    private long volumeLottieColor(View view,Drawable drawable){
+        if(!type(view,VOLUME)||!type(drawable,LOTTIE)||read(view,"lottieDrawable")!=drawable
+                ||!Boolean.FALSE.equals(call(view,"isAnimating")))return Long.MIN_VALUE;
+        Object state=read(view,"qsVolumeState"),icon=read(view,"currentIconState");
+        if(!type(state,VOLUME_STATE))return Long.MIN_VALUE;
+        Integer route=integer(call(state,"getRoute")),level=integer(call(state,"getLevel"));
+        if(route==null||level==null||level<0||!Boolean.FALSE.equals(call(state,"getZenMuted")))return Long.MIN_VALUE;
+        boolean bluetooth=route==1;
+        if(!bluetooth&&route!=2||!type(icon,VOLUME+(bluetooth?"$bluetoothRouteIconState$1":"$normalRouteIconState$1"))
+                ||read(icon,"this$0")!=view||!Boolean.FALSE.equals(read(icon,"isGlobalTheme"))
+                ||!level.equals(integer(read(icon,"lastLevel"))))return Long.MIN_VALUE;
+        Object above=read(icon,"aboveThreshold");
+        if(!(above instanceof Boolean)||level==0&&Boolean.TRUE.equals(above)
+                ||bluetooth&&!Boolean.valueOf(level==0).equals(read(icon,"isMuted")))return Long.MIN_VALUE;
+        Object asset=read(icon,"currentAsset"),config=read(icon,"colorfulConfig");
+        if(!(asset instanceof String)||!asset.equals(read(view,"assetFileName"))||!volumeAsset((String)asset,bluetooth)
+                ||!type(config,VOLUME_COLORS)||config!=read(view,"colorfulConfig"))return Long.MIN_VALUE;
+        Integer start=integer(read(icon,"currentStartFrame")),end=integer(read(icon,"currentEndFrame")),frame=integer(call(view,"getFrame"));
+        Object speed=read(icon,"currentSpeed"),actualSpeed=call(view,"getSpeed");
+        if(start==null||end==null||frame==null||start<0||end<=start||!(speed instanceof Float)||!speed.equals(actualSpeed)
+                ||!Float.isFinite((Float)speed)||(Float)speed==0f)return Long.MIN_VALUE;
+        boolean reversed=(Float)speed<0f;Object limit=call(view,reversed?"getMinFrame":"getMaxFrame");
+        if(!(limit instanceof Float)||!Float.isFinite((Float)limit))return Long.MIN_VALUE;
+        float edge=(Float)limit;
+        // Lottie's inclusive int end becomes end+.99, then its composition
+        // out-point may clamp it (36 becomes 35.99). Use that native bound.
+        if((reversed?edge<start||edge>=start+1f:edge>=end+1f||edge<=end-1f)||frame.intValue()!=(int)edge)return Long.MIN_VALUE;
+        Integer first=integer(call(config,"getStartColor")),last=integer(call(config,"getEndColor"));
+        if(first==null||last==null||first==0||last==0)return Long.MIN_VALUE;
+        // These are the startFill/endFill palettes, not chronological endpoints.
+        // A reversed open ends on startFill; Bluetooth close swaps its palettes.
+        int color=Boolean.TRUE.equals(above)||bluetooth&&level==0?last:first;
+        // Native FillContent/StrokeContent replace the palette's alpha with
+        // their opacity. The OEM view and drawable still own that opacity here.
+        return (color|0xff000000)&0xffffffffL;
+    }
+    private static boolean volumeAsset(String asset,boolean bluetooth){
+        if(bluetooth)return asset.equals("volumeui/ic_qs_volume_media_bt_open_night.json")
+                ||asset.equals("volumeui/ic_qs_volume_media_bt_close_night.json");
+        String[] names={"ic_qs_volume_media","ic_qs_volume_media_grade_0_to_2","ic_qs_volume_media_grade_0_to_3",
+                "ic_qs_volume_media_grade_2_to_0","ic_qs_volume_media_grade_3_to_0"};
+        for(String name:names)if(asset.equals("volumeui/"+name+"_night.json")||asset.equals("volumeui/"+name+"_gauss_night.json"))return true;
+        return false;
     }
     private static Integer integer(Object value){return value instanceof Integer?(Integer)value:null;}
     private static boolean type(Object object,String name){

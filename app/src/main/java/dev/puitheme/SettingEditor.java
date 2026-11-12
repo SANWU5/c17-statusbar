@@ -36,6 +36,10 @@ public final class SettingEditor {
         return new BigDecimal(Float.toString(value)).stripTrailingZeros().toPlainString();
     }
     public static String formatted(SettingsCatalog.Item item,Object value){
+        if(PrivacyIndicatorSettings.DURATION.equals(item.key)&&value instanceof Number){
+            float seconds=((Number)value).floatValue();
+            if(!(seconds>0f)||seconds>=PrivacyIndicatorSettings.CONTINUOUS)return "一直显示";
+        }
         String text=valueText(value);
         return text+(item.unit.isEmpty()?"":" "+item.unit);
     }
@@ -66,7 +70,7 @@ public final class SettingEditor {
     public static String context(SettingsCatalog.Item item){
         SettingsCatalog.Group group=SettingsCatalog.group(item.groupId);
         String title=group==null?item.groupId:group.title;
-        if("native_network_badge".equals(item.groupId)) {
+        if("native_network_badge".equals(SettingsCatalog.networkOwner(item.key))) {
             if(item.key.startsWith(NativeNetworkBadgeSettings.PART_ONE+"_"))title+=" · 角标1";
             else if(item.key.startsWith(NativeNetworkBadgeSettings.PART_TWO+"_"))title+=" · 角标2";
         }
@@ -82,7 +86,7 @@ public final class SettingEditor {
                 ?"网络制式始终跟随蜂窝区域。0 跟随系统，1 在信号前，2 在信号后；不会强制显示被系统隐藏的制式。"
                 :"同一区域按物理从左到右排列。0 跟随系统；1 起按序号排列，同号保留原生先后。只能使用非负整数，保存不会自动开启布局。";
         if(StatusBarLayoutSettings.marginKey(key))return (StatusBarSettings.bool(values,StatusBarLayoutSettings.WIFI_LABEL_SHARED)
-                &&("wifi".equals(item.groupId)||"label".equals(item.groupId))?"Wi-Fi 与网络制式共用此间距，在任一页面调整都会同步。关闭共用后恢复各自设置。\n":"")
+                &&("wifi".equals(SettingsCatalog.networkOwner(key))||"label".equals(SettingsCatalog.networkOwner(key)))?"Wi-Fi 与网络制式共用此间距。关闭共用后恢复各自设置。\n":"")
                 +"相对元素的原生边界调整留白，左右指屏幕物理左右。正数增加、负数收紧，0 保留原生留白；元素仍参与原生动画。边距独立于排序和样式开关。\n支持正负小数和科学计数法，滑块建议范围不限制手动输入。建议范围外先试用20秒，未确认自动恢复；实际布局仍受物理保护。旧水平偏移保留，边距生效时不再叠加。";
         if(QsTileCorners.RADIUS.equals(key))return "统一调整磁贴、音乐、亮度、音量与设备卡片的圆角。0 为直角，允许 0～"+number(QsTileCorners.MAX_RADIUS)+" dp；手动输入的小数不按滑块步长取整。\n建议范围内直接保存，不自动开启功能。";
         if(NotificationIconArea.MAX_COUNT.equals(key))return "仅用于原生通知图标，必须为非负整数。0 表示不显示图标，不删除通知；可超过滑块建议数量。\n建议范围内直接保存；范围外先试用20秒，确认后保存。";
@@ -95,11 +99,15 @@ public final class SettingEditor {
         if(NotificationBigClockSettings.VISIBLE_COUNT.equals(key))return "设置通知堆叠中完整显示的通知数量，填写 1 到 2147483647 的整数；建议 1～5，可超过建议值。超过实际通知数量时全部正常显示，不生成额外通知。\n建议范围内直接保存；范围外先试用20秒，未确认自动恢复。";
         String detail;
         if(key.endsWith("_weight")||StatusBarSettings.FONT_WEIGHT.equals(key))detail=weightDescription(item,values);
+        else if(NotificationBigClockSettings.NOTIFICATION_GAP.equals(key))detail="从时间、日期与组件的实际底边调整首张通知的距离，正值增加留白，负值允许向上重叠；开启或关闭回弹均可使用。需开启自动保留距离，通知进入顶部边缘时沿用模糊与渐隐设置。";
+        else if(NotificationBigClockSettings.NOTIFICATION_EDGE_SAFE_DISTANCE.equals(key))detail="相对时钟实际底边调整通知保持清晰的起点，负值把现有模糊与渐隐过渡向上移入时钟区域；开启或关闭回弹均可使用。状态栏和屏幕开孔安全区仍受保护。";
         else if(FluidCloudStyle.NOTIFICATION_FOLLOW_OPACITY.equals(key))detail="锁屏与 AOD 里普通通知的着色浓度，相对流体云卡片：100% 与它们完全一致（用本页的填充透明度，开了锁屏自定义则用锁屏的值），调低则普通通知更淡。";
         else if(SpeedPosition.EDGE_RESERVE.equals(key))detail="信号和 Wi-Fi 的固定预留区域。启用网速位置调整或相邻距离后，网速相对所选区域定位，Wi-Fi、数据状态不改变位置，水平偏移为 0 时也生效。0 表示不预留；实际图标更宽时仍保持位置，若重叠请调大。时钟左右位置跟随时钟边缘，不使用这段预留。";
         else if(SpeedPosition.SAFE_GAP.equals(key))detail="网速与所选固定预留区域或时钟边缘的距离：0 dp 贴边，负数靠近并允许重叠，正数拉开。当前信号图案变宽不会推动网速。需开启“与相邻图标保持距离”；开启后原水平偏移值不生效，关闭后恢复。";
-        else if(key.endsWith("offset_x"))detail=positionDescription(item,true);
-        else if(key.endsWith("offset_y"))detail=positionDescription(item,false);
+        else if(key.endsWith("offset_x")||key.endsWith("offset_y"))detail=(StatusBarLayoutSettings.sharedPositionKey(key)
+                &&StatusBarSettings.bool(values,StatusBarLayoutSettings.WIFI_LABEL_SHARED)
+                ?"Wi-Fi 与网络制式共用水平、垂直位置和位置开关；大小和自定义功能开关各自独立。关闭共用后恢复各自位置。\n":"")
+                +positionDescription(item,key.endsWith("offset_x"));
         else if("em".equals(item.unit))detail="按字号比例调整字距：1 em 等于当前字号，正值放宽、负值收紧，0 不额外调整。";
         else if(key.endsWith("_spacing"))detail="在原生字距上增加或减少所填距离，正值放宽、负值收紧，0 不额外调整。";
         else if(key.endsWith("_line_gap"))detail="调整数字与单位之间的距离，支持正负值，0 不额外增加间距。";
@@ -121,7 +129,7 @@ public final class SettingEditor {
     private static String weightDescription(SettingsCatalog.Item item,Map<String,?> values){
         String mode;
         if("battery".equals(item.groupId))mode="native";
-        else if("native_network_badge".equals(item.groupId))mode=StatusBarSettings.string(values,
+        else if("native_network_badge".equals(SettingsCatalog.networkOwner(item.key)))mode=StatusBarSettings.string(values,
                 item.key.startsWith(NativeNetworkBadgeSettings.PART_ONE+"_")?NativeNetworkBadgeSettings.key(1,"font"):
                 item.key.startsWith(NativeNetworkBadgeSettings.PART_TWO+"_")?NativeNetworkBadgeSettings.key(2,"font"):NativeNetworkBadgeControls.FONT);
         else if(item.groupId.startsWith("notification_big_clock"))mode=StatusBarSettings.string(values,
@@ -130,7 +138,7 @@ public final class SettingEditor {
         else mode=StatusBarSettings.bool(values,"font_enabled")?StatusBarSettings.string(values,StatusBarSettings.FONT_MODE):"system";
         if("global".equals(mode))mode=StatusBarSettings.bool(values,"font_enabled")?StatusBarSettings.string(values,StatusBarSettings.FONT_MODE):"system";
         String revision=StatusBarSettings.string(values,StatusBarSettings.FONT_REVISION);
-        String scope=fontScope(item.groupId);
+        String scope=fontScope("network".equals(item.groupId)?SettingsCatalog.networkOwner(item.key):item.groupId);
         if(scope!=null&&FeatureOptions.from(values).enabled("font"))try{
             String assigned=FontScopes.assignment(values,scope);
             if(assigned!=null){mode=FontScopes.mode(assigned);revision=FontScopes.revision(assigned);}
@@ -172,11 +180,15 @@ public final class SettingEditor {
                 +"上午/下午：a 或 {上午下午}\n"
                 +"时段：{时段}，按时间显示 凌晨、早晨、上午、中午、下午、晚上\n"
                 +"星期：{周} 周三 · {星期} 星期三，也可写 E（周三）、EEEE（星期三）\n"
+                +"英文星期：{星期英文简} Wed · {星期英文} Wednesday；{星期英文简大写} WED · {星期英文大写} WEDNESDAY；{星期英文简小写} wed · {星期英文小写} wednesday\n"
+                +"英文月份：{月份英文简} Oct · {月份英文} October；{月份英文简大写} OCT · {月份英文大写} OCTOBER；{月份英文简小写} oct · {月份英文小写} october\n"
+                +"英文上午/下午：{AMPM} AM/PM · {ampm} am/pm；英文时段：{英文时段} Noon · {英文时段大写} NOON · {英文时段小写} noon\n"
+                +"中文、英文与数字可自由组合，不改变系统语言；{时段} 仍按原规则显示中午。\n"
                 +"农历：{农历} 农历八月廿六 · {农历日期} 八月廿六 · {干支} 丙午年\n"
                 +(footer?"底部文字：{text} 或 {文本}，插入上面已设置的底部文字，不会被当作格式\n":"")
                 +"含秒（s、ss 或 {秒}）时每秒刷新一次。\n"
                 +"固定文字放在成对的单引号里，例如 'C17' HH:mm；中文和符号可直接写。\n"
-                +"示例：HH:mm:ss → 08:03:09；M月d日 {周} {时段} HH:mm → 10月7日 周三 早晨 08:03\n"
+                +"示例：HH:mm:ss → 08:03:09；{星期英文简} HH:mm → Wed 08:03；{时段} HH:mm {星期英文简} → 早晨 08:03 Wed\n"
                 +"最多"+TimeFormat.MAX_PATTERN+"个字符，单行；写错时预览会显示原因，保存前也会检查。";
     }
     /** What a left/right component may contain; every token listed is resolved by BigClockTextContent. */
@@ -213,9 +225,23 @@ public final class SettingEditor {
             values=new String[]{"HH:mm","HH:mm:ss","hh:mm","M月d日 {周}","M月d日 {周} HH:mm","yyyy年M月d日 {星期}","{时段} HH:mm","MM/dd HH:mm"};
             labels=new String[]{"时分 · 24 小时","时分秒","时分 · 12 小时","月日与星期","月日、星期与时间","完整日期与星期","时段与时间","短日期与时间"};
         }
-        String[][] result=new String[values.length][];
-        for(int i=0;i<values.length;i++)result[i]=new String[]{values[i],i<labels.length?labels[i]:values[i]};
-        return result;
+        // Keep the existing presets and append independently composable choices.
+        // The footer's text marker stays in its examples; no saved format changes.
+        java.util.LinkedHashMap<String,String> result=new java.util.LinkedHashMap<>();
+        for(int i=0;i<values.length;i++)result.put(values[i],i<labels.length?labels[i]:values[i]);
+        boolean footer=NotificationBigClockSettings.FOOTER_PATTERN.equals(NotificationBigClockSettings.portraitKey(item.key));
+        String suffix=footer?" {text}":"";
+        result.putIfAbsent("{时段} HH:mm"+suffix,"中文：时段与时间");
+        result.putIfAbsent("M月d日 {星期} HH:mm"+suffix,"中文：日期、星期与时间");
+        result.putIfAbsent("{星期英文简} HH:mm"+suffix,"英文：星期简称与时间");
+        result.putIfAbsent("{星期英文} HH:mm"+suffix,"英文：星期全称与时间");
+        result.putIfAbsent("{月份英文简} d {星期英文简}"+suffix,"英文：月份与星期");
+        result.putIfAbsent("{英文时段} hh:mm {AMPM}"+suffix,"英文：时段与 12 小时");
+        result.putIfAbsent("{时段} HH:mm {星期英文简}"+suffix,"组合：中文时段与英文星期");
+        result.putIfAbsent("M月d日 {星期英文简} HH:mm"+suffix,"组合：中文日期与英文星期");
+        String[][] choices=new String[result.size()][];int index=0;
+        for(Map.Entry<String,String> entry:result.entrySet())choices[index++]=new String[]{entry.getKey(),entry.getValue()};
+        return choices;
     }
     /** Live result of a format for the editor, or the reason it cannot be saved. Empty when the field is not a format. */
     public static CharSequence preview(SettingsCatalog.Item item,String input){

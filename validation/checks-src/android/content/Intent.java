@@ -1,9 +1,13 @@
 package android.content;
 public class Intent {
+    public static final int FLAG_GRANT_READ_URI_PERMISSION=1;
     public static final String ACTION_VIEW="android.intent.action.VIEW",ACTION_MAIN="android.intent.action.MAIN",
         ACTION_BATTERY_CHANGED="android.intent.action.BATTERY_CHANGED",
         CATEGORY_APP_CALENDAR="android.intent.category.APP_CALENDAR",CATEGORY_LAUNCHER="android.intent.category.LAUNCHER",
-        ACTION_CONFIGURATION_CHANGED="android.intent.action.CONFIGURATION_CHANGED";
+        ACTION_CONFIGURATION_CHANGED="android.intent.action.CONFIGURATION_CHANGED",
+        ACTION_USER_UNLOCKED="android.intent.action.USER_UNLOCKED",
+        ACTION_LOCKED_BOOT_COMPLETED="android.intent.action.LOCKED_BOOT_COMPLETED",
+        ACTION_BOOT_COMPLETED="android.intent.action.BOOT_COMPLETED";
     public static final int FLAG_ACTIVITY_NEW_TASK=0x10000000,FLAG_ACTIVITY_CLEAR_TOP=0x04000000,
         FLAG_ACTIVITY_SINGLE_TOP=0x20000000,FLAG_ACTIVITY_CLEAR_TASK=0x00008000;
     public static final String ACTION_PACKAGE_ADDED="android.intent.action.PACKAGE_ADDED",

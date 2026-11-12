@@ -30,12 +30,14 @@ public final class NativeXRebaseCheck {
         final Resources resources=new Resources(){
             @Override public int getIdentifier(String name,String type,String pkg){resourceLookups++;return "status_bar_view_state_tag".equals(name)?lookupTag:0;}
         };
-        int direction,writes;
+        int direction,writes,renderedVisible,visibleWrites;
         boolean cachedVisible=true,blocked;
         Icon(){super(new Context());}
         public String getSlot(){return "wifi";}
         public boolean isIconVisible(){return cachedVisible;}
         public boolean isIconBlocked(){return blocked;}
+        public int getVisibleState(){return renderedVisible;}
+        public void setVisibleState(int state,boolean animate){if(animate)throw new AssertionError("partial visibility starts no icon animation");renderedVisible=state;visibleWrites++;}
         @Override public Object getTag(int key){return tags.get(key);}
         @Override public void setTag(int key,Object value){if(value==null)tags.remove(key);else tags.put(key,value);}
         @Override public Resources getResources(){return resources;}
@@ -76,6 +78,59 @@ public final class NativeXRebaseCheck {
             icon.setTag(ViewState.TAG_START_TRANSLATION_X,10f);icon.setTag(ViewState.TAG_END_TRANSLATION_X,20f);
             icon.setTag(ViewState.TAG_ANIMATOR_TRANSLATION_X,animator);animator.start();animator.setCurrentPlayTime(time);
         }
+    }
+    private static void missingGeometryContract() throws Exception {
+        Rig missing=new Rig();
+        ClassLoader noXHelper=new ClassLoader(NativeXRebaseCheck.class.getClassLoader()){
+            @Override public Class<?> loadClass(String name)throws ClassNotFoundException{
+                if(name.equals("com.android.systemui.statusbar.notification.stack.ViewState"))throw new ClassNotFoundException(name);
+                return super.loadClass(name);
+            }
+        };
+        missing.flow.resolve(noXHelper);
+        Field accessField=StatusBarFlowLayout.class.getDeclaredField("access");accessField.setAccessible(true);
+        StatusBarFlowLayout.NativeAccess nativeAccess=(StatusBarFlowLayout.NativeAccess)accessField.get(missing.flow);
+        check(!nativeAccess.geometrySupported(),"missing native X-only contract explicitly declines Flow geometry");
+        missing.icon.setTranslationX(missing.state.getXTranslation());
+        missing.state.justAdded=true;missing.state.qsExpansionTransitioning=true;
+        check(nativeAccess.canRebase(missing.state,missing.icon,0f,0f,0f),"a zero frame delta does not prove availability of a native X-only contract");
+        try{nativeAccess.applyGeometry(missing.state,missing.icon);}catch(IllegalStateException unsupported){checks++;}
+        check(missing.state.justAdded&&missing.state.qsExpansionTransitioning,"missing X helper cannot fall back to consuming a full native lifecycle even when X and widths already match");
+        check(missing.state.nativeXCallsForCheck==0,"missing X helper invokes no full native apply as a fallback");
+    }
+    public interface NoRendererContract {
+        String getSlot(); boolean isIconVisible(); boolean isIconBlocked();
+    }
+    private static void rendererVisibilityContract() throws Exception {
+        Rig rendered=new Rig();StatusBarFlowLayout.NativeAccess nativeAccess=(StatusBarFlowLayout.NativeAccess)rendered.access;
+        rendered.icon.setAlpha(0f);rendered.icon.setVisibility(View.INVISIBLE);
+        rendered.state.justAdded=true;rendered.state.qsExpansionTransitioning=true;
+        int expectedWrites=0,previous=0;
+        for(int target:new int[]{2,2,0,0}){
+            rendered.state.visibleState=target;nativeAccess.applyVisibility(rendered.state,rendered.icon);
+            if(target!=previous)expectedWrites++;previous=target;
+            check(rendered.icon.renderedVisible==target&&rendered.icon.visibleWrites==expectedWrites,"partial native visibility submits real renderer state and deduplicates equal destinations");
+            near(0f,rendered.icon.getAlpha(),"partial native visibility retains exact native View alpha zero");
+            check(rendered.icon.getVisibility()==View.INVISIBLE,"partial native visibility retains native View hidden state");
+            check(rendered.state.justAdded&&rendered.state.qsExpansionTransitioning&&rendered.state.nativeXCallsForCheck==0,
+                    "partial native visibility consumes no add/QS/X lifecycle");
+        }
+        Rig missing=new Rig();
+        ClassLoader noRenderer=new ClassLoader(NativeXRebaseCheck.class.getClassLoader()){
+            @Override public Class<?> loadClass(String name)throws ClassNotFoundException{
+                if(name.equals("com.android.systemui.statusbar.StatusIconDisplayable"))return NoRendererContract.class;
+                return super.loadClass(name);
+            }
+        };
+        missing.flow.resolve(noRenderer);
+        Field accessField=StatusBarFlowLayout.class.getDeclaredField("access");accessField.setAccessible(true);
+        StatusBarFlowLayout.NativeAccess unavailable=(StatusBarFlowLayout.NativeAccess)accessField.get(missing.flow);
+        check(!unavailable.geometrySupported(),"missing native renderer getter/setter declines Flow even if the X helper exists");
+        missing.state.justAdded=true;missing.state.qsExpansionTransitioning=true;
+        try{unavailable.applyVisibility(missing.state,missing.icon);throw new AssertionError("missing renderer contract accepted");}
+        catch(IllegalStateException expected){checks++;}
+        check(missing.state.justAdded&&missing.state.qsExpansionTransitioning&&missing.state.nativeXCallsForCheck==0&&missing.icon.visibleWrites==0,
+                "missing renderer contract invokes no full apply as a fallback");
     }
     private static final class Snapshot {
         final float stateX,distance,current;
@@ -127,6 +182,7 @@ public final class NativeXRebaseCheck {
         check(missing.icon.resourceLookups==2,"a recovered id has its own Resources cache entry");
     }
     public static void main(String[] ignored)throws Exception{
+        missingGeometryContract();rendererVisibilityContract();
         stateLookupBudget();
         check(!ViewState.NO_NEW_ANIMATIONS.getAnimationFilter().animateX,"native no-new-animation filter has animateX false");
         for(int direction:new int[]{View.LAYOUT_DIRECTION_LTR,View.LAYOUT_DIRECTION_RTL})
@@ -244,6 +300,22 @@ public final class NativeXRebaseCheck {
         Rig pausedTarget=new Rig();pausedTarget.animate(375);pausedTarget.animator.pause();Snapshot pausedBefore=new Snapshot(pausedTarget);
         pausedTarget.retarget();pausedBefore.unchanged(pausedTarget,"paused unsupported target remains untouched");
         Rig noCurve=new Rig();Snapshot noCurveBefore=new Snapshot(noCurve);noCurve.retarget();noCurveBefore.unchanged(noCurve,"no animator needs no retarget history override");
+        for(boolean qsPhase:new boolean[]{false,true})for(boolean addedIcon:new boolean[]{false,true}){
+            Rig geometry=new Rig();StatusBarFlowLayout.NativeAccess nativeAccess=(StatusBarFlowLayout.NativeAccess)geometry.access;
+            geometry.state.qsExpansionTransitioning=qsPhase;geometry.state.justAdded=addedIcon;
+            geometry.state.setAlpha(.37f,"native coordinator");geometry.icon.setAlpha(0f);geometry.icon.setVisibility(View.INVISIBLE);
+            float distance=geometry.state.distanceToViewEnd;
+            nativeAccess.applyGeometry(geometry.state,geometry.icon);
+            check(geometry.state.nativeXCallsForCheck==1,"root-only geometry invokes the inspected native X helper once");
+            near(205,geometry.icon.getTranslationX(),"root-only geometry commits its actual native X target");
+            near(0,geometry.icon.getAlpha(),"root-only geometry keeps exact native View alpha zero");
+            check(geometry.icon.getVisibility()==View.INVISIBLE,"root-only geometry keeps native View visibility");
+            near(.37f,geometry.state.getAlpha(),"root-only geometry keeps the native alpha state");
+            check(geometry.state.qsExpansionTransitioning==qsPhase&&geometry.state.justAdded==addedIcon,
+                    "root-only geometry cannot consume a native QS or add lifecycle");
+            near(addedIcon ? distance : geometry.parent.getWidth()-205-geometry.icon.getWidth(),
+                    geometry.state.distanceToViewEnd,"root-only geometry synchronizes its destination history but preserves an added-icon sentinel");
+        }
         for(boolean previous:new boolean[]{false,true})for(boolean successor:new boolean[]{false,true}){
             Rig deferred=new Rig();StatusBarFlowLayout.NativeAccess nativeAccess=(StatusBarFlowLayout.NativeAccess)deferred.access;
             deferred.state.qsExpansionTransitioning=previous;deferred.state.justAdded=true;deferred.state.setAlpha(.37f,"native coordinator");

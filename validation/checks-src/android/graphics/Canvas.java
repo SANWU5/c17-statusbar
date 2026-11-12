@@ -107,7 +107,7 @@ public class Canvas {
     public void concat(Matrix matrix){if(raster!=null)raster.concat(matrix);}
     public boolean clipPath(Path path){clips++;pathClips++;if(raster!=null)raster.clip(path);return true;}
     public int pathClips,outClips,circles;public float circleX,circleY,circleRadius;public int circleAlpha=-1;
-    public boolean clipOutPath(Path path){clips++;outClips++;return true;}
+    public boolean clipOutPath(Path path){clips++;outClips++;if(raster!=null)raster.clipOut(path);return true;}
     /** Recorded native-number exclusion; it is scoped by the caller's save/restore. */
     public int outRectClips,outRectSaveCount;
     public RectF lastOutRect;
@@ -124,6 +124,9 @@ public class Canvas {
         bitmapDraws++;drawnBitmapsForCheck.add(bitmap);bitmapLog.add(new BitmapDraw(bitmap,paint==null?255:paint.getAlpha(),paint!=null&&paint.mode instanceof PorterDuffXfermode&&((PorterDuffXfermode)paint.mode).mode==PorterDuff.Mode.ADD,source==null?null:new Rect(source.left,source.top,source.right,source.bottom),new RectF(dest.left,dest.top,dest.right,dest.bottom)));
         if(bitmapTarget==null)return;
         raster.bitmap(bitmap,source,dest,paint);
+    }
+    public void drawBitmap(Bitmap bitmap,Matrix matrix,Paint paint){
+        int saved=save();try{concat(matrix);drawBitmap(bitmap,null,new RectF(0,0,bitmap.getWidth(),bitmap.getHeight()),paint);}finally{restoreToCount(saved);}
     }
     public int paintFills;
     public int getWidth(){return bitmapTarget==null?clipBounds.width():bitmapTarget.getWidth();}

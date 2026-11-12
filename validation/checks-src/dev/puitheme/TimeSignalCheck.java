@@ -66,7 +66,52 @@ public final class TimeSignalCheck {
             equal("05:24",((android.widget.TextView)digits).getText());
         } finally { TimeZone.setDefault(previous); }
     }
+    private static void englishAndMixedFormats() {
+        TimeZone zone=TimeZone.getTimeZone("Asia/Shanghai");
+        String[] weekdays={"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
+        String[] months={"January","February","March","April","May","June","July","August","September","October","November","December"};
+        Locale previous=Locale.getDefault();
+        try {
+            // Turkish default would turn ordinary uppercased i into İ if the
+            // English formatter leaked the system locale into case handling.
+            Locale.setDefault(new Locale("tr", "TR"));
+            for(int day=0;day<7;day++) {
+                long time=at("Asia/Shanghai",2026,10,25+day,12,30,9);
+                String name=weekdays[day],shortName=name.substring(0,3);
+                equal(shortName+" "+name+" "+shortName.toUpperCase(Locale.ROOT)+" "+name.toUpperCase(Locale.ROOT)+" "+shortName.toLowerCase(Locale.ROOT)+" "+name.toLowerCase(Locale.ROOT),
+                    TimeFormat.format("{星期英文简} {星期英文} {星期英文简大写} {星期英文大写} {星期英文简小写} {星期英文小写}",time,zone));
+            }
+            for(int month=1;month<=12;month++) {
+                long time=at("Asia/Shanghai",2026,month,1,12,30,9);
+                String name=months[month-1],shortName=name.substring(0,3);
+                equal(shortName+" "+name+" "+shortName.toUpperCase(Locale.ROOT)+" "+name.toUpperCase(Locale.ROOT)+" "+shortName.toLowerCase(Locale.ROOT)+" "+name.toLowerCase(Locale.ROOT),
+                    TimeFormat.format("{月份英文简} {月份英文} {月份英文简大写} {月份英文大写} {月份英文简小写} {月份英文小写}",time,zone));
+            }
+            String[] chinese={"凌晨","凌晨","凌晨","凌晨","凌晨","凌晨","早晨","早晨","早晨","上午","上午","上午","中午","中午","下午","下午","下午","下午","晚上","晚上","晚上","晚上","晚上","晚上"};
+            String[] english={"Late Night","Late Night","Late Night","Late Night","Late Night","Late Night","Early Morning","Early Morning","Early Morning","Morning","Morning","Morning","Noon","Noon","Afternoon","Afternoon","Afternoon","Afternoon","Evening","Evening","Evening","Evening","Evening","Evening"};
+            for(int hour=0;hour<24;hour++) {
+                long time=at("Asia/Shanghai",2026,10,28,hour,30,9);
+                equal(chinese[hour]+" "+english[hour]+" "+english[hour].toUpperCase(Locale.ROOT)+" "+english[hour].toLowerCase(Locale.ROOT)+" "+(hour<12?"AM am":"PM pm"),
+                    TimeFormat.format("{时段} {英文时段} {英文时段大写} {英文时段小写} {AMPM} {ampm}",time,zone));
+            }
+            long midnight=at("Asia/Shanghai",2026,10,28,0,30,0);
+            equal("周三 Wed 00:30 凌晨 AM",TimeFormat.format("{周} {星期英文简} HH:mm {时段} {AMPM}",midnight,zone));
+            equal("周二 Tue 16:30 下午 PM",TimeFormat.format("{周} {星期英文简} HH:mm {时段} {AMPM}",midnight,TimeZone.getTimeZone("UTC")));
+            long noon=at("Asia/Shanghai",2026,10,28,12,30,0);
+            equal("中午 12:30 Wed Noon PM",TimeFormat.format("{时段} HH:mm {星期英文简} {英文时段} {AMPM}",noon,zone));
+            equal("{星期英文简} Wed 12:30",TimeFormat.format("'{星期英文简}' {星期英文简} HH:mm",noon,zone));
+            equal("'C17' Wed",TimeFormat.formatContent("{text} {星期英文简}","'C17'",noon,zone));
+            equal(false,TimeFormat.hasSeconds("{星期英文} {月份英文} {英文时段}"));
+            equal(false,TimeFormat.contentHasSeconds("{text} {星期英文简}"));
+            equal(true,TimeFormat.hasSeconds("{星期英文} HH:mm:{秒}"));
+            equal(true,TimeFormat.contentHasSeconds("{text} HH:mm:ss"));
+            equal(true,TimeFormat.validationError("{英文时段}")==null);
+            equal(true,TimeFormat.contentValidationError("{星期英文} {text}")==null);
+            equal(true,TimeFormat.validationError("{英文时段未知}")!=null);
+        } finally { Locale.setDefault(previous); }
+    }
     public static void main(String[] args) throws Exception {
+        englishAndMixedFormats();
         TimeZone shanghai=TimeZone.getTimeZone("Asia/Shanghai");long now=at("Asia/Shanghai",2026,9,29,16,7,9);
         equal("2026年09月29日 星期二 周二 下午 16:07:09",TimeFormat.format("{年}年{月}月{日}日 {星期} {周} {时段} {时}:{分}:{秒}",now,shanghai));
         equal("下午 04:07",TimeFormat.format("{上午下午} {12时}:{分}",now,shanghai));

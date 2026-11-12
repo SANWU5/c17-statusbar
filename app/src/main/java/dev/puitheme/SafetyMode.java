@@ -28,6 +28,9 @@ public final class SafetyMode {
         runtime.putBoolean(QsTileFullFill.ENABLED, false);
         runtime.putBoolean(QsTileCorners.MASTER, false);
         runtime.putBoolean(QsMediaAppearance.MASTER, false);
+        runtime.putBoolean(QsWifiAlias.ENABLED, false);
+        for(String key:QsCardSettings.BOOLEANS.keySet())runtime.putBoolean(key,false);
+        runtime.putFloat(QsCardSettings.GRID_ROWS,4f);runtime.putString(QsCardSettings.SMALL_MODE,"always");
         runtime.putBoolean(NotificationClearAppearance.MASTER, false);
         runtime.putBoolean(NotificationBigClockSettings.MASTER, false);
         runtime.putBoolean(NotificationBigClockSettings.LANDSCAPE_MASTER, false);

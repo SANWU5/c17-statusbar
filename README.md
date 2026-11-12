@@ -1,10 +1,10 @@
-# Status C17 · 1.8.3
+# Status C17 · 2.1.0
 
-面向 ColorOS 17 的 SystemUI 定制模块，主要适配依据为 OnePlus 13。可调整状态栏、通知栏、控制中心、流体云及锁屏外观，设置应用提供 COUI 与 Miuix 两种界面风格。使用 LibXposed API 101，包名为 `dev.puitheme.iosstatusbar`。
+面向 ColorOS 17 的 SystemUI 定制模块，主要适配依据为 OnePlus 13。可调整状态栏、通知栏、控制中心、流体云及锁屏外观，设置应用提供 Miuix、COUI 与 Material 三种界面风格，界面支持 30 种语言。使用 LibXposed API 101，包名为 `dev.puitheme.iosstatusbar`。
 
-**正式版 1.8.3。** 本次更新对比正式版 1.8.2，完整新增、优化与修复分为16个功能板块，见 [1.8.3 完整更新日志](docs/RELEASE-1.8.3.zh-CN.md)。
+**正式版 2.1.0。** 本次更新对比正式版 1.8.3，新增扩展插件、30 种语言界面、系统UI防炸与隐私胶囊，并修正一批状态栏问题，见 [2.1.0 更新说明](docs/RELEASE-2.1.0.zh-CN.md)。扩展插件可按 [插件规范](https://github.com/SANWU5/c17-plugins) 自行开发。
 
-[下载 APK](https://github.com/SANWU5/c17-statusbar/releases) · [English](README.en.md) · [更新记录](CHANGELOG.md) · [图标包规范与示例](https://github.com/SANWU5/c17-icon-packs)
+[下载 APK](https://github.com/SANWU5/c17-statusbar/releases) · [English](README.en.md) · [更新记录](CHANGELOG.md) · [图标包规范与示例](https://github.com/SANWU5/c17-icon-packs) · [插件规范与模板](https://github.com/SANWU5/c17-plugins)
 
 ## 功能
 

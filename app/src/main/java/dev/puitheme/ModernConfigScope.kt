@@ -10,7 +10,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 分享、导出、导入配置之前先问一句：是否自定义项。第一步选“全部”或“自定义”，自定义则逐个页面勾选。 */
@@ -33,15 +32,15 @@ private fun ConfigScopeAsk(app: ModernMainActivity, request: ConfigScopeRequest)
     val pages = choices(request)
     val total = pages.sumOf { it.second }
     val summary = if (request.prepared != null)
-        "这个文件包含 ${pages.size} 个页面、共 $total 项设置。是否自定义导入项？\n选择“全部导入”会导入文件里的所有设置；自定义可以只导入需要的页面。"
+        trf("这个文件包含 %1\$s 个页面、共 %2\$s 项设置。是否自定义导入项？\n选择“全部导入”会导入文件里的所有设置；自定义可以只导入需要的页面。", pages.size, total)
     else
-        "是否自定义${action}项？\n选择“全部${action}”会带上所有页面的设置；自定义可以只${action}需要的页面。"
-    C17OverlayDialog(show = true, title = "${action}配置", summary = summary, onDismissRequest = app::cancelConfigScope) {
+        trf("是否自定义%1\$s项？\n选择“全部%2\$s”会带上所有页面的设置；自定义可以只%3\$s需要的页面。", action, action, action)
+    C17OverlayDialog(show = true, title = trf("%s配置", action), summary = summary, onDismissRequest = app::cancelConfigScope) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 C17TextButton(text = "自定义", onClick = app::customizeConfigScope, modifier = Modifier.weight(1f))
-                C17TextButton(text = "全部$action", onClick = app::confirmConfigScopeAll, modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColorsPrimary())
+                C17TextButton(text = trf("全部%s", action), onClick = app::confirmConfigScopeAll, modifier = Modifier.weight(1f),
+                    primary = true)
             }
             C17TextButton(text = "取消", onClick = app::cancelConfigScope, modifier = Modifier.fillMaxWidth())
         }
@@ -54,7 +53,7 @@ private fun ConfigScopeChecklist(app: ModernMainActivity, request: ConfigScopeRe
     val pages = choices(request)
     val chosen = pages.count { it.first.id in request.selected }
     val items = pages.filter { it.first.id in request.selected }.sumOf { it.second }
-    C17OverlayDialog(show = true, title = "选择${action}项", summary = "已选 $chosen / ${pages.size} 个页面，共 $items 项设置",
+    C17OverlayDialog(show = true, title = trf("选择%s项", action), summary = trf("已选 %1\$s / %2\$s 个页面，共 %3\$s 项设置", chosen, pages.size, items),
         onDismissRequest = app::cancelConfigScope) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -63,16 +62,16 @@ private fun ConfigScopeChecklist(app: ModernMainActivity, request: ConfigScopeRe
             }
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                 pages.forEach { (section, count) ->
-                    C17SwitchPreference(title = section.label(), summary = "$count 项", checked = section.id in request.selected,
+                    C17SwitchPreference(title = section.label(), summary = trf("%s 项", count), checked = section.id in request.selected,
                         onCheckedChange = { app.toggleConfigScope(section.id, it) })
                 }
-                if (request.prepared == null) Text("字体、图标库等文件不会随配置${action}，只带上它们的设置。", Modifier.padding(top = 8.dp),
+                if (request.prepared == null) Text(trf("字体、图标库等文件不会随配置%s，只带上它们的设置。", action), Modifier.padding(top = 8.dp),
                     fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 C17TextButton(text = "返回", onClick = app::backConfigScope, modifier = Modifier.weight(1f))
                 C17TextButton(text = action, enabled = chosen > 0, onClick = app::confirmConfigScopeChoice, modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColorsPrimary())
+                    primary = true)
             }
         }
     }

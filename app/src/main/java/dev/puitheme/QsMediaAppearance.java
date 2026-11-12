@@ -262,6 +262,13 @@ public final class QsMediaAppearance {
         Style style = style(owner);
         boolean observedSame = state.matchesObserved(cover, bg instanceof View ? (View) bg : owner);
         boolean defaultCover = !Boolean.FALSE.equals(field(owner, "defaultCover"));
+        Drawable source = cover == null ? null : cover.getDrawable();
+        // The native detail animator draws the original through a GhostView while its
+        // ImageView is INVISIBLE. That presentation change does not remove the artwork.
+        // Only an already accepted, unchanged bitmap may cross this temporary boundary.
+        boolean animationCover = cover != null && cover.getVisibility() == View.INVISIBLE
+                && !defaultCover && Boolean.TRUE.equals(field(owner, "isLaunchingAnimating"))
+                && sameAcceptedArtwork(state, source);
         float density = owner.getResources().getDisplayMetrics().density;
         float nativeCorner = QsTileAppearance.number(field(owner, "coverCornerRadius"), 0f);
         int configuration = owner.getResources().getConfiguration().hashCode();
@@ -274,14 +281,13 @@ public final class QsMediaAppearance {
         float corner = state.radius;
         if (!materialChanged && state.style == style && observedSame && state.defaultCover == defaultCover
                 && state.density == density && state.corner == corner && state.background == backgroundEnabled
-                && state.glow == glowEnabled) return;
+                && state.glow == glowEnabled && state.animationCover == animationCover) return;
         state.style = style;
         state.defaultCover = defaultCover; state.density = density; state.corner = corner;
-        state.background = backgroundEnabled; state.glow = glowEnabled;
+        state.background = backgroundEnabled; state.glow = glowEnabled; state.animationCover = animationCover;
         state.observe(cover, bg instanceof View ? (View) bg : owner);
-        Drawable source = cover == null ? null : cover.getDrawable();
         boolean artwork = enabled && (backgroundEnabled || glowEnabled) && cover != null
-                && cover.getVisibility() == View.VISIBLE && source != null
+                && (cover.getVisibility() == View.VISIBLE || animationCover) && source != null
                 && !defaultCover && supportedArtwork(source);
         if (ModuleDiagnostics.enabled()) trace("artwork:" + simpleType(source) + ":" + defaultCover,
                 "Music artwork " + simpleType(source) + " default " + defaultCover + " supported " + artwork);
@@ -378,7 +384,8 @@ public final class QsMediaAppearance {
                 View bg = state.backgroundView.get();
                 Style style = style(owner);
                 // No per-frame bitmap processing, Key allocation or recursive background registration.
-                if (state.style != style || !state.matchesObserved(cover, bg == null ? owner : bg)) refresh(owner);
+                if (state.style != style || !state.matchesObserved(cover, bg == null ? owner : bg)
+                        || (state.animationCover && !Boolean.TRUE.equals(field(owner, "isLaunchingAnimating")))) refresh(owner);
             }
         }
         nativeDraw.draw(canvas);
@@ -771,6 +778,16 @@ public final class QsMediaAppearance {
                 && first.generation == second.generation && first.revision == second.revision;
     }
 
+    private static boolean sameAcceptedArtwork(State state, Drawable source) {
+        if (!supportedArtwork(source)) return false;
+        // A real disappearance already queued as null must not revive an old material.
+        Key key = state.desiredSet ? state.desiredKey : state.prepared == null ? null : state.prepared.key;
+        Bitmap artwork = ((BitmapDrawable) source).getBitmap();
+        return key != null && key.artwork.get() == artwork && key.generation == artwork.getGenerationId()
+                && key.revision == state.coverRevision && key.level == source.getLevel()
+                && key.state == Arrays.hashCode(source.getState());
+    }
+
     private void animateFrame(State state) {
         View owner = state.owner.get();
         if (removed || !enabled || owner == null || states.get(owner) != state || !state.fading) return;
@@ -891,7 +908,7 @@ public final class QsMediaAppearance {
         WeakReference<Drawable> observedSource = new WeakReference<>(null), observedCurrent = new WeakReference<>(null);
         int observedGeneration, observedLevel, observedState, observedVisibility, observedWidth, observedHeight;
         int observedCoverWidth, observedCoverHeight;
-        boolean defaultCover, background, glow;
+        boolean defaultCover, background, glow, animationCover;
         float density, corner;
         float radius, radiusNative, radiusDensity;
         boolean radiusKnown;

@@ -20,6 +20,7 @@ public final class Bitmap {
     public int getWidth(){return width;} public int getHeight(){return height;} public Config getConfig(){return config;}
     public int getAllocationByteCount(){return pixels.length*4;}
     public int getGenerationId(){return generation;} public boolean isRecycled(){return recycled;}
+    public boolean sameAs(Bitmap other){if(recycled||other!=null&&other.recycled)throw new IllegalStateException("recycled bitmap");return other!=null&&width==other.width&&height==other.height&&config==other.config&&java.util.Arrays.equals(pixels,other.pixels);}
     public void recycle(){recycleCalls++;recycled=true;}
     public boolean hasAlpha(){return hasAlpha;}
     public void setHasAlpha(boolean value){hasAlpha=value;}

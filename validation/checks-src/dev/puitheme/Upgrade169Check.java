@@ -31,7 +31,7 @@ public final class Upgrade169Check {
                 Upgrade101.DEFAULTS,Upgrade103.DEFAULTS,Upgrade105.DEFAULTS,Upgrade106.DEFAULTS,Upgrade107.DEFAULTS,
                 Upgrade108.DEFAULTS,Upgrade117.DEFAULTS,Upgrade118.DEFAULTS,Upgrade135.DEFAULTS,Upgrade136.DEFAULTS,
                 Upgrade144.DEFAULTS,Upgrade146.DEFAULTS,Upgrade154.DEFAULTS,Upgrade157.DEFAULTS,Upgrade160.DEFAULTS,
-                Upgrade166.DEFAULTS,Upgrade168.DEFAULTS,Upgrade169.DEFAULTS,Upgrade171.DEFAULTS,Upgrade172.DEFAULTS,Upgrade173.DEFAULTS,Upgrade174.DEFAULTS,Upgrade175.DEFAULTS,Upgrade177.DEFAULTS,Upgrade184.DEFAULTS,Upgrade185.DEFAULTS,Upgrade186.DEFAULTS,Upgrade187.DEFAULTS,Upgrade188.DEFAULTS);
+                Upgrade166.DEFAULTS,Upgrade168.DEFAULTS,Upgrade169.DEFAULTS,Upgrade171.DEFAULTS,Upgrade172.DEFAULTS,Upgrade173.DEFAULTS,Upgrade174.DEFAULTS,Upgrade175.DEFAULTS,Upgrade177.DEFAULTS,Upgrade184.DEFAULTS,Upgrade185.DEFAULTS,Upgrade186.DEFAULTS,Upgrade187.DEFAULTS,Upgrade188.DEFAULTS,Upgrade195.DEFAULTS,Upgrade196.DEFAULTS,Upgrade209.DEFAULTS,Upgrade279.DEFAULTS);
         for(int index=0;index<batches.size();index++)if(schema<index+2)
             for(String key:batches.get(index).keySet())result.remove(key);
         if(schema<12)result.remove(FluidCloudStyle.BACKGROUND_COLOR_CUSTOMIZED);
@@ -45,9 +45,9 @@ public final class Upgrade169Check {
         throw new AssertionError("Unexpected accepted import: "+reason);
     }
     private static void registration(Bundle full) {
-        equal(48,SettingsFrameworkMirror.VERSION,"current schema");equal(18,Upgrade169.DEFAULTS.size(),"only eighteen new text fields");
+        equal(52,SettingsFrameworkMirror.VERSION,"current schema");equal(18,Upgrade169.DEFAULTS.size(),"only eighteen new text fields");
         equal(additions(),Upgrade169.DEFAULTS,"frozen keys, types and defaults");
-        equal(979,full.keySet().size(),"full snapshot count");equal(966,ConfigTransfer.types().size(),"portable count");
+        equal(1000,full.keySet().size(),"full snapshot count");equal(987,ConfigTransfer.types().size(),"portable count");
         equal(890,wire(full,35).size()-2,"schema35 stays frozen");equal(904,wire(full,36).size()-2,"schema36 stays frozen");
         Map<ConfigTransfer.Type,Integer> kinds=new EnumMap<>(ConfigTransfer.Type.class);
         for(Map.Entry<String,Object> item:additions().entrySet()) {
@@ -129,7 +129,7 @@ public final class Upgrade169Check {
         equal(true,ConfigTransfer.commit(store,partial),"partial import commits");
         for(Map.Entry<String,Object> item:choices.entrySet())equal(item.getValue(),store.values.get(item.getKey()),"partial import stores explicit choice "+item.getKey());
         equal("keep",store.values.get("private_note"),"import preserves unrelated preference");equal(false,store.values.get(NotificationBigClockSettings.MASTER),"import never enables big clock");
-        equal(966,ConfigTransfer.prepare(ConfigTransfer.exportJson(choices),true).count,"full portable count");
+        equal(987,ConfigTransfer.prepare(ConfigTransfer.exportJson(choices),true).count,"full portable count");
         for(String privateKey:new String[]{"0.id","0.pending_id","0.pending_token","clock_widget_slots_v1"}) {
             equal(false,ConfigTransfer.types().containsKey(privateKey),"private AppWidget grants stay local");invalid("\""+privateKey+"\":123","private grant rejected");
         }

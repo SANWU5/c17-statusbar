@@ -44,6 +44,8 @@ public final class StatusBarFlowNativeLifecycleCheck {
         public void visible(Object state, int value) { delegate.visible(state, value); }
         public boolean canRebase(Object state, View view, float x, float parent, float child) { return delegate.canRebase(state, view, x, parent, child); }
         public boolean rebase(Object state, View view, float x, float parent, float child) { return delegate.rebase(state, view, x, parent, child); }
+        public void applyGeometry(Object state,View child){delegate.applyGeometry(state,child);}
+        public void applyVisibility(Object state,View child){delegate.applyVisibility(state,child);}
         // Keep native caller flags separate from the real production geometry.
         public Object applyContext(Object state) { return flags(state).qsTransitioning; }
         public void apply(Object state, View child, Object context) {

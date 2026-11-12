@@ -21,10 +21,9 @@ class UiSettings(context: Context) {
     private val prefs = this.context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
     /** The component family belongs to this app only; missing or invalid choices keep the existing UI. */
-    var uiStyle by mutableStateOf(runCatching { prefs.getString(UI_STYLE, MIUIX) }.getOrNull()
-        ?.takeIf { it == MIUIX || it == COUI } ?: MIUIX); private set
-    val coui: Boolean get() = uiStyle == COUI
-    val uiStyleTitle: String get() = if (coui) "COUI" else "Miuix"
+    var style by mutableStateOf(C17UiStyle.of(runCatching { prefs.getString(UI_STYLE, MIUIX) }.getOrNull())); private set
+    val uiStyle: String get() = style.id
+    val uiStyleTitle: String get() = style.title
 
     /** 0 follow the system's automatic dark mode, 1 always light, 2 always dark. */
     var themeMode by mutableIntStateOf(read(THEME_MODE, 0, 0, 2)); private set
@@ -58,17 +57,18 @@ class UiSettings(context: Context) {
     fun updateTextScale(value: Int) { textScale = value.coerceIn(80, 130); put(TEXT_SCALE, textScale) }
 
     fun updateUiStyle(value: String): Boolean {
-        if (value != MIUIX && value != COUI) return false
-        if (value == uiStyle) return true
-        if (!prefs.edit().putString(UI_STYLE, value).commit()) return false
-        uiStyle = value
+        if (!C17UiStyle.valid(value)) return false
+        val target = C17UiStyle.of(value)
+        if (target == style) return true
+        if (!prefs.edit().putString(UI_STYLE, target.id).commit()) return false
+        style = target
         note("ui_style_changed")
         return true
     }
 
     /** Restores only the appearance; the bottom bar switch and every module setting are untouched. */
     fun reset() {
-        uiStyle = MIUIX; themeMode = 0; scheme = "miuix"; paletteStyle = 0; darkLevel = 50; edgeFade = true; textScale = 100
+        style = C17UiStyle.MIUIX; themeMode = 0; scheme = "miuix"; paletteStyle = 0; darkLevel = 50; edgeFade = true; textScale = 100
         prefs.edit().putInt(THEME_MODE, 0).putString(SCHEME, "miuix").putInt(PALETTE, 0).putInt(DARK_LEVEL, 50)
             .putBoolean(EDGE_FADE, true).putInt(TEXT_SCALE, 100).putString(UI_STYLE, MIUIX).apply()
         note("ui_reset")
@@ -91,6 +91,7 @@ class UiSettings(context: Context) {
         const val UI_STYLE = "ui_style"
         const val MIUIX = "miuix"
         const val COUI = "coui"
+        const val MATERIAL = "material"
         const val THEME_MODE = "ui_theme_mode"
         const val SCHEME = "ui_scheme"
         const val PALETTE = "ui_palette_style"

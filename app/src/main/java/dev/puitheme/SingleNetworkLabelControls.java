@@ -4,7 +4,6 @@ package dev.puitheme;
 
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.text.SpannableString;
@@ -41,7 +40,7 @@ final class SingleNetworkLabelControls {
     private Access access;
     private FeatureOptions features=FeatureOptions.from(Collections.emptyMap());
     private String label="";private int subscription=-1,weight=600;
-    private float x,y,scale=100,width=22;
+    private float x,y,scale=100;
     private Map<String,Integer> colors=Collections.emptyMap();
     private Map<String,Boolean> alphas=Collections.emptyMap();
     private boolean replaying,released;
@@ -93,27 +92,28 @@ final class SingleNetworkLabelControls {
      * The immutable drawing plan is built only on radio/style/binding events. */
     private static final class GlyphSpan extends ReplacementSpan {
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-        final Rect bounds=new Rect();
         final String label,axes;
         final Typeface face;
-        final float density;
+        final float density,scalePercent;
+        final NetworkLabelGeometry.Plan geometry;
         final int advance,height,color;
-        GlyphSpan(String label,float density,TextView view){
-            this.label=label;this.density=density;face=view.getTypeface();axes=view.getFontVariationSettings();color=view.getCurrentTextColor();
+        GlyphSpan(String label,float density,float scalePercent,TextView view){
+            this.label=label;this.density=density;this.scalePercent=scalePercent;
+            face=view.getTypeface();axes=view.getFontVariationSettings();color=view.getCurrentTextColor();
             FontWeight.restore(paint,face,axes);paint.setFakeBoldText(false);
             paint.setTextSize(13f*density);paint.setColor(color);
-            advance=NumericPolicy.layoutPixels(Math.ceil(paint.measureText(label)+2*density));
-            height=NumericPolicy.layoutPixels(20d*density);
-            paint.getTextBounds(label,0,label.length(),bounds);
+            geometry=NetworkLabelGeometry.measure(paint,label,density,scalePercent);
+            advance=geometry.width;height=geometry.height;
         }
-        boolean matches(String label,float density,TextView view){return this.label.equals(label)&&this.density==density
+        boolean matches(String label,float density,float scalePercent,TextView view){return this.label.equals(label)&&this.density==density
+                &&this.scalePercent==scalePercent
                 &&face==view.getTypeface()&&Objects.equals(axes,view.getFontVariationSettings())&&color==view.getCurrentTextColor();}
         @Override public int getSize(Paint ignored,CharSequence text,int start,int end,Paint.FontMetricsInt metrics){
             if(metrics!=null){metrics.top=metrics.ascent=-height/2;metrics.bottom=metrics.descent=height-height/2;metrics.leading=0;}
             return advance;
         }
         @Override public void draw(Canvas canvas,CharSequence text,int start,int end,float x,int top,int baseline,int bottom,Paint ignored){
-            canvas.drawText(label,x+advance/2f-bounds.exactCenterX(),baseline+(height%2)/2f-bounds.exactCenterY(),paint);
+            geometry.drawHorizontal(canvas,label,paint,x+advance/2f,baseline+(height%2)/2f);
         }
     }
     SingleNetworkLabelControls(){ }
@@ -159,14 +159,14 @@ final class SingleNetworkLabelControls {
         }
         return "";
     }
-    void update(FeatureOptions options,String label,int activeSub,float x,float y,float scale,float width,int weight,
+    void update(FeatureOptions options,String label,int activeSub,float x,float y,float scale,float ignoredWidth,int weight,
             Map<String,Integer> colors,Map<String,Boolean> alphas){
         if(released)return;label=label==null?"":label;long fontRevision=FontRepository.styleRevision();
         if(!layoutDirty&&this.features.values().equals(options.values())&&this.features.safeMode()==options.safeMode()
-                &&this.label.equals(label)&&subscription==activeSub&&this.x==x&&this.y==y&&this.scale==scale&&this.width==width
+                &&this.label.equals(label)&&subscription==activeSub&&this.x==x&&this.y==y&&this.scale==scale
                 &&this.weight==weight&&this.colors.equals(colors)&&this.alphas.equals(alphas)&&this.fontRevision==fontRevision)return;
         this.fontRevision=fontRevision;this.features=options;this.label=label;subscription=activeSub;
-        this.x=x;this.y=y;this.scale=scale;this.width=width;this.weight=weight;this.colors=colors;this.alphas=alphas;
+        this.x=x;this.y=y;this.scale=scale;this.weight=weight;this.colors=colors;this.alphas=alphas;
         layoutDirty=false;
         // Radio/configuration events only. Native view callbacks refresh their own row.
         for(Row row:new ArrayList<>(glyphs.values()))try{apply(row);}
@@ -233,11 +233,13 @@ final class SingleNetworkLabelControls {
         if(text.getTranslationX()!=tx)text.setTranslationX(tx);if(text.getTranslationY()!=ty)text.setTranslationY(ty);
         float size=NumericPolicy.textPixels(13d*density);
         if(text.getTextSize()!=size)text.setTextSize(TypedValue.COMPLEX_UNIT_PX,size);
-        float slot=NumericPolicy.layoutPixels(features.size("label")?width:22,density);
-        float factor=NumericPolicy.scale(features.size("label")?scale/100f:1f,Math.max(20f*density,slot));
-        if(text.getScaleX()!=factor)text.setScaleX(factor);if(text.getScaleY()!=factor)text.setScaleY(factor);
-        int min=Math.round(slot);
-        if(text.getMinimumWidth()!=min)text.setMinimumWidth(min);
+        float scalePercent=features.size("label")?scale:100;
+        // The span reports its scaled painted width to the native text layout.
+        // Horizontal View scaling would grow the ink outside that measured slot.
+        if(text.getScaleX()!=1f)text.setScaleX(1f);
+        // The actual font/text footprint owns its space; retired manual reserves
+        // and the native badge's minimum width apply only when restoring native.
+        if(text.getMinimumWidth()!=0)text.setMinimumWidth(0);
         if(text.getIncludeFontPadding())text.setIncludeFontPadding(false);
         if(text.getPaddingLeft()!=0||text.getPaddingTop()!=0||text.getPaddingRight()!=0||text.getPaddingBottom()!=0)text.setPadding(0,0,0,0);
         if(text.getLetterSpacing()!=0f)text.setLetterSpacing(0f);
@@ -249,11 +251,14 @@ final class SingleNetworkLabelControls {
         if(text.getCurrentTextColor()!=color)text.setTextColor(color);
         // Strip OEM prefix/suffix spans. A different font's ascent/descent or
         // includeFontPadding must not turn the independent glyph into a badge.
-        if(row.glyph==null||!row.glyph.matches(label,density,text)){
-            row.glyph=new GlyphSpan(label,density,text);
+        if(row.glyph==null||!row.glyph.matches(label,density,scalePercent,text)){
+            row.glyph=new GlyphSpan(label,density,scalePercent,text);
             SpannableString styled=new SpannableString(label);styled.setSpan(row.glyph,0,label.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             row.appliedText=styled;
         }
+        // Preserve the original external vertical scale and its enlarged clip.
+        // The span's native 20dp line draws without an internal Y transform.
+        if(text.getScaleY()!=row.glyph.geometry.scale)text.setScaleY(row.glyph.geometry.scale);
         if(text.getText()!=row.appliedText){text.setText(row.appliedText);row.appliedText=text.getText();}
         if(!Objects.equals(text.getContentDescription(),label))text.setContentDescription(label);
         if(text.getVisibility()!=View.VISIBLE)text.setVisibility(View.VISIBLE);

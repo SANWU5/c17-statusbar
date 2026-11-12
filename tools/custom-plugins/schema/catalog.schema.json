@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:c17:plugin-catalog:1",
+  "title": "C17 辅助分发目录",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "apiVersion", "plugins"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "apiVersion": {"enum": [1, 2]},
+    "name": {"type": "string", "maxLength": 4096},
+    "description": {"type": "string", "maxLength": 4096},
+    "updatedAt": {"type": "string", "maxLength": 4096},
+    "readmeUrl": {"type": "string", "maxLength": 4096},
+    "changesUrl": {"type": "string", "maxLength": 4096},
+    "plugins": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "version", "versionCode", "apiVersion", "file", "sha256", "size"],
+        "properties": {
+          "id": {"type": "string", "minLength": 3, "maxLength": 80, "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"},
+          "name": {"type": "string", "minLength": 1, "maxLength": 80},
+          "version": {"type": "string", "minLength": 1, "maxLength": 32},
+          "versionCode": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "apiVersion": {"enum": [1, 2]},
+          "description": {"type": "string", "maxLength": 1024},
+          "author": {"type": "string", "maxLength": 80},
+          "capabilities": {"type": "array", "maxItems": 3, "uniqueItems": true, "items": {"enum": ["settings", "systemui", "runtime"]}},
+          "file": {"type": "string", "pattern": "^(?!.*(?:^|/)\\.\\.?(?:/|$))[a-z0-9_.-]+(?:/[a-z0-9_.-]+)*\\.zip$"},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "size": {"type": "integer", "minimum": 1, "maximum": 2147483647}
+        },
+        "allOf": [
+          {"if": {"properties": {"apiVersion": {"const": 1}}, "required": ["apiVersion"]}, "then": {"properties": {"size": {"maximum": 1048576}, "capabilities": {"maxItems": 2, "items": {"enum": ["settings", "systemui"]}}}}},
+          {"if": {"properties": {"apiVersion": {"const": 2}}, "required": ["apiVersion"]}, "then": {"required": ["capabilities"], "properties": {"capabilities": {"contains": {"const": "runtime"}}}}}
+        ]
+      }
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"apiVersion": {"const": 1}}, "required": ["apiVersion"]}, "then": {"properties": {"plugins": {"items": {"properties": {"apiVersion": {"const": 1}}}}}}}
+  ],
+  "$comment": "目录只列出包的身份和校验信息，不能包含 runtime 脚本、入口、表单或 Hook 实现。顶层 API 版本必须覆盖其中最高插件 API；API 2 包大小仍受宿主 Java 字节数组表示范围约束。"
+}

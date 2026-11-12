@@ -18,6 +18,8 @@ public final class TimeFormat {
     public static final String CLOCK_DEFAULT = "HH:mm";
     public static final String CARRIER_DEFAULT = "M月d日 {周} {时段} HH:mm";
     public static final int MAX_PATTERN = 200, MAX_TEXT = 120;
+    private static final String[] ENGLISH_WEEKDAYS = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+    private static final String[] ENGLISH_MONTHS = {"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"};
     private TimeFormat() { }
 
     public static String period(int hour) {
@@ -27,6 +29,31 @@ public final class TimeFormat {
         if (hour < 14) return "中午";
         if (hour < 18) return "下午";
         return "晚上";
+    }
+
+    /** Same boundaries as the established Chinese periods; never changes system language. */
+    private static String englishPeriod(int hour) {
+        if (hour < 6) return "Late Night";
+        if (hour < 9) return "Early Morning";
+        if (hour < 12) return "Morning";
+        if (hour < 14) return "Noon";
+        if (hour < 18) return "Afternoon";
+        return "Evening";
+    }
+
+    private static String englishToken(String token, Calendar date) {
+        if (token.equals("AMPM")) return date.get(Calendar.HOUR_OF_DAY) < 12 ? "AM" : "PM";
+        if (token.equals("ampm")) return date.get(Calendar.HOUR_OF_DAY) < 12 ? "am" : "pm";
+        String value;
+        if (token.startsWith("星期英文")) value = ENGLISH_WEEKDAYS[date.get(Calendar.DAY_OF_WEEK) - 1];
+        else if (token.startsWith("月份英文")) value = ENGLISH_MONTHS[date.get(Calendar.MONTH)];
+        else if (token.startsWith("英文时段")) value = englishPeriod(date.get(Calendar.HOUR_OF_DAY));
+        else return null;
+        boolean shortForm = token.contains("简");
+        if (shortForm) value = value.substring(0, 3);
+        if (token.endsWith("大写")) return value.toUpperCase(Locale.ROOT);
+        if (token.endsWith("小写")) return value.toLowerCase(Locale.ROOT);
+        return value;
     }
 
     private static final class ParsedPattern {
@@ -99,6 +126,12 @@ public final class TimeFormat {
                     case "text": case "文本":
                         if (!content) throw new IllegalArgumentException("{text} 仅用于大时钟底部内容");
                         replacement = text == null ? "" : text; literal = true; break;
+                    case "星期英文": case "星期英文简": case "星期英文大写": case "星期英文简大写":
+                    case "星期英文小写": case "星期英文简小写":
+                    case "月份英文": case "月份英文简": case "月份英文大写": case "月份英文简大写":
+                    case "月份英文小写": case "月份英文简小写":
+                    case "英文时段": case "英文时段大写": case "英文时段小写": case "AMPM": case "ampm":
+                        replacement = englishToken(token, date); literal = true; break;
                     default: throw new IllegalArgumentException("未知格式标记：{" + token + "}");
                 }
                 if (literal) parsed.literal(input, replacement); else result.append(replacement);

@@ -8,6 +8,12 @@ public final class RadioStateCheck {
         if (!expected.equals(actual)) throw new AssertionError(context + ": " + expected + " != " + actual);
     }
     public static void main(String[] args) {
+        // The same stale RAT is delivered while Wi-Fi progresses OFF -> enabled
+        // -> connected. A known disabled data switch must never expose that RAT.
+        for (String rat : new String[]{"4G", "5GA"}) for (Boolean wifiSwitch : new Boolean[]{false, true, null}) {
+            equal("", RadioState.cellularLabel(true, false, false, rat, "LTE", false, wifiSwitch, false),
+                    "Wi-Fi transition with data disabled must not flash a stale " + rat + " label, wifi=" + wifiSwitch);
+        }
         equal(false, RadioState.wifiInUse(false, true, true), "Wi-Fi disabled overrides stale native model");
         equal(false, RadioState.wifiInUse(true, false, true), "Wi-Fi hidden overrides lingering route capabilities");
         equal(false, RadioState.wifiInUse(true, false, false), "Cellular after walking out of Wi-Fi coverage");
@@ -41,12 +47,11 @@ public final class RadioStateCheck {
         for(Boolean wifi:new Boolean[]{null,false,true})for(Boolean data:new Boolean[]{null,false,true}) {
             boolean off=Boolean.FALSE.equals(wifi)&&Boolean.FALSE.equals(data);
             equal(off,NetworkLabel.radiosDisabled(wifi,data),"Both radio switches require known OFF");
-            equal(off?"":"5G",RadioState.cellularLabel(true,false,false,"5GA","4G",true,wifi,data),"Native stale label radio guard");
-            equal(off?"":"4G",RadioState.cellularLabel(true,false,false,null,"LTE-A",true,wifi,data),"Fallback stale label radio guard");
+            equal(Boolean.FALSE.equals(data)?"":"5G",RadioState.cellularLabel(true,false,false,"5GA","4G",true,wifi,data),"Native stale label respects the data switch independently");
+            equal(Boolean.FALSE.equals(data)?"":"4G",RadioState.cellularLabel(true,false,false,null,"LTE-A",true,wifi,data),"Fallback stale label respects the data switch independently");
             equal("",RadioState.cellularLabel(false,false,false,"5GA","4G",true,wifi,data),"Default OFF with nullable radio state");
         }
-        // Only switch state matters: enabled-but-disconnected Wi-Fi does not count as OFF.
-        equal("5GA",RadioState.cellularLabel(true,false,false,"5GA","4G",false,true,false),"Wi-Fi switch ON without connection");
+        equal("",RadioState.cellularLabel(true,false,false,"5GA","4G",false,true,false),"Wi-Fi switch ON cannot enable a disabled cellular label");
         equal("5G",RadioState.cellularLabel(true,false,false,"5GA","4G",true,false,null),"Unknown active-data SIM must preserve label");
         System.out.println(checks + " checks passed (Wi-Fi handover, native icon authority, default routes, model fallback)");
     }

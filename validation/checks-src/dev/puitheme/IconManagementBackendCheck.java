@@ -130,7 +130,11 @@ public final class IconManagementBackendCheck {
             IconManagementSelection.ApplicationPreview plan=IconManagementSelection.previewApplication(IconManagementSettings.DEFAULT,pack,Arrays.asList("hint"),false);equal(2,plan.replaceCount,"suite preview uses actual exact covered hint roles");checkPositive(plan.missingCount,"suite preview reports missing roles");
             cache.initialize(context);AtomicInteger opens=new AtomicInteger();String hash=pack.manifest.icons.get("hint.bluetooth.on").sha256;
             ResidentCache.Source source=()->{opens.incrementAndGet();return new FileInputStream(asset);};byte[] first=cache.iconV3Entry(pack.id,"assets/a.png",hash,source,1024*1024);equal(hash,IconAssetDecoder.sha256(first),"v3 cache source digest");cache.iconV3Entry(pack.id,"assets/a.png",hash,source,1024*1024);equal(1,opens.get(),"verified v3 cache hit avoids provider");
-            Path cacheFile=directory.resolve(ResidentCache.FOLDER+"/icon-v3-"+pack.id+'-'+ResidentCache.digest("assets/a.png")+'-'+hash+".data");Files.writeString(cacheFile,"corrupt");cache.iconV3Entry(pack.id,"assets/a.png",hash,source,1024*1024);equal(2,opens.get(),"corrupt cache is reread and reverified");
+            Path cacheFile=directory.resolve(ResidentCache.FOLDER+"/icon-v3-"+pack.id+'-'+ResidentCache.digest("assets/a.png")+'-'+hash+".data");Files.writeString(cacheFile,"corrupt");
+            equal(hash,IconAssetDecoder.sha256(cache.iconV3Entry(pack.id,"assets/a.png",hash,source,1024*1024)),"verified immutable memory survives damaged disk copy");
+            equal(1,opens.get(),"warm bytes do not touch the provider");
+            for(android.content.ComponentCallbacks callback:context.componentCallbacksForCheck)callback.onLowMemory();
+            cache.iconV3Entry(pack.id,"assets/a.png",hash,source,1024*1024);equal(2,opens.get(),"after memory eviction corrupt disk is reread and reverified");
             rejected(()->cache.iconV3Entry(pack.id,"assets/a.png",B,source,1024*1024),"mismatched cached/provider digest rejected");
             Files.writeString(asset.toPath(),"damaged");rejected(()->IconManagementRepository.get(context,pack.id),"private asset modification invalidates content verification");equal(0,IconManagementRepository.list(context).size(),"damaged source is not shown as usable");
             IconManagementRepository.clear(context);equal(0,IconManagementRepository.list(context).size(),"managed v3 cleanup");equal(6,context.resolver.changes.size(),"clear sends one final resource event");

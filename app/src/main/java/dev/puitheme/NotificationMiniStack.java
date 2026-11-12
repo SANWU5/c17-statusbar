@@ -128,9 +128,14 @@ public final class NotificationMiniStack {
         final Field privateLayout,publicLayout,contracted,inGroup,selectedType,contentOwner,background,expandListener,menu,ambient;
         final Field stateHeight,stateExtensionField,stateHidden,rowClipTop,rowClipBottom,clipTop,clipBottom,overlayContainer,collapsedHeader;
         final Field overflowNumber,containerEx,groupEx,numberView,numberPill;
+        final Field nativeChildren;
         final Method transientCount,transientView;
         final Method encrypted,menuVisible,children,showing,publicView,guts,actualHeight,radius,minimum,setGrouped,selectLayout,extensionView;
         final Method getState,setStateContentAlpha,stateY,stateAlpha,roundness;
+        /** Optional: the row's Y in the pass being computed. Without it no row is ever treated as off screen. */
+        final Method stateGetY;
+        /** Optional: NotificationChildrenContainer.mHeaderViewState, the group header's own native view state. */
+        final Field headerState;
         final Method rowAnimation,rowScale,scaleX,scaleY;
         public final Method collapsedHeight,containerMinimum,intrinsic,updateChildren,rowDraw,visibleType,heightType,drawChild;
         public final Method setExpanded,setChanging,rowSetSwiping,setSwiping,setAnimating,updateBackground,resetRoundness,click;
@@ -144,6 +149,10 @@ public final class NotificationMiniStack {
             this.row=row;this.container=container;this.extension=extension;this.overlay=overlay;this.stack=stack;
             this.stateExtension=stateExtension;this.source=source;this.clicker=clicker;
             this.containerExtension=containerExtension;this.groupExtension=groupExtension;
+            Field array=null;
+            try{array=field(ViewGroup.class,"mChildren",View[].class);}
+            catch(ReflectiveOperationException|RuntimeException unsupported){/* Preserve public membership checks on other frameworks. */}
+            nativeChildren=array;
             Class<?> z=Boolean.TYPE,f=Float.TYPE,i=Integer.TYPE,v=Void.TYPE;
             summary=field(row,"mIsSummaryWithChildren",z);bundle=field(row,"mIsBundle",z);expanded=field(row,"mChildrenExpanded",z);
             changing=field(row,"mGroupExpansionChanging",z);swiping=field(row,"mIsUserSwipingToExpandRow",z);
@@ -206,6 +215,18 @@ public final class NotificationMiniStack {
             stateHidden=field(state,"hidden",z);rowClipTop=field(row,"mClipTopAmount",i);rowClipBottom=field(row,"mClipBottomAmount",i);
             clipTop=field(state,"clipTopAmount",i);clipBottom=field(state,"clipBottomAmount",i);
             stateY=method(state,"setYTranslation",v,f,String.class);stateAlpha=method(state,"setAlpha",v,f,String.class);
+            Method currentY=null;
+            try{for(Class<?> cursor=state;cursor!=null&&currentY==null;cursor=cursor.getSuperclass())try{
+                Method candidate=cursor.getDeclaredMethod("getYTranslation");
+                if(candidate.getReturnType()==f&&!Modifier.isStatic(candidate.getModifiers())){candidate.setAccessible(true);currentY=candidate;}
+            }catch(NoSuchMethodException next){}}catch(RuntimeException|LinkageError unavailable){currentY=null;}
+            stateGetY=currentY;
+            Field header=null;
+            try{
+                header=field(container,"mHeaderViewState",null);
+                if(!stateHidden.getDeclaringClass().isAssignableFrom(header.getType()))header=null;
+            }catch(NoSuchFieldException|RuntimeException|LinkageError absent){header=null;}
+            headerState=header;
             roundness=method(row,"requestRoundness",z,f,f,source,z);resetRoundness=method(row,"requestRoundnessReset",v,source,z);
             click=method(clicker,"onClick",v,View.class);
             for(Method hooked:new Method[]{collapsedHeight,containerMinimum,intrinsic,updateChildren,rowDraw,visibleType,heightType,drawChild,
@@ -256,17 +277,17 @@ public final class NotificationMiniStack {
 
     // ---- Runtime state. Hooks run on the SystemUI main thread; configure() posts its release there. ----
     private static final class DrawSample {
-        View row;boolean sampled,badgesSynced,coveredSampled,covered;List<View> children;
+        View row;boolean sampled,badgesSynced,coverageSampled,eligibilitySampled;float coverage;List<View> children,eligible;
         final IdentityHashMap<View,Integer> heights=new IdentityHashMap<>();
         final IdentityHashMap<View,Float> radii=new IdentityHashMap<>();
-        void clear(){row=null;sampled=false;badgesSynced=false;coveredSampled=false;covered=false;children=null;heights.clear();radii.clear();}
+        void clear(){row=null;sampled=false;badgesSynced=false;coverageSampled=false;eligibilitySampled=false;coverage=0f;children=null;eligible=null;heights.clear();radii.clear();}
     }
     private static final class SavedContent {
         final WeakReference<View> view;final float alpha;float applied;
         SavedContent(View view){this.view=new WeakReference<>(view);alpha=view.getAlpha();applied=alpha;}
     }
     private static final class SavedLayout {
-        final WeakReference<View> view;final boolean grouped;
+        final WeakReference<View> view;final boolean grouped;WeakReference<View> contracted=new WeakReference<>(null);
         SavedLayout(View view,boolean grouped){this.view=new WeakReference<>(view);this.grouped=grouped;}
     }
     private static final class Card {
@@ -274,7 +295,7 @@ public final class NotificationMiniStack {
         final List<SavedLayout> layouts=new ArrayList<>();
         final List<SavedContent> contents=new ArrayList<>();
         boolean refreshed;
-        WeakReference<View> background;
+        WeakReference<View> background,privateLayout,publicLayout;
         ViewOutlineProvider originalOutline,appliedOutline;
         boolean originalClip;
         int height;float radius;
@@ -285,6 +306,11 @@ public final class NotificationMiniStack {
         final List<SavedContent> summaryContents=new ArrayList<>();
         final List<WeakReference<View>> children=new ArrayList<>();
         OuterOwner outer;
+        long visualEpoch=-1L,backgroundEpoch=-1L;
+        /** Endpoint written by the last full, settled pass; reused only while every epoch below is unchanged. */
+        boolean stable;long stableVisual,stableBackground,stableEvents;int stableStreak,stableFirst;
+        final int[] stableHeight=new int[3];final float[] stableY=new float[3];final boolean[] stableWritten=new boolean[3];
+        WeakReference<View> summaryBackground=new WeakReference<>(null);
         Session(List<View> members){for(View child:members)children.add(new WeakReference<>(child));}
         boolean matches(List<?> members){
             if(children.size()!=members.size())return false;
@@ -324,10 +350,33 @@ public final class NotificationMiniStack {
     private final Map<Resources,Integer> nativeCoveredProgressIds=new WeakHashMap<>();
     private final Map<View,BadgeOwner> badgeOwners=new WeakHashMap<>();
     private final Map<View,BadgeLease> badgeViews=new WeakHashMap<>();
+    private final Map<ViewGroup,BadgeOwner> badgeBranches=new WeakHashMap<>();
+    private final java.util.concurrent.atomic.AtomicLong backgroundHierarchyEpoch=new java.util.concurrent.atomic.AtomicLong();
+    private boolean hierarchyHooks,visualHooks;
+    private final java.util.concurrent.atomic.AtomicLong visualEpoch=new java.util.concurrent.atomic.AtomicLong();
+    private int visualWrites;
     private final Map<View,WeakReference<ViewGroup>> nativeOverflows=new WeakHashMap<>();
     private int badgeWrites;
-    private final Path[] paths={new Path(),new Path(),new Path(),new Path()};
-    private int syncs,releases,clicks;
+    private static final int MAX_OUTLINES=48;
+    private final ArrayList<OutlineShape> outlines=new ArrayList<>();
+    private int nextOutline;
+    /** Immutable local geometry; no notification/View references or previous-frame pixels. */
+    private static final class OutlineShape {
+        final float left,top,right,bottom,radius;
+        final Path path=new Path();
+        OutlineShape(RectF bounds,float radius){
+            left=bounds.left;top=bounds.top;right=bounds.right;bottom=bounds.bottom;this.radius=radius;
+            path.addRoundRect(bounds,radius,radius,Path.Direction.CW);
+        }
+        boolean matches(RectF bounds,float r){return left==bounds.left&&top==bounds.top
+                &&right==bounds.right&&bottom==bounds.bottom&&radius==r;}
+    }
+    private int syncs,releases,clicks,offscreenSkips,stablePasses;
+    /** Bumped by every native transition, release and group invalidation: anything that can change an endpoint
+     * without a hierarchy or content event. */
+    private long stableEvents;
+    /** A settled group is fully validated again at least this often, so a silent native write is repaired. */
+    static final int STABLE_PASS_LIMIT=30;
     private String lastStage="unbound";
 
     public NotificationMiniStack(Handler main){
@@ -347,10 +396,56 @@ public final class NotificationMiniStack {
     public boolean wanted(){return enabled&&!ModuleLifecycle.removed();}
     public boolean active(){return enabled&&ready&&!ModuleLifecycle.removed();}
     public boolean hideBadge(){return hideBadge;}
+    /** Enable only after every native array/transient mutation hook was installed. */
+    public void hierarchyHooksReady(boolean value){
+        hierarchyHooks=value;visualEpoch.incrementAndGet();
+        for(BadgeOwner owner:badgeOwners.values())owner.treeEpoch++;
+    }
+    /** Rare structural changes, never a frame timer. Hooks run both before and after native callbacks. */
+    public void hierarchyChanged(ViewGroup group){
+        // RemoteViews can inflate off-main. Coalesce those mutations into one validation
+        // on the next visible frame instead of posting one UI task per inflated child.
+        if(Looper.myLooper()!=main.getLooper()){backgroundHierarchyEpoch.incrementAndGet();return;}
+        if(sessions.isEmpty()&&badgeBranches.isEmpty())return;
+        // Framework child-array hooks also see unrelated SystemUI widgets. Only a
+        // live notification owner can invalidate an already applied mini-stack plan.
+        for(View current=group;current!=null;current=parentView(current))if(sessions.containsKey(current)){
+            visualEpoch.incrementAndGet();break;
+        }
+        BadgeOwner owner=badgeBranches.get(group);
+        if(owner!=null)owner.treeEpoch++;
+    }
+    /** Stable visual plans are used only with the complete content and hierarchy callback contract. */
+    public void visualHooksReady(boolean value){visualHooks=value;visualEpoch.incrementAndGet();}
+    public void contentUpdated(Object content){
+        if(!active()||!t.content.isInstance(content))return;
+        if(Looper.myLooper()!=main.getLooper()){backgroundHierarchyEpoch.incrementAndGet();return;}
+        if(visualWrites!=0)return;
+        try {
+            Object row=t.contentOwner.get(content),parent=row==null?null:t.notificationParent.get(row);
+            if(sessions.containsKey(row)||sessions.containsKey(parent))visualEpoch.incrementAndGet();
+        }catch(ReflectiveOperationException|RuntimeException missing){visualEpoch.incrementAndGet();}
+    }
     /** View.setAlpha before-hook: retain native intent while the exact number node stays hidden on the GPU. */
     public float nativeBadgeAlpha(View view,float requested){
         if(view==null||Looper.myLooper()!=main.getLooper()||badgeWrites!=0||rowAlpha.writing())return requested;
-        View outer=rowAlpha.hiddenOwner(view);
+        if(badgeViews.isEmpty()&&rowAlpha.empty())return requested;
+        RowAlpha.Saved rear=rowAlpha.rear(view);
+        if(rear!=null){
+            View row=rear.owner.get();
+            try{
+                Object members=row==null?null:t.children.invoke(row);
+                if(row==null||!sessions.containsKey(row)||view.getParent()!=t.childrenContainer.get(row)
+                        ||t.notificationParent.get(view)!=row||!(members instanceof List)
+                        ||rear.index>=((List<?>)members).size()||((List<?>)members).get(rear.index)!=view){
+                    if(row==null)rowAlpha.restore(rear);else release(row);
+                }
+            }catch(ReflectiveOperationException|RuntimeException missing){
+                report("后卡透明度归属",missing);
+                if(row==null)rowAlpha.restore(rear);else release(row);
+            }
+        }
+        View outer=rowAlpha.coveredOwner(view);
         if(outer!=null){Session session=sessions.get(outer);if(session!=null)updateOuter(outer,session);}
         requested=rowAlpha.nativeAlpha(view,requested);
         BadgeLease lease=badgeViews.get(view);
@@ -378,7 +473,7 @@ public final class NotificationMiniStack {
     public void unsupported(String reason){ready=false;unavailable=reason==null?"":reason;lastStage="unsupported";}
     public String diagnosticSummary(){
         return "mini requested="+enabled+" ready="+ready+" badge="+!hideBadge+" sessions="+sessions.size()+" syncs="+syncs
-                +" releases="+releases+" clicks="+clicks+" stage="+lastStage+(unavailable.isEmpty()?"":" unavailable="+unavailable);
+                +" releases="+releases+" offscreen="+offscreenSkips+" stable="+stablePasses+" clicks="+clicks+" stage="+lastStage+(unavailable.isEmpty()?"":" unavailable="+unavailable);
     }
 
     private void report(String stage,Throwable failure){
@@ -410,40 +505,165 @@ public final class NotificationMiniStack {
         return result;
     }
 
+    /** Native update queries many child templates/heights before our endpoint hook runs.
+     * Share only that synchronous read scope; native mutations must be sampled again afterwards. */
+    public Object updateChildren(Object owner,Call call)throws Throwable{
+        boolean sampled=active()&&t.row.isInstance(owner)&&t.summary.getBoolean(owner);
+        if(sampled)beginDraw((View)owner);
+        Object result;
+        try{result=call.run();}finally{if(sampled)endDraw();}
+        childrenUpdated(owner);return result;
+    }
     /** After ExpandableNotificationRow.updateChildrenStates: write the closed endpoint into the native child ViewStates. */
     public void childrenUpdated(Object owner){
         if(!active()||replaying||!t.row.isInstance(owner))return;
         View row=(View)owner;
+        boolean sampled=false;
         try {
-            syncBadgeOwnership(row);
+            // Ordinary rows have no group geometry or badge tree. Preserve cleanup for
+            // a former summary, but avoid traversing every leaf in a large notification list.
+            if(!t.summary.getBoolean(row)&&!sessions.containsKey(row)&&!badgeOwners.containsKey(row))return;
+            // The native pass updates every row of the list on every frame. A group more than one list height
+            // away cannot be drawn in this frame; its endpoint is written again in the pass that brings it back.
+            if(farOutside(row)){offscreenSkips++;return;}
+            // The native pass recomputes every child state on every frame. A settled group whose inputs did not
+            // change gets the endpoint of its last full pass written back, without sampling the whole contract again.
+            Session known=sessions.get(row);
+            if(known!=null&&known.stable&&stableEndpoint(row,known)){syncs++;stablePasses++;return;}
+            if(known!=null)known.stable=false;
+            beginDraw(row);sampled=true;
             List<View> children=returningChildren(row);
-            if(children==null)return;
+            if(children==null){syncBadgeOwnership(row);return;}
             boolean settled=rawClosed(row);
+            long visual=visualEpoch.get(),background=backgroundHierarchyEpoch.get(),events=stableEvents;
             sync(row,children,settled);
             int first=contractedHeight(children.get(0));
             if(first<=0)return;
             float gap=LAYER_GAP_DP*density(row);
+            Session session=sessions.get(row);
+            boolean complete=settled&&session!=null;
+            if(session!=null)for(int index=0;index<3;index++)session.stableWritten[index]=false;
             for(int index=0;index<children.size();index++) {
                 View child=children.get(index);
                 Object state=t.getState.invoke(child);
-                if(state==null||!t.state.isInstance(state))continue;
+                if(state==null||!t.state.isInstance(state)){complete=false;continue;}
                 if(settled)t.stateHidden.setBoolean(state,index>2);
                 Object extension=t.stateExtensionField.get(state);
                 if(t.stateExtension.isInstance(extension))t.setStateContentAlpha.invoke(extension,index==0?1f:0f);
                 t.stateAlpha.invoke(state,opacity(index),SOURCE);
                 if(index>2)continue;
                 int height=contractedHeight(child);
-                if(height<=0)continue;
+                if(height<=0){complete=false;continue;}
+                float y=index==0?0f:foldedY(first,height,index,gap);
                 t.stateHeight.setInt(state,height);t.clipTop.setInt(state,0);t.clipBottom.setInt(state,0);
-                t.stateY.invoke(state,index==0?0f:foldedY(first,height,index,gap),SOURCE);
+                t.stateY.invoke(state,y,SOURCE);
+                if(session!=null){session.stableHeight[index]=height;session.stableY[index]=y;session.stableWritten[index]=true;}
             }
+            if(settled&&session!=null)hideHeaderState(row);
             syncs++;
+            // Only a pass that saw no event of its own may be reused: sync() above can itself release or rebuild.
+            if(complete&&hierarchyHooks&&visualHooks&&!handoff.containsKey(row)&&session==sessions.get(row)
+                    &&visual==visualEpoch.get()&&background==backgroundHierarchyEpoch.get()&&events==stableEvents) {
+                session.stable=true;session.stableVisual=visual;session.stableBackground=background;session.stableEvents=events;
+                session.stableStreak=0;session.stableFirst=first;
+            }
         }catch(ReflectiveOperationException|RuntimeException failure){report("收起子卡状态",failure);}
+        finally{if(sampled)endDraw();}
+    }
+
+    /** Writes the remembered endpoint for a settled group. False whenever anything it depends on may have changed;
+     * the caller then runs the full pass. Reads only the live expansion state and the member list. */
+    private boolean stableEndpoint(View row,Session session)throws ReflectiveOperationException{
+        if(!hierarchyHooks||!visualHooks||session.stableVisual!=visualEpoch.get()
+                ||session.stableBackground!=backgroundHierarchyEpoch.get()||session.stableEvents!=stableEvents
+                ||++session.stableStreak>STABLE_PASS_LIMIT||handoff.containsKey(row))return false;
+        // Everything the full pass reads live for a closed, eligible group is read live here too: expansion,
+        // swipes, native animation, privacy, guts, heads-up and membership. Only the visual plan is reused.
+        if(!t.summary.getBoolean(row)||t.expanded.getBoolean(row)||t.changing.getBoolean(row)||t.swiping.getBoolean(row)
+                ||t.bundle.getBoolean(row)||t.headsUp.getBoolean(row)||t.launching.getBoolean(row)||t.minimized.getBoolean(row)
+                ||yes(t.publicView,row)||yes(t.guts,row)||encrypted(row))return false;
+        Object extension=t.rowEx.get(row);
+        if(!t.extension.isInstance(extension)||t.animating.getBoolean(extension)||t.progress.getFloat(extension)!=0f)return false;
+        Object container=t.childrenContainer.get(row);
+        if(!(container instanceof ViewGroup)||t.containerSwiping.getBoolean(container))return false;
+        Object overlay=t.overlayEx.get(container);
+        if(!t.overlay.isInstance(overlay)||t.overlayAnimating.getBoolean(overlay)||t.overlayLocked.getBoolean(overlay))return false;
+        View stack=parentView(row);
+        while(stack!=null&&!t.stack.isInstance(stack))stack=parentView(stack);
+        if(stack==null||t.ambient.get(stack)==null)return false;
+        Object members=t.children.invoke(row);
+        if(!(members instanceof List)||!session.matches((List<?>)members))return false;
+        List<?> children=(List<?>)members;
+        if(children.size()<2)return false;
+        for(int index=0;index<Math.min(3,children.size());index++) {
+            Object member=children.get(index);
+            if(!(member instanceof View))return false;
+            View child=(View)member;
+            if(child.getParent()!=container||t.notificationParent.get(child)!=row||t.headsUp.getBoolean(child)
+                    ||t.launching.getBoolean(child)||yes(t.publicView,child)||yes(t.guts,child)||encrypted(child))return false;
+        }
+        // Validate before the first write: a refused reuse must leave the native states untouched for the full pass.
+        Object[] states=new Object[children.size()];
+        for(int index=0;index<states.length;index++) {
+            Object child=children.get(index);
+            if(!(child instanceof View))return false;
+            states[index]=t.getState.invoke(child);
+            if(states[index]==null||!t.state.isInstance(states[index]))return false;
+            // Card heights are read live as well: a re-measured template has no event of its own.
+            if(index<=2&&(!session.stableWritten[index]||contractedHeight((View)child)!=session.stableHeight[index]))return false;
+        }
+        // The same live validation and repairs as a full pass: a silent native regrouping, template selection
+        // or write to a leased view refuses the reuse (or is undone) in this very update.
+        @SuppressWarnings("unchecked") List<View> views=(List<View>)children;
+        if(!reuseVisuals(row,views,session))return false;
+        for(int index=0;index<states.length;index++) {
+            Object state=states[index];
+            t.stateHidden.setBoolean(state,index>2);
+            Object stateExtension=t.stateExtensionField.get(state);
+            if(t.stateExtension.isInstance(stateExtension))t.setStateContentAlpha.invoke(stateExtension,index==0?1f:0f);
+            t.stateAlpha.invoke(state,opacity(index),SOURCE);
+            if(index>2)continue;
+            t.stateHeight.setInt(state,session.stableHeight[index]);t.clipTop.setInt(state,0);t.clipBottom.setInt(state,0);
+            t.stateY.invoke(state,session.stableY[index],SOURCE);
+        }
+        hideHeaderState(row);
+        return true;
+    }
+
+    /** The native pass applies the group header's own view state to the header on every frame, and resets that
+     * state's "hidden" flag each time it computes it. Hiding the header view afterwards therefore loses to the
+     * next pass: the header flipped between visible and invisible twice per frame, and each flip ran the
+     * visibility callbacks of its whole subtree (measured: 3,553 flips in one two-second scroll). Marking the
+     * computed state hidden lets the native apply keep the header invisible; nothing is written to the view. */
+    private void hideHeaderState(View row)throws ReflectiveOperationException{
+        if(t.headerState==null)return;
+        Object container=t.childrenContainer.get(row);
+        Object state=container==null?null:t.headerState.get(container);
+        if(state!=null&&!t.stateHidden.getBoolean(state))t.stateHidden.setBoolean(state,true);
+    }
+
+    /** True only when the pass being computed places the whole row more than one list height outside the list.
+     * Uses the freshly computed native state, never the previous frame's position; unknown geometry is "visible". */
+    private boolean farOutside(View row){
+        if(t.stateGetY==null)return false;
+        try {
+            View stack=parentView(row);
+            while(stack!=null&&!t.stack.isInstance(stack))stack=parentView(stack);
+            int viewport=stack==null?0:stack.getHeight();
+            if(viewport<=0)return false;
+            Object state=t.getState.invoke(row);
+            if(state==null||!t.state.isInstance(state))return false;
+            Object value=t.stateGetY.invoke(state);
+            if(!(value instanceof Float))return false;
+            float y=(Float)value;int height=Math.max(t.stateHeight.getInt(state),row.getHeight());
+            if(Float.isNaN(y)||Float.isInfinite(y)||height<0)return false;
+            return y+height<-viewport||y>2f*viewport;
+        }catch(ReflectiveOperationException|RuntimeException unknown){return false;}
     }
 
     /** ExpandableNotificationRow.dispatchDraw: sample eligibility once per draw, then apply or release the stack. */
     public Object rowDraw(Object owner,Call call)throws Throwable{
-        boolean sampled=false;
+        boolean sampled=false;View[] plate=null;int[] flags=null;
         if(active()&&t.row.isInstance(owner))try {
             View row=(View)owner;
             if(t.summary.getBoolean(row)||sessions.containsKey(row)) {
@@ -452,9 +672,76 @@ public final class NotificationMiniStack {
                 List<View> children=returningChildren(row);
                 if(children==null)release(row);else sync(row,children,rawClosed(row));
                 syncBadgeOwnership(row);
+                releasePlates(row,children);
+            } else {
+                plate=rearContent(row);
+                if(plate!=null)flags=hideForDraw(plate);
             }
-        }catch(ReflectiveOperationException|RuntimeException failure){report("收起绘制",failure);}
-        try{return call.run();}finally{if(sampled)endDraw();}
+        }catch(ReflectiveOperationException|RuntimeException failure){report("收起绘制",failure);plate=null;flags=null;}
+        try{return call.run();}
+        finally{
+            if(flags!=null)restoreAfterDraw(plate,flags);
+            if(sampled)endDraw();
+        }
+    }
+
+    // App289: a settled rear card records only its background plate. Its content layouts are flagged invisible
+    // for the duration of its own dispatchDraw (no listener, layout or invalidation sees it), so the RenderThread
+    // no longer walks their nodes every frame (App286: prepareTree 3.73 vs 2.22 ms with the stack on/off).
+    // A row that stops being a settled rear card is invalidated once so its content is recorded again.
+    private final Map<View,Boolean> plated=new WeakHashMap<>();
+    private Field viewFlags;
+    private boolean platesUnsupported;
+    private static final int VISIBILITY_MASK=0x0000000C,INVISIBLE_FLAG=0x00000004;
+
+    private View[] rearContent(View row)throws ReflectiveOperationException{
+        if(platesUnsupported)return null;
+        Object parent=t.notificationParent.get(row);
+        if(!(parent instanceof View))return null;
+        List<View> children=returningChildren((View)parent);
+        int index=children==null?-1:children.indexOf(row);
+        if(index<1||index>2||!rawClosed((View)parent))return null;
+        Object first=t.privateLayout.get(row),second=t.publicLayout.get(row);
+        View[] content={first instanceof View&&((View)first).getParent()==row?(View)first:null,
+                second instanceof View&&((View)second).getParent()==row?(View)second:null};
+        if(content[0]==null&&content[1]==null)return null;
+        plated.put(row,Boolean.TRUE);
+        return content;
+    }
+    private int[] hideForDraw(View[] views){
+        int[] saved=new int[views.length];int changed=-1;
+        try{
+            if(viewFlags==null){Field flags=View.class.getDeclaredField("mViewFlags");flags.setAccessible(true);viewFlags=flags;}
+            for(int i=0;i<views.length;i++)if(views[i]!=null)saved[i]=viewFlags.getInt(views[i]);
+            for(int i=0;i<views.length;i++)if(views[i]!=null){viewFlags.setInt(views[i],(saved[i]&~VISIBILITY_MASK)|INVISIBLE_FLAG);changed=i;}
+            return saved;
+        }catch(ReflectiveOperationException|RuntimeException unavailable){
+            for(int i=0;i<=changed;i++)if(views[i]!=null)try{viewFlags.setInt(views[i],saved[i]);}
+            catch(ReflectiveOperationException|RuntimeException ignored){}
+            platesUnsupported=true;report("后卡只画背景",unavailable);return null;
+        }
+    }
+    private void restoreAfterDraw(View[] views,int[] saved){
+        for(int i=0;i<views.length;i++)if(views[i]!=null)try{
+            int now=viewFlags.getInt(views[i]);
+            // Only the visibility bits are ours; anything else written during the draw stays.
+            viewFlags.setInt(views[i],(now&~VISIBILITY_MASK)|(saved[i]&VISIBILITY_MASK));
+        }catch(ReflectiveOperationException|RuntimeException failure){report("恢复后卡内容",failure);}
+    }
+    /** Rows of this group that were drawn as plates but are no longer settled rear cards get their content back. */
+    private void releasePlates(View summary,List<View> children)throws ReflectiveOperationException{
+        if(plated.isEmpty())return;
+        boolean settled=children!=null&&rawClosed(summary);
+        for(View child:new ArrayList<>(plated.keySet())){
+            if(t.notificationParent.get(child)!=summary)continue;
+            int index=children==null?-1:children.indexOf(child);
+            if(settled&&index>=1&&index<=2)continue;
+            plated.remove(child);child.invalidate();
+        }
+    }
+    private void releaseAllPlates(){
+        for(View child:new ArrayList<>(plated.keySet()))child.invalidate();
+        plated.clear();
     }
 
     /** NotificationContentView.calculateVisibleType / getVisualTypeForHeight: the three deck cards keep their contracted template. */
@@ -494,7 +781,7 @@ public final class NotificationMiniStack {
                     if(t.overlay.isInstance(overlay)&&(child==t.overlayContainer.get(overlay)||child==t.collapsedHeader.get(overlay)))return false;
                 } else {
                     View first=children.get(0);
-                    if(index>0&&(outerStackCovered(row)||!rearVisible(row,first)))return false;
+                    if(index>0&&(outerCoverage(row)>=1f||!rearVisible(row,first)))return false;
                     int firstHeight=settled?contractedHeight(first):(Integer)t.actualHeight.invoke(first);
                     if(bounds(first,container,firstHeight,front)) {
                         saved=canvas.save();
@@ -502,7 +789,7 @@ public final class NotificationMiniStack {
                         // Bypass only the native folded-group clip for this one child; restored right after it draws.
                         t.childClip.set(container,null);clipCleared=true;
                         float frontRadius=radius(first);
-                        if(index==0)canvas.clipPath(outline(0,front,frontRadius));
+                        if(index==0)canvas.clipPath(outline(front,frontRadius));
                         else foldRear(canvas,container,row,children,child,index,settled,frontRadius);
                     }
                 }
@@ -530,7 +817,7 @@ public final class NotificationMiniStack {
     }
     private List<View> nativeNumbers(ViewGroup container,View drawnChild,BadgeOwner owner)throws ReflectiveOperationException{
         List<View> result=new ArrayList<>();
-        owner.container.clear();owner.branches.clear();
+        owner.container.clear();owner.clearBranches();
         owner.number=new WeakReference<>(null);owner.pill=new WeakReference<>(null);
         Object extension=t.containerEx.get(container);
         if(t.containerExtension.isInstance(extension)) {
@@ -562,6 +849,7 @@ public final class NotificationMiniStack {
         if(view instanceof ViewGroup) {
             ViewGroup group=(ViewGroup)view;
             BadgeBranch branch=new BadgeBranch(group);owner.branches.add(branch);
+            badgeBranches.put(group,owner);
             for(WeakReference<View> reference:branch.children) {
                 View child=reference.get();
                 if(child!=null)collectNativeNumbers(child,result,owner);
@@ -621,15 +909,25 @@ public final class NotificationMiniStack {
         WeakReference<View> number=new WeakReference<>(null),pill=new WeakReference<>(null),overflow=new WeakReference<>(null);
         WeakReference<ViewGroup> container=new WeakReference<>(null);
         WeakReference<ViewTreeObserver> observer;
-        long generation;
+        long generation,treeEpoch,checkedEpoch=-1L,checkedBackgroundEpoch=-1L;
         BadgeOwner(View row){this.row=new WeakReference<>(row);observe(row);row.addOnAttachStateChangeListener(this);}
+        void clearBranches(){
+            for(BadgeBranch branch:branches){ViewGroup group=branch.group.get();
+                if(group!=null&&badgeBranches.get(group)==this)badgeBranches.remove(group);}
+            branches.clear();
+        }
         boolean treeMatches(ViewGroup source)throws ReflectiveOperationException{
-            if(container.get()!=source||overflow.get()!=t.overflowNumber.get(source))return false;
+            if(checkedEpoch!=treeEpoch||checkedBackgroundEpoch!=backgroundHierarchyEpoch.get()
+                    ||container.get()!=source||overflow.get()!=t.overflowNumber.get(source))return false;
             Object extension=t.containerEx.get(source),group=t.containerExtension.isInstance(extension)?t.groupEx.get(extension):null;
             Object currentNumber=t.groupExtension.isInstance(group)?t.numberView.get(group):null;
             Object currentPill=t.groupExtension.isInstance(group)?t.numberPill.get(group):null;
             if(number.get()!=currentNumber||pill.get()!=currentPill)return false;
-            for(BadgeBranch branch:branches)if(!branch.matches())return false;
+            // Native array/transient mutation hooks invalidate the exact owning tree. Ordinary
+            // fling frames only check live target pointers; they do not walk thousands of
+            // unchanged RemoteViews descendants in update, pre-draw and draw again.
+            // Partial/unknown framework contracts retain the structural validation fallback.
+            if(!hierarchyHooks)for(BadgeBranch branch:branches)if(!branch.matches())return false;
             for(Map.Entry<View,Boolean> target:targetAttachments.entrySet())
                 if(target.getKey().isAttachedToWindow()!=target.getValue())return false;
             return true;
@@ -644,11 +942,12 @@ public final class NotificationMiniStack {
         @Override public boolean onPreDraw(){
             View view=row.get();
             try {
-                if(view==null||!badgeEligible(view))
+                if(view==null)
                     releaseBadgeOwner(this);
                 // A hidden shade need not inspect its RemoteViews tree every window frame. Keep the lease and
                 // observer so late templates are suppressed before its first visible GPU frame.
                 else if(view.isShown())syncBadgeOwnership(view);
+                else if(!badgeEligible(view))releaseBadgeOwner(this);
             }catch(ReflectiveOperationException|RuntimeException failure){
                 report("数量角标预绘制",failure);releaseBadgeOwner(this);
             }
@@ -674,15 +973,25 @@ public final class NotificationMiniStack {
         boolean matches()throws ReflectiveOperationException{
             ViewGroup source=group.get();
             if(source==null||children.size()!=source.getChildCount())return false;
+            View[] nativeArray=t.nativeChildren==null?null:(View[])t.nativeChildren.get(source);
+            boolean sameOrder=nativeArray!=null&&nativeArray.length>=children.size();
+            if(sameOrder)for(int index=0;index<children.size();index++){
+                View child=children.get(index).get();
+                if(child==null||child!=nativeArray[index]||child.getParent()!=source){sameOrder=false;break;}
+            }
             // A count change catches insert/remove; real membership catches same-count replacement even when
             // startViewTransition keeps a removed child's parent until its disappearance animation finishes.
             // Reordering inside the same parent cannot change the set of native count targets.
             // getChildAt is a process-wide hooked hot path on the audited ROM; do not call it once per frame
             // for every RemoteViews descendant just to rediscover the same members.
-            for(WeakReference<View> reference:children) {
+            if(!sameOrder)for(WeakReference<View> reference:children) {
                 View child=reference.get();
                 if(child==null||child.getParent()!=source||source.indexOfChild(child)<0)return false;
             }
+            // Ordinary frames are O(n), without a hooked getChildAt or O(n) index
+            // search for each descendant. A real reorder pays the fallback once.
+            if(!sameOrder&&nativeArray!=null&&nativeArray.length>=children.size())
+                for(int index=0;index<children.size();index++)children.set(index,new WeakReference<>(nativeArray[index]));
             if(transientSupported) {
                 if(transients.size()!=(Integer)t.transientCount.invoke(source))return false;
                 for(int index=0;index<transients.size();index++)if(transients.get(index).get()!=t.transientView.invoke(source,index))return false;
@@ -700,10 +1009,10 @@ public final class NotificationMiniStack {
         return active()&&hideBadge&&row.isAttachedToWindow()&&eligibleChildren(row)!=null;
     }
     private void syncBadgeOwnership(View row)throws ReflectiveOperationException{
-        if(!badgeEligible(row)){releaseBadgeOwner(row);return;}
         DrawSample draw=null;
         for(int index=samples.size()-1;index>=0;index--)if(samples.get(index).row==row){draw=samples.get(index);break;}
         if(draw!=null&&draw.badgesSynced)return;
+        if(!badgeEligible(row)){releaseBadgeOwner(row);return;}
         Object source=t.childrenContainer.get(row);
         if(!(source instanceof ViewGroup)){releaseBadgeOwner(row);return;}
         ViewGroup container=(ViewGroup)source;
@@ -720,6 +1029,8 @@ public final class NotificationMiniStack {
             if(draw!=null)draw.badgesSynced=true;
             return;
         }
+        long treeEpoch=owner.treeEpoch;
+        long backgroundEpoch=backgroundHierarchyEpoch.get();
         List<View> numbers=nativeNumbers(container,container,owner);
         Object overflow=t.overflowNumber.get(container);
         owner.overflow=new WeakReference<>(overflow instanceof View?(View)overflow:null);
@@ -753,6 +1064,8 @@ public final class NotificationMiniStack {
         // Releasing an obsolete lease dirties its owner's cache. Commit this replacement tree only after
         // all old targets have been returned, so a successful rebuild is not repeated on the next frame.
         owner.container=new WeakReference<>(container);
+        owner.checkedEpoch=treeEpoch;
+        owner.checkedBackgroundEpoch=backgroundEpoch;
         if(draw!=null)draw.badgesSynced=true;
     }
     private void releaseBadgeLease(BadgeLease lease){
@@ -775,9 +1088,10 @@ public final class NotificationMiniStack {
         owner.observer=null;
         for(BadgeLease lease:new ArrayList<>(owner.nodes.values()))try{releaseBadgeLease(lease);}
         catch(RuntimeException failure){report("归还原生数量透明度",failure);}
-        owner.nodes.clear();owner.branches.clear();owner.targetAttachments.clear();
+        owner.nodes.clear();owner.clearBranches();owner.targetAttachments.clear();
     }
     private void invalidateGroups(){
+        stableEvents++;
         if(!hideBadge)for(BadgeOwner owner:new ArrayList<>(badgeOwners.values()))releaseBadgeOwner(owner);
         if(t==null)return;
         for(View row:new ArrayList<>(sessions.keySet())) {
@@ -791,6 +1105,7 @@ public final class NotificationMiniStack {
     /** Expansion, expansion-changing, swipe and animation setters: hand the group back to native state before they record it. */
     public Object transition(int kind,Object owner,Object value,Call call)throws Throwable{
         if(!active())return call.run();
+        stableEvents++;
         View row=null;
         try {
             row=transitionRow(kind,owner);
@@ -813,8 +1128,19 @@ public final class NotificationMiniStack {
     }
 
     /** After the host recomputes a row background: remember its own visibility and refresh that card next time. */
+    /** A change that belongs to one row ends the reuse for that row and its group only, not for every group. */
+    private void unstable(Object owner){
+        Session own=sessions.get(owner);
+        if(own!=null)own.stable=false;
+        try {
+            Object parent=t.notificationParent.get(owner);
+            Session group=parent==null?null:sessions.get(parent);
+            if(group!=null)group.stable=false;
+        }catch(ReflectiveOperationException|RuntimeException unknown){stableEvents++;}
+    }
     public void backgroundUpdated(Object owner){
         if(!active()||refreshing||!t.row.isInstance(owner))return;
+        unstable(owner);
         try {
             Object view=t.background.get(owner);
             if(view instanceof View)backgrounds.hostUpdated((View)view);
@@ -824,6 +1150,7 @@ public final class NotificationMiniStack {
 
     public void roundnessReset(Object owner,Object sourceType){
         if(!active()||refreshing||sourceType!=roundnessSource||!t.row.isInstance(owner))return;
+        unstable(owner);
         try{dirtyCard((View)owner);}catch(ReflectiveOperationException|RuntimeException failure){report("原生圆角重置",failure);}
     }
 
@@ -853,6 +1180,14 @@ public final class NotificationMiniStack {
     // ---- Eligibility and state. ----
 
     private List<View> eligibleChildren(View row)throws ReflectiveOperationException{
+        for(int index=samples.size()-1;index>=0;index--){DrawSample sample=samples.get(index);if(sample.row!=row)continue;
+            if(!sample.eligibilitySampled){sample.eligible=freshEligibleChildren(row);sample.eligibilitySampled=true;}
+            return sample.eligible;
+        }
+        return freshEligibleChildren(row);
+    }
+    /** Scoped to one synchronous native update or draw, never reused across frames/events. */
+    private List<View> freshEligibleChildren(View row)throws ReflectiveOperationException{
         if(!t.row.isInstance(row)||!t.summary.getBoolean(row)||t.bundle.getBoolean(row)||t.headsUp.getBoolean(row)
                 ||t.launching.getBoolean(row)||t.minimized.getBoolean(row)||yes(t.publicView,row)||yes(t.guts,row)||encrypted(row))return null;
         View stack=parentView(row);
@@ -926,13 +1261,15 @@ public final class NotificationMiniStack {
     }
     /** The native covered spring and the exact stack-scale owner are separate native paths.
      * Generic entry/pinch scale is never enough to claim that a row is an outer rear card. */
-    private boolean outerStackCovered(View row){
+    private float outerCoverage(View row){
         DrawSample draw=null;
         for(int index=samples.size()-1;index>=0;index--)if(samples.get(index).row==row){draw=samples.get(index);break;}
-        if(draw!=null&&draw.coveredSampled)return draw.covered;
-        boolean covered=false;
+        if(draw!=null&&draw.coverageSampled)return draw.coverage;
+        float coverage=0f;
+        Session session=sessions.get(row);
+        OuterOwner outer=session==null?null:session.outer;
         try {
-            if(!outerEligible(row))return false;
+            if(!outerEligible(row)){if(outer!=null)outer.scaleBase=1f;return 0f;}
             Resources resources=row.getResources();
             Integer id=nativeCoveredProgressIds.get(resources);
             if(id==null) {
@@ -942,21 +1279,23 @@ public final class NotificationMiniStack {
                 nativeCoveredProgressIds.put(resources,id);
             }
             Object value=id>0?row.getTag(id):null;
-            covered=value instanceof Float&&finite((Float)value)&&(Float)value>0f;
-            if(!covered&&t.rowAnimation!=null){
+            coverage=value instanceof Float&&finite((Float)value)?unit((Float)value):0f;
+            if(outer!=null&&t.rowAnimation!=null){
                 Object state=t.getState.invoke(row),extension=t.stateExtensionField.get(state);
                 Object animation=t.rowAnimation.invoke(extension),scale=t.rowScale.invoke(animation,"key_stacked_notification");
                 float x=((Number)t.scaleX.invoke(scale)).floatValue(),y=((Number)t.scaleY.invoke(scale)).floatValue();
-                covered=finite(x)&&finite(y)&&x>0f&&y>0f&&(x<.9999f||y<.9999f)
-                        &&(compressed(row.getScaleX())||compressed(row.getScaleY()));
+                float actual=Math.min(row.getScaleX(),row.getScaleY());
+                if(finite(x)&&finite(y)&&x>0f&&y>0f&&compressed(Math.min(x,y))&&compressed(actual))
+                    outer.scaleBase=Math.min(outer.scaleBase,Math.min(x,y));
+                // The keyed target can reset before the real spring. Retain its verified compressed
+                // endpoint, then reveal continuously with the actual scale instead of latching hidden.
+                if(outer.scaleBase<1f&&finite(actual)&&actual>0f&&actual<1f)
+                    coverage=Math.max(coverage,unit((1f-actual)/(1f-outer.scaleBase)));
+                else outer.scaleBase=1f;
             }
-            Session session=sessions.get(row);
-            // A reset target can lead the actual spring. Retain only a previously verified cover.
-            if(!covered&&session!=null&&session.outer!=null&&session.outer.hidden)
-                covered=compressed(row.getScaleX())||compressed(row.getScaleY());
         }catch(ReflectiveOperationException|RuntimeException absent){/* Unknown native contract keeps the mini deck. */}
-        if(draw!=null){draw.coveredSampled=true;draw.covered=covered;}
-        return covered;
+        if(draw!=null){draw.coverageSampled=true;draw.coverage=coverage;}
+        return coverage;
     }
     private static boolean compressed(float scale){return finite(scale)&&scale>0f&&scale<.9999f;}
     private boolean outerEligible(View row)throws ReflectiveOperationException{
@@ -966,7 +1305,7 @@ public final class NotificationMiniStack {
     }
     /** A property lease also works when Android reuses the children container's display list. */
     private final class OuterOwner implements ViewTreeObserver.OnPreDrawListener {
-        final WeakReference<View> row;WeakReference<ViewTreeObserver> observer;boolean hidden;
+        final WeakReference<View> row;WeakReference<ViewTreeObserver> observer;float coverage,scaleBase=1f;
         OuterOwner(View row){this.row=new WeakReference<>(row);ViewTreeObserver tree=row.getViewTreeObserver();
             if(tree.isAlive()){tree.addOnPreDrawListener(this);observer=new WeakReference<>(tree);}}
         @Override public boolean onPreDraw(){View view=row.get();Session session=view==null?null:sessions.get(view);
@@ -979,11 +1318,11 @@ public final class NotificationMiniStack {
         updateOuter(row,session);
     }
     private void updateOuter(View row,Session session){
-        boolean hidden=false;
-        try{hidden=session.outer!=null&&outerStackCovered(row);}catch(RuntimeException failure){report("大堆叠后卡",failure);}
+        float coverage=0f;
+        try{if(session.outer!=null)coverage=outerCoverage(row);}catch(RuntimeException failure){report("大堆叠后卡",failure);}
         // A reused rear RenderNode can move before updateChildrenStates. Never carry this
         // owner's alpha lease into another native group while waiting for that callback.
-        if(hidden||session.outer!=null&&session.outer.hidden)try{
+        if(coverage>0f||session.outer!=null&&session.outer.coverage>0f)try{
             Object members=t.children.invoke(row),container=t.childrenContainer.get(row);
             if(!(members instanceof List)||!session.matches((List<?>)members)){release(row);return;}
             for(int i=0;i<Math.min(3,session.children.size());i++){
@@ -991,9 +1330,9 @@ public final class NotificationMiniStack {
                 if(child==null||child.getParent()!=container||t.notificationParent.get(child)!=row){release(row);return;}
             }
         }catch(ReflectiveOperationException|RuntimeException missing){release(row);return;}
-        boolean changed=session.outer!=null&&session.outer.hidden!=hidden;
-        if(session.outer!=null)session.outer.hidden=hidden;
-        rowAlpha.outer(row,hidden);
+        boolean changed=session.outer!=null&&(session.outer.coverage>=1f)!=(coverage>=1f);
+        if(session.outer!=null)session.outer.coverage=coverage;
+        rowAlpha.outer(row,coverage);
         if(changed)try{Object container=t.childrenContainer.get(row);if(container instanceof View)((View)container).invalidate();}
         catch(IllegalAccessException|RuntimeException ignored){ }
     }
@@ -1045,18 +1384,23 @@ public final class NotificationMiniStack {
         if(samplePool.size()<2)samplePool.add(sample);
     }
 
-    // ---- Drawing. Geometry and View references end with each draw; only a few empty Paths are reused. ----
+    // ---- Drawing. Reuse a bounded set of exact local shapes while native rows move. ----
 
-    private Path outline(int slot,RectF bounds,float radius){
+    private Path outline(RectF bounds,float radius){
         float limit=Math.max(0f,Math.min(bounds.width(),bounds.height()))/2f;
         float r=Float.isNaN(radius)?0f:Math.max(0f,Math.min(radius,limit));
-        Path path=paths[slot];path.reset();path.addRoundRect(bounds,r,r,Path.Direction.CW);
-        return path;
+        for(int index=0;index<outlines.size();index++){
+            OutlineShape known=outlines.get(index);if(known.matches(bounds,r))return known.path;
+        }
+        OutlineShape shape=new OutlineShape(bounds,r);
+        if(outlines.size()<MAX_OUTLINES)outlines.add(shape);
+        else {outlines.set(nextOutline,shape);nextOutline=(nextOutline+1)%MAX_OUTLINES;}
+        return shape.path;
     }
     private void foldRear(Canvas canvas,ViewGroup container,View row,List<View> children,View child,int index,boolean settled,
             float frontRadius)throws ReflectiveOperationException{
         // The front card is translucent: occlude by its shape rather than painting under it.
-        canvas.clipOutPath(outline(0,front,frontRadius));
+        canvas.clipOutPath(outline(front,frontRadius));
         if(!bounds(child,container,(Integer)t.actualHeight.invoke(child),source))return;
         int depth=depth(children.size());
         float tail=tail(children.size(),density(row));
@@ -1064,10 +1408,10 @@ public final class NotificationMiniStack {
         for(int layer=1;layer<index;layer++) {
             View card=children.get(layer);
             target(container,card,layer,depth,tail,progress,nearer);
-            canvas.clipOutPath(outline(layer,nearer,radius(card)*nearer.width()/Math.max(1,card.getWidth())));
+            canvas.clipOutPath(outline(nearer,radius(card)*nearer.width()/Math.max(1,card.getWidth())));
         }
         target(container,child,index,depth,tail,progress,rear);
-        canvas.clipPath(outline(3,rear,radius(child)*rear.width()/Math.max(1,child.getWidth())));
+        canvas.clipPath(outline(rear,radius(child)*rear.width()/Math.max(1,child.getWidth())));
         canvas.translate(rear.left,rear.top);
         canvas.scale(rear.width()/source.width(),rear.height()/source.height());
         canvas.translate(-source.left,-source.top);
@@ -1139,22 +1483,68 @@ public final class NotificationMiniStack {
         Session session=sessions.get(row);
         if(session!=null&&!session.matches(children)){release(row);session=null;}
         if(session==null){session=new Session(children);sessions.put(row,session);row.addOnAttachStateChangeListener(detach);}
-        int deck=Math.min(3,children.size());
-        // Restore from a snapshot: native callbacks can re-enter while a card restores.
-        List<Card> obsolete=new ArrayList<>();
-        for(Card card:session.cards) {
-            View child=card.child.get();int index=0;
-            while(index<deck&&children.get(index)!=child)index++;
-            if(index==deck)obsolete.add(card);
+        if(settled&&reuseVisuals(row,children,session))return;
+        long epoch=visualEpoch.get(),backgroundEpoch=backgroundHierarchyEpoch.get();
+        visualWrites++;
+        try{syncVisuals(row,children,settled,session);}
+        finally{visualWrites--;}
+        session.visualEpoch=epoch;session.backgroundEpoch=backgroundEpoch;
+    }
+    /** Reapply live native properties without rebuilding an unchanged ownership plan on each fling frame. */
+    private boolean reuseVisuals(View row,List<View> children,Session session)throws ReflectiveOperationException{
+        if(!hierarchyHooks||!visualHooks||session.visualEpoch!=visualEpoch.get()
+                ||session.backgroundEpoch!=backgroundHierarchyEpoch.get()||session.cards.size()!=Math.min(3,children.size())
+                ||session.summaryBackground.get()!=t.background.get(row))return false;
+        for(Card card:session.cards){
+            View child=card.child.get();
+            if(child==null||!card.refreshed||card.privateLayout==null||card.publicLayout==null
+                    ||card.privateLayout.get()!=t.privateLayout.get(child)||card.publicLayout.get()!=t.publicLayout.get(child))return false;
+            // Some native callers can inline the setters. Live template checks also catch
+            // silent selection/grouping changes before reusing a visual plan.
+            for(SavedLayout layout:card.layouts){View view=layout.view.get();if(view==null)continue;
+                Object front=t.contracted.get(view);
+                if(t.inGroup.getBoolean(view)||front!=layout.contracted.get()
+                        ||front instanceof View&&(t.selectedType.getInt(view)!=CONTRACTED
+                            ||((View)front).getVisibility()!=View.VISIBLE||((View)front).getAlpha()!=1f))return false;
+            }
+            Object background=t.background.get(child);
+            if(background instanceof View){
+                View view=(View)background;
+                if(card.background==null||card.background.get()!=view||card.height!=contractedHeight(child)||card.radius!=radius(child)
+                        ||view.getOutlineProvider()!=card.appliedOutline||!view.getClipToOutline())return false;
+            }else if(card.background!=null&&card.background.get()!=null)return false;
         }
-        for(Card card:obsolete)restoreCard(card);
-        session.cards.removeAll(obsolete);
+        // Privacy, parent membership and native expansion eligibility were sampled live by the caller.
+        return reapplyLeases(row,session);
+    }
+    /** Alpha/visibility are live leases: native spring writes are repaired on every update, never frozen in a bitmap.
+     * False only when a leased card is gone; nothing has been written in that case. */
+    private boolean reapplyLeases(View row,Session session)throws ReflectiveOperationException{
+        for(Card card:session.cards)if(card.child.get()==null)return false;
+        for(int index=0;index<session.cards.size();index++){
+            Card card=session.cards.get(index);View child=card.child.get();
+            Object current=t.privateLayout.get(child),showing=t.showing.invoke(child);float alpha=index==0?1f:0f;
+            if(current instanceof View)ownAlpha((View)current,alpha,card.contents);
+            if(showing!=current&&showing instanceof View)ownAlpha((View)showing,alpha,card.contents);
+        }
+        Object content=t.privateLayout.get(row),showing=t.showing.invoke(row);
+        if(content instanceof View)ownAlpha((View)content,0f,session.summaryContents);
+        if(showing!=content&&showing instanceof View)ownAlpha((View)showing,0f,session.summaryContents);
+        syncBadgeOwnership(row);visibility.reapply(row);rowAlpha.reapply(row);syncOuter(row,session);backgrounds.reapply(row);
+        return true;
+    }
+    private void syncVisuals(View row,List<View> children,boolean settled,Session session)throws ReflectiveOperationException{
+        int deck=Math.min(3,children.size());
+        // A membership/order change releases the whole session above. Its first three
+        // cards therefore cannot become obsolete while this exact session still matches.
         for(int index=0;index<deck;index++) {
             View child=children.get(index);
             Card card=null;
             for(Card candidate:session.cards)if(candidate.child.get()==child){card=candidate;break;}
             if(card==null){card=new Card(child,row);session.cards.add(card);}
             Object privateLayout=t.privateLayout.get(child),publicLayout=t.publicLayout.get(child);
+            card.privateLayout=new WeakReference<>(privateLayout instanceof View?(View)privateLayout:null);
+            card.publicLayout=new WeakReference<>(publicLayout instanceof View?(View)publicLayout:null);
             for(int slot=0;slot<(privateLayout==publicLayout?1:2);slot++) {
                 Object layout=slot==0?privateLayout:publicLayout;
                 if(!(layout instanceof View))continue;
@@ -1165,6 +1555,7 @@ public final class NotificationMiniStack {
                 if(t.inGroup.getBoolean(layout)){t.setGrouped.invoke(layout,false);ungrouped=true;}
                 Object contracted=t.contracted.get(layout);
                 View front=contracted instanceof View?(View)contracted:null;
+                for(SavedLayout entry:card.layouts)if(entry.view.get()==layout){entry.contracted=new WeakReference<>(front);break;}
                 if(ungrouped||front!=null&&(t.selectedType.getInt(layout)!=CONTRACTED||front.getVisibility()!=View.VISIBLE||front.getAlpha()!=1f)) {
                     // The native collapse can pick the single-line template before its flags settle; repair that
                     // mismatch at the closed endpoint instead of re-selecting on every draw.
@@ -1203,9 +1594,15 @@ public final class NotificationMiniStack {
         syncBadgeOwnership(row);
         if(settled) {
             List<View> hidden=new ArrayList<>();
-            for(int index=0;index<container.getChildCount();index++) {
-                View view=container.getChildAt(index);
-                if(!t.row.isInstance(view))hidden.add(view);
+            int count=container.getChildCount();
+            View[] nativeChildren=t.nativeChildren==null?null:(View[])t.nativeChildren.get(container);
+            boolean direct=nativeChildren!=null&&nativeChildren.length>=count;
+            for(int index=0;index<count;index++) {
+                // Read the current native membership without entering the global status-icon
+                // index hook thousands of times during a notification fling. Never retain or
+                // mutate the array; unsupported frameworks keep the public accessor fallback.
+                View view=direct?nativeChildren[index]:container.getChildAt(index);
+                if(view!=null&&!t.row.isInstance(view))hidden.add(view);
             }
             for(int index=3;index<children.size();index++)hidden.add(children.get(index));
             visibility.hide(row,hidden,true);
@@ -1214,6 +1611,7 @@ public final class NotificationMiniStack {
         }
         syncOuter(row,session);
         Object summaryBackground=t.background.get(row);
+        session.summaryBackground=new WeakReference<>(summaryBackground instanceof View?(View)summaryBackground:null);
         if(!(summaryBackground instanceof View))return;
         List<View> childBackgrounds=new ArrayList<>();
         for(View child:children){Object background=t.background.get(child);if(background instanceof View)childBackgrounds.add((View)background);}
@@ -1270,7 +1668,7 @@ public final class NotificationMiniStack {
     private void release(View row){
         Session session=sessions.remove(row);
         if(session==null)return;
-        releases++;
+        releases++;stableEvents++;
         try {
             if(session.outer!=null)session.outer.remove();
             visibility.restore(row);
@@ -1290,6 +1688,8 @@ public final class NotificationMiniStack {
         for(BadgeOwner owner:new ArrayList<>(badgeOwners.values()))releaseBadgeOwner(owner);
         for(View row:new ArrayList<>(sessions.keySet()))try{release(row);}catch(RuntimeException failure){report("关闭时恢复",failure);}
         handoff.clear();nativeOverflows.clear();nativeNumberIds.clear();nativeCoveredProgressIds.clear();
+        outlines.clear();nextOutline=0;
+        releaseAllPlates();
     }
     private final View.OnAttachStateChangeListener detach=new View.OnAttachStateChangeListener() {
         @Override public void onViewAttachedToWindow(View view){ }
@@ -1316,6 +1716,15 @@ public final class NotificationMiniStack {
                     entry.owned=true;
                     if(view.getVisibility()!=View.INVISIBLE)view.setVisibility(View.INVISIBLE);
                 }
+                if(view.getImportantForAccessibility()!=View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS)
+                    view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+            }
+        }
+        void reapply(View row){
+            Map<View,Saved> saved=snapshots.get(row);if(saved==null)return;
+            for(Saved entry:saved.values()){
+                View view=entry.view.get();if(view==null)continue;
+                if(entry.owned&&view.getVisibility()!=View.GONE&&view.getVisibility()!=View.INVISIBLE)view.setVisibility(View.INVISIBLE);
                 if(view.getImportantForAccessibility()!=View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS)
                     view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
             }
@@ -1358,6 +1767,11 @@ public final class NotificationMiniStack {
                 if(view!=null&&view.getVisibility()!=View.GONE&&view.getVisibility()!=entry.forced)view.setVisibility(entry.forced);
             }
         }
+        void reapply(View owner){
+            List<Saved> saved=owners.get(owner);if(saved==null)return;
+            for(Saved entry:saved){View view=entry.view.get();
+                if(view!=null&&view.getVisibility()!=View.GONE&&view.getVisibility()!=entry.forced)view.setVisibility(entry.forced);}
+        }
         /** Called only after the host recomputed the visibility, never to snapshot this class's own override. */
         void hostUpdated(View background){Saved entry=byBackground.get(background);if(entry!=null)entry.host=background.getVisibility();}
         void restore(View owner){
@@ -1375,15 +1789,17 @@ public final class NotificationMiniStack {
     /** Child row opacity while stacked; restores the freshest host value on release. */
     static final class RowAlpha {
         private static final class Saved {
-            final WeakReference<View> view,owner;float host,applied;long seen;int index;boolean hidden;
+            final WeakReference<View> view,owner;float host,applied,coverage;long seen;int index;
             Saved(View view,View owner){this.view=new WeakReference<>(view);this.owner=new WeakReference<>(owner);host=view.getAlpha();applied=host;}
         }
         private static final class Session {final Map<View,Saved> rows=new WeakHashMap<>();long generation;}
         private final Map<View,Session> owners=new WeakHashMap<>();
         private final Map<View,Saved> views=new WeakHashMap<>();private int writes;
         boolean writing(){return writes!=0;}
-        View hiddenOwner(View view){Saved entry=views.get(view);return entry!=null&&entry.hidden?entry.owner.get():null;}
-        float nativeAlpha(View view,float requested){Saved entry=views.get(view);if(entry==null||!entry.hidden)return requested;entry.host=requested;return 0f;}
+        boolean empty(){return views.isEmpty();}
+        Saved rear(View view){Saved entry=views.get(view);return entry!=null&&entry.index>0?entry:null;}
+        View coveredOwner(View view){Saved entry=views.get(view);return entry!=null&&entry.coverage>0f?entry.owner.get():null;}
+        float nativeAlpha(View view,float requested){Saved entry=views.get(view);if(entry==null||entry.index==0)return requested;entry.host=requested;return entry.applied;}
         private void write(View view,float alpha){if(view.getAlpha()!=alpha){writes++;try{view.setAlpha(alpha);}finally{writes--;}}}
         void apply(View owner,List<View> rows){
             Session session=owners.get(owner);
@@ -1395,7 +1811,7 @@ public final class NotificationMiniStack {
                 if(entry==null){entry=new Saved(view,owner);session.rows.put(view,entry);views.put(view,entry);}
                 entry.seen=generation;entry.index=index;
                 if(view.getAlpha()!=entry.applied)entry.host=view.getAlpha();
-                entry.applied=entry.hidden?0f:opacity(index);
+                entry.applied=opacity(index)*(1f-entry.coverage);
                 write(view,entry.applied);
             }
             for(Iterator<Saved> iterator=session.rows.values().iterator();iterator.hasNext();) {
@@ -1403,11 +1819,15 @@ public final class NotificationMiniStack {
                 if(entry.seen!=generation){restore(entry);iterator.remove();}
             }
         }
-        void outer(View owner,boolean hidden){Session session=owners.get(owner);if(session==null)return;
+        void reapply(View owner){Session session=owners.get(owner);if(session==null)return;
             for(Saved entry:session.rows.values()){View view=entry.view.get();if(view==null)continue;
                 if(view.getAlpha()!=entry.applied)entry.host=view.getAlpha();
-                entry.hidden=hidden&&(entry.index==1||entry.index==2);entry.applied=entry.hidden?0f:opacity(entry.index);write(view,entry.applied);}}
-        private void restore(Saved entry){View view=entry.view.get();if(view!=null){views.remove(view);entry.hidden=false;if(view.getAlpha()==entry.applied)write(view,entry.host);}}
+                entry.applied=opacity(entry.index)*(1f-entry.coverage);write(view,entry.applied);}}
+        void outer(View owner,float coverage){Session session=owners.get(owner);if(session==null)return;
+            for(Saved entry:session.rows.values()){View view=entry.view.get();if(view==null)continue;
+                if(view.getAlpha()!=entry.applied)entry.host=view.getAlpha();
+                entry.coverage=entry.index==1||entry.index==2?coverage:0f;entry.applied=opacity(entry.index)*(1f-entry.coverage);write(view,entry.applied);}}
+        private void restore(Saved entry){View view=entry.view.get();if(view!=null){views.remove(view);entry.coverage=0f;if(view.getAlpha()==entry.applied)write(view,entry.host);}}
         void restore(View owner){Session session=owners.remove(owner);if(session!=null)for(Saved entry:session.rows.values())restore(entry);}
     }
 }

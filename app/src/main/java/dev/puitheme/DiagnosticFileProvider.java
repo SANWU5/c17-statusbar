@@ -19,7 +19,7 @@ import java.io.FileNotFoundException;
 
 /** Only exact, temporary read grants can expose immutable diagnostic snapshots. */
 public final class DiagnosticFileProvider extends ContentProvider {
-    public static final String AUTHORITY = "dev.puitheme.iosstatusbar.diagnostics";
+    public static final String AUTHORITY = ModuleVariant.PACKAGE + ".diagnostics";
     @Override public boolean onCreate() { return true; }
 
     private File readable(Uri uri) throws FileNotFoundException {

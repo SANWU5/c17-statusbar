@@ -9,6 +9,7 @@ import io.github.libxposed.service.XposedService;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -17,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 final class SettingsFrameworkMirror {
     static final String GROUP="c17_saved_settings_v1";
     static final String SCHEMA="_c17_saved_snapshot_schema", REVISION="_c17_saved_revision";
-    static final int VERSION=48;
+    static final int VERSION=52;
     private static final String MAINTENANCE_PREFS="c17_maintenance", RESET_PENDING="framework_defaults_pending";
     private static final Object LOCK=new Object();
     private static final Map<XposedService,Target> TARGETS=new IdentityHashMap<>();
@@ -28,8 +29,9 @@ final class SettingsFrameworkMirror {
         Thread worker=new Thread(task,"C17-settings-framework");worker.setDaemon(true);return worker;
     });
     private static Context owner;
-    private static Bundle desired;
-    private static long generation;
+    private static Bundle desired,defaultCandidate;
+    private static SharedPreferences defaultRaw;
+    private static long generation,pluginGeneration;
     private static boolean queued;
     static { WORK.setRemoveOnCancelPolicy(true); }
     private SettingsFrameworkMirror(){}
@@ -106,11 +108,42 @@ final class SettingsFrameworkMirror {
         }
     }
 
+    /** Called after a library transaction reaches disk, even when host settings stayed the same. */
+    static void pluginsChanged(Context context) {
+        if(context==null||ModuleVariant.DABING||!ModuleDiagnostics.PACKAGE_NAME.equals(context.getPackageName()))return;
+        synchronized(LOCK) {
+            pluginGeneration++;
+            generation++;
+            for(Target target:TARGETS.values())target.attempts=0;
+            queueLocked();
+        }
+    }
+
+    /** A first plugin install can use the same framework copy before any host setting has been edited. */
+    static void offerDefaults(Context context,SharedPreferences raw) {
+        if(context==null||ModuleVariant.DABING||!ModuleDiagnostics.PACKAGE_NAME.equals(context.getPackageName()))return;
+        attach(context);
+        synchronized(LOCK) {
+            if(desired!=null||defaultRaw==raw||NumericTrial.active())return;
+            defaultCandidate=SettingsSnapshot.fromPreferences(java.util.Collections.emptyMap());
+            defaultRaw=raw;
+            generation++;
+            queueLocked();
+        }
+    }
+
+    private static Bundle desiredFor(Target target,Bundle saved,Bundle defaults) {
+        if(saved!=null)return saved;
+        // Preserve any existing remote settings, even an unreadable/newer schema. A group
+        // already holding these exact defaults can update its plugin pointer after reconnect.
+        return target.emptyRemote||same(target.confirmed,defaults)?defaults:null;
+    }
+
     /** A real editor flush/service event may retry a failed mirror; no permanent polling. */
     static void retryConfirmed(Context context) {
         if(context==null||!ModuleDiagnostics.PACKAGE_NAME.equals(context.getPackageName()))return;
         synchronized(LOCK) {
-            if(desired==null)return;
+            if(desired==null&&defaultCandidate==null)return;
             for(Target target:TARGETS.values())target.attempts=0;
             queueLocked();
         }
@@ -118,16 +151,21 @@ final class SettingsFrameworkMirror {
 
     /** Private structural evidence for the app/own-UID test, never configuration contents. */
     static Bundle status() {
-        Bundle status=new Bundle();int synced=0,available=0;long revision=0L;
+        Bundle status=new Bundle();int synced=0,available=0,bootScopes=0;long revision=0L;
         synchronized(LOCK) {
             for(Target target:TARGETS.values()) {
                 if(target.preferences==null)continue;
                 available++;
-                if(desired!=null&&same(desired,target.confirmed)){synced++;revision=Math.max(revision,target.revision);}
+                if(same(desiredFor(target,desired,defaultCandidate),target.confirmed)){
+                    synced++;revision=Math.max(revision,target.revision);
+                    if(target.boot!=null&&target.pluginGeneration==pluginGeneration)
+                        bootScopes=Math.max(bootScopes,target.boot.scopes);
+                }
             }
         }
         status.putBoolean("ready",synced>0);status.putInt("available_targets",available);
         status.putInt("synced_targets",synced);status.putLong("revision",revision);
+        status.putBoolean("plugin_boot_ready",bootScopes>0);status.putInt("plugin_boot_scopes",bootScopes);
         return status;
     }
 
@@ -137,10 +175,15 @@ final class SettingsFrameworkMirror {
     }
 
     private static void publish() {
-        ArrayList<Target> targets;Bundle candidate;long token;
+        ArrayList<Target> targets;Bundle saved,defaults;Context context;SharedPreferences raw;long token,pluginToken;
         synchronized(LOCK) {
             queued=false;targets=new ArrayList<>(TARGETS.values());
-            candidate=desired==null?null:new Bundle(desired);token=generation;
+            saved=desired;defaults=defaultCandidate;context=owner;raw=defaultRaw;token=generation;pluginToken=pluginGeneration;
+        }
+        if(saved==null&&defaults!=null)try {
+            if(!SettingsSnapshot.freshForFramework(context,raw))defaults=null;
+        } catch(RuntimeException | android.content.pm.PackageManager.NameNotFoundException unavailable) {
+            defaults=null;
         }
         for(Target target:targets) {
             synchronized(LOCK) { if(TARGETS.get(target.service)!=target||token!=generation)continue; }
@@ -150,23 +193,59 @@ final class SettingsFrameworkMirror {
                     target.preferences=target.service.getRemotePreferences(GROUP);
                     if(!target.initialized) {
                         Map<String,?> initial=target.preferences.getAll();
+                        target.emptyRemote=initial.isEmpty();
                         target.confirmed=decode(initial);
                         Object revision=initial.get(REVISION);
                         target.revision=revision instanceof Long?(Long)revision:0L;
+                        Object metadata=initial.get(CustomPluginFrameworkPublisher.KEY);
+                        target.metadata=metadata instanceof String?(String)metadata:null;
                         target.initialized=true;
                         synchronized(LOCK) { ACKNOWLEDGED.put(target.service,new Acknowledged(target)); }
                     }
                 }
-                if(candidate==null||same(target.confirmed,candidate))continue;
+                Bundle candidate=desiredFor(target,saved,defaults);
+                if(candidate==null)continue;
+                boolean refreshBoot=!ModuleVariant.DABING&&context!=null&&(target.boot==null
+                        ||target.pluginGeneration!=pluginToken||target.confirmed==null
+                        ||target.confirmed.getBoolean(StatusBarSettings.SAFE_MODE)!=candidate.getBoolean(StatusBarSettings.SAFE_MODE));
+                CustomPluginFrameworkPublisher.Staged boot=target.boot;
+                if(refreshBoot)try {
+                    CustomPluginFrameworkPublisher.Snapshot plugins=new CustomPluginRepository(context)
+                            .frameworkPlans(candidate.getBoolean(StatusBarSettings.SAFE_MODE));
+                    if(saved==null&&target.emptyRemote&&plugins.revision==0L)continue;
+                    boot=CustomPluginFrameworkPublisher.stage(target.service,plugins,boot==null
+                            ?java.util.Collections.emptySet():boot.referenced);
+                } catch(Exception | LinkageError unavailable) {
+                    // Keep host settings usable. Withdraw the old pointer so a reader can pause
+                    // its previous plan until the current revision is ready.
+                    boot=null;
+                    ModuleDiagnostics.error("settings","Plugin boot files unavailable",unavailable);
+                }
+                if(saved==null&&target.emptyRemote&&boot==null){failed(target,token);continue;}
+                String metadata=boot==null?(refreshBoot?CustomPluginFrameworkPublisher.WITHDRAWN:null):boot.metadata;
+                boolean changed=!same(target.confirmed,candidate)||!java.util.Objects.equals(target.metadata,metadata);
                 synchronized(LOCK) { if(TARGETS.get(target.service)!=target||token!=generation)continue; }
-                long revision=Math.max(System.currentTimeMillis(),target.revision+1L);
-                // libxposed's writable preferences update their local map before commit().
-                // Never use that local map to acknowledge a failed Binder commit.
-                if(write(target.preferences,candidate,revision)) {
-                    target.confirmed=new Bundle(candidate);target.revision=revision;target.attempts=0;
-                    synchronized(LOCK) { ACKNOWLEDGED.put(target.service,new Acknowledged(target)); }
+                if(changed) {
+                    long revision=Math.max(System.currentTimeMillis(),target.revision+1L);
+                    // The service SDK updates its writable preference map before the Binder commit.
+                    // Acknowledge only after that commit succeeds.
+                    if(!write(target.preferences,candidate,revision,metadata)){failed(target,token);continue;}
+                    synchronized(LOCK) {
+                        target.confirmed=new Bundle(candidate);target.revision=revision;target.metadata=metadata;
+                        target.emptyRemote=false;
+                        ACKNOWLEDGED.put(target.service,new Acknowledged(target));
+                    }
                     ModuleDiagnostics.info("settings","Saved configuration synchronized to framework boot storage");
-                } else failed(target,token);
+                }
+                synchronized(LOCK) {
+                    target.boot=boot;
+                    target.pluginGeneration=boot==null?-1L:pluginToken;
+                    if(!refreshBoot||boot!=null)target.attempts=0;
+                }
+                if(refreshBoot) {
+                    if(boot==null)failed(target,token);
+                    else schedulePrune(target,boot);
+                }
             } catch(RuntimeException | LinkageError unavailable) {
                 ModuleDiagnostics.error("settings","Framework boot copy unavailable; device configuration retained",unavailable);
                 failed(target,token);
@@ -174,6 +253,19 @@ final class SettingsFrameworkMirror {
         }
         synchronized(LOCK) { if(token!=generation)queueLocked(); }
         if(allSynced())clearResetMarker();
+    }
+
+    /** Let readers already holding a previous pointer finish opening their files. */
+    private static void schedulePrune(Target target,CustomPluginFrameworkPublisher.Staged boot) {
+        if(target.prune!=null)target.prune.cancel(false);
+        if(boot.obsolete.isEmpty())return;
+        target.prune=WORK.schedule(()->{
+            synchronized(LOCK) {
+                if(TARGETS.get(target.service)!=target||target.boot!=boot||target.pluginGeneration!=pluginGeneration)return;
+            }
+            for(String name:boot.obsolete)try {target.service.deleteRemoteFile(name);}
+            catch(RuntimeException | LinkageError unavailable){return;}
+        },60L,TimeUnit.SECONDS);
     }
 
     private static boolean allSynced() {
@@ -208,10 +300,15 @@ final class SettingsFrameworkMirror {
     }
 
     static boolean write(SharedPreferences preferences,Bundle snapshot,long revision) {
+        return write(preferences,snapshot,revision,null);
+    }
+
+    private static boolean write(SharedPreferences preferences,Bundle snapshot,long revision,String boot) {
         if(!SettingsSnapshot.complete(snapshot)||revision<=0)return false;
         snapshot=SettingsSnapshot.runtimeCopy(snapshot);
         SharedPreferences.Editor editor=preferences.edit().clear().putInt(SCHEMA,VERSION).putLong(REVISION,revision);
         for(String key:snapshot.keySet())StatusBarSettings.copyPreference(editor,key,snapshot.get(key));
+        if(boot!=null)editor.putString(CustomPluginFrameworkPublisher.KEY,boot);
         return editor.commit();
     }
 
@@ -221,6 +318,11 @@ final class SettingsFrameworkMirror {
                 ||(Integer)values.get(SCHEMA)<1||(Integer)values.get(SCHEMA)>VERSION
                 ||!(values.get(REVISION) instanceof Long)||(Long)values.get(REVISION)<=0L)return null;
         int schema=(Integer)values.get(SCHEMA);
+        if(schema<52)for(String key:Upgrade279.DEFAULTS.keySet())if(values.containsKey(key))return null;
+        if(schema<51)for(String key:Upgrade209.DEFAULTS.keySet())
+            if(values.containsKey(key)&&(schema<50||NetworkDisplaySettings.WIFI_HIDDEN.equals(key)))return null;
+        if(schema<50)for(String key:Upgrade196.DEFAULTS.keySet())if(values.containsKey(key))return null;
+        if(schema<49)for(String key:Upgrade195.DEFAULTS.keySet())if(values.containsKey(key))return null;
         if(schema<48)for(String key:Upgrade188.DEFAULTS.keySet())if(values.containsKey(key))return null;
         if(schema<47)for(String key:Upgrade187.DEFAULTS.keySet())if(values.containsKey(key))return null;
         if(schema<46)for(String key:Upgrade186.DEFAULTS.keySet())if(values.containsKey(key))return null;
@@ -548,9 +650,36 @@ final class SettingsFrameworkMirror {
             Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
             upgraded.putAll(Upgrade188.DEFAULTS);values=upgraded;
         }
+        if(schema<49) {
+            Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
+            upgraded.putAll(Upgrade195.DEFAULTS);values=upgraded;
+        }
+        if(schema<50) {
+            Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
+            upgraded.putAll(Upgrade196.inheritedDefaults(values));values=upgraded;
+        }
+        if(schema<51) {
+            Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
+            for(Map.Entry<String,Object> entry:Upgrade209.DEFAULTS.entrySet())
+                if(!upgraded.containsKey(entry.getKey()))upgraded.put(entry.getKey(),entry.getValue());
+            values=upgraded;
+        }
+        if(schema<52) {
+            Map<String,Object> upgraded=new java.util.LinkedHashMap<>(values);
+            for(Map.Entry<String,Object> entry:Upgrade279.DEFAULTS.entrySet())
+                if(!upgraded.containsKey(entry.getKey()))upgraded.put(entry.getKey(),entry.getValue());
+            values=upgraded;
+        }
         Bundle result=new Bundle();
         for(String key:StatusBarSettings.NUMERIC_DEFAULTS.keySet()) {
-            Object value=values.get(key);if(!(value instanceof Float)||!Float.isFinite((Float)value))return null;
+            Object value=values.get(key);
+            // The customer editor stores counts as integers so values above 2^24 stay exact.
+            // Existing C17 copies and all other numeric fields retain their float wire format.
+            if(ModuleVariant.DABING&&NotificationBigClockSettings.VISIBLE_COUNT.equals(key)&&value instanceof Integer) {
+                if((Integer)value<1)return null;
+                result.putInt(key,(Integer)value);continue;
+            }
+            if(!(value instanceof Float)||!Float.isFinite((Float)value))return null;
             result.putFloat(key,(Float)value);
         }
         for(String key:StatusBarSettings.COLOR_DEFAULTS.keySet()) {
@@ -667,14 +796,20 @@ final class SettingsFrameworkMirror {
     }
     private static final class Target {
         final XposedService service;SharedPreferences preferences;Bundle confirmed;long revision;int attempts;
-        boolean initialized;
+        String metadata;
+        long pluginGeneration=-1L;
+        CustomPluginFrameworkPublisher.Staged boot;
+        ScheduledFuture<?> prune;
+        boolean initialized,emptyRemote;
         Target(XposedService service,Acknowledged previous){
             this.service=service;
-            if(previous!=null){confirmed=previous.snapshot==null?null:new Bundle(previous.snapshot);revision=previous.revision;initialized=true;}
+            if(previous!=null){confirmed=previous.snapshot==null?null:new Bundle(previous.snapshot);revision=previous.revision;
+                metadata=previous.metadata;emptyRemote=previous.emptyRemote;initialized=true;}
         }
     }
     private static final class Acknowledged {
-        final Bundle snapshot;final long revision;
-        Acknowledged(Target target){snapshot=target.confirmed==null?null:new Bundle(target.confirmed);revision=target.revision;}
+        final Bundle snapshot;final long revision;final String metadata;final boolean emptyRemote;
+        Acknowledged(Target target){snapshot=target.confirmed==null?null:new Bundle(target.confirmed);revision=target.revision;
+            metadata=target.metadata;emptyRemote=target.emptyRemote;}
     }
 }

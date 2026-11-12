@@ -41,7 +41,7 @@ public final class ModuleDiagnostics {
     public static final String KEY_ENABLED = "diagnostics_enabled";
     public static final String METHOD_RECORD = "record_statusbar_diagnostic";
     public static final String EVENT_JSON = "event_json";
-    public static final String PACKAGE_NAME = "dev.puitheme.iosstatusbar";
+    public static final String PACKAGE_NAME = ModuleVariant.PACKAGE;
     static final int MAX_FILE_BYTES = 512 * 1024;
     static final int MAX_EVENT_BYTES = 16 * 1024;
     static final int MAX_PENDING = 32;

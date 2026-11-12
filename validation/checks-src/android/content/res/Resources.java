@@ -1,9 +1,10 @@
 package android.content.res;
 import android.util.DisplayMetrics;
 public class Resources {
-    public static class Theme { }
+    public class Theme { }
     public static class NotFoundException extends RuntimeException {public NotFoundException(String value){super(value);}}
     public android.graphics.drawable.Drawable getDrawable(int id,Theme theme){return null;}
+    public android.graphics.drawable.Drawable getDrawable(int id){return getDrawable(id,null);}
     public float getDimension(int id){return 0;}
     private final DisplayMetrics metrics = new DisplayMetrics();
     private final Configuration configuration=new Configuration();

@@ -85,6 +85,43 @@ public final class AppFrameworkStatus {
 
     public static Snapshot current() { return snapshot; }
 
+    /** Same official connection used by status queries. No Binder work is performed under LOCK. */
+    static XposedService currentScopeService() {
+        synchronized (LOCK) {
+            for (Map.Entry<XposedService, Connection> item : SERVICES.entrySet())
+                if (item.getValue().live && item.getValue().result == snapshot && snapshot.compatible) return item.getKey();
+        }
+        return null;
+    }
+    static boolean isScopeServiceLive(XposedService service) {
+        synchronized (LOCK) {
+            Connection connection = SERVICES.get(service);
+            return connection != null && connection.live && connection.result != null && connection.result.compatible;
+        }
+    }
+
+    public static final class ScopeSnapshot {
+        public final boolean known;
+        public final Set<String> packages;
+        public final String source;
+        private ScopeSnapshot(boolean known,Set<String> packages,String source){this.known=known;this.packages=java.util.Collections.unmodifiableSet(new LinkedHashSet<>(packages));this.source=source;}
+        public static ScopeSnapshot unknown(){return new ScopeSnapshot(false,java.util.Collections.emptySet(),"");}
+    }
+    /** Blocking official framework RPC; callers must use their background worker. */
+    public static ScopeSnapshot queryScopes(){
+        XposedService selected=null;Connection connection=null;
+        synchronized(LOCK){
+            for(Map.Entry<XposedService,Connection> entry:SERVICES.entrySet())if(entry.getValue().live&&entry.getValue().result==snapshot&&snapshot.compatible){selected=entry.getKey();connection=entry.getValue();break;}
+        }
+        if(selected==null)return ScopeSnapshot.unknown();
+        try{
+            java.util.List<String> values=selected.getScope();if(values==null)return ScopeSnapshot.unknown();
+            Set<String> packages=new LinkedHashSet<>();for(String value:values){if(value==null||value.trim().isEmpty())return ScopeSnapshot.unknown();packages.add(value);}
+            synchronized(LOCK){if(!connection.live||SERVICES.get(selected)!=connection)return ScopeSnapshot.unknown();}
+            return new ScopeSnapshot(true,packages,connection.result.frameworkName);
+        }catch(RuntimeException|LinkageError unavailable){return ScopeSnapshot.unknown();}
+    }
+
     /** All callbacks, including the initial cached state, are delivered on the main thread. */
     public static Subscription observe(Callback callback) {
         Subscription subscription = new Subscription(Objects.requireNonNull(callback));

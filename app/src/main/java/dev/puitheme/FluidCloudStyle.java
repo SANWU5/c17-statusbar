@@ -829,7 +829,7 @@ public final class FluidCloudStyle {
         if (released) return;
         FluidCloudScope.Policy nextBusinessScope=FluidCloudScope.Policy.from(settings);
         boolean safe = SafetyMode.enabled(settings);
-        boolean nextLockEffects=!safe;
+        boolean nextLockEffects=!safe&&!CustomPluginMaterialIsolation.lockOwned(settings);
         boolean legacy = settings != null && (settings.getBoolean(FOLLOW_NOTIFICATION,false)
                 ||settings.getBoolean(DESKTOP_BACKGROUND,false));
         boolean master = settings != null && !safe && settings.getBoolean(MASTER, legacy);
@@ -875,9 +875,8 @@ public final class FluidCloudStyle {
         boolean nextLock = nextLockEffects&&(settings == null || settings.getBoolean(SCOPE_LOCK, true));
         // The notification-shade scene is retired: the shade's fluid-cloud cards keep the system's own look, whatever is saved.
         boolean nextShade = false;
-        // Ordinary notifications retain the page/base prerequisites, with their
-        // own follow switch independent of the fluid-card follow switch.
-        // The lock screen and AOD are set on their own pages: this switch needs neither the style master nor the media-accent master.
+        // Retain the page's saved follow request independently of the style master.
+        // notificationFollowActive gates its media source through the accent master.
         boolean nextNotification = nextLockEffects && settings != null && settings.getBoolean(NOTIFICATION_FOLLOW, false);
         boolean nextLockCapsule = nextLockEffects && settings != null && settings.getBoolean(LOCK_CAPSULE, false);
         boolean nextGradientStyle = settings != null && !safe && GRADIENT.equals(settings.get(COLOR_STYLE));
@@ -956,15 +955,15 @@ public final class FluidCloudStyle {
      * With "unify style" the ordinary notifications on the lock screen and AOD are styled like the fluid-cloud cards, that is they follow the
      * media colour whenever the cards do (and as strongly); otherwise they have their own follow switch.
      */
-    private boolean notificationFollowActive() { return (unifyAod || notificationFollow) && (!followOnlyPlaying || mediaPlaying); }
+    private boolean notificationFollowActive() { return accent != null && accent.enabled() && (unifyAod || notificationFollow) && (!followOnlyPlaying || mediaPlaying); }
     /**
-     * Something on the lock screen or in AOD follows the media colour on the scene's own page switches (not through the two masters): the
-     * ordinary notifications, the unified style, the cards' gradient or custom look, the bottom capsule.
+     * The lock/AOD page switches request media following only while the media-accent
+     * master permits that source. Their saved style choices remain independent.
      */
     private boolean lockFollowWanted() {
-        if(!lockEffectsEnabled)return false;
         FluidCloudAccent owner = accent;
-        return notificationFollow || unifyAod || lockCapsule || owner != null && (owner.lockOwn(false) || owner.lockOwn(true));
+        if (!lockEffectsEnabled || owner == null || !owner.enabled()) return false;
+        return notificationFollow || unifyAod || lockCapsule || owner.lockOwn(false) || owner.lockOwn(true);
     }
     /** How strongly an ordinary notification takes the card colour: as strongly as the fluid-cloud cards when unified. */
     private float notificationStrength(boolean aod) { return unifyAod ? 100f : aod ? aodNotificationFollowOpacity : notificationFollowOpacity; }
@@ -978,7 +977,7 @@ public final class FluidCloudStyle {
      * with "follow only while playing", when playback has stopped.
      */
     private Integer followMediaColour(FluidCloudAccent owner, View body, boolean lockScene) {
-        if (owner == null) return null;
+        if (owner == null || lockScene && !owner.enabled()) return null;
         Integer live = owner.nativeCurrentMediaColor(body);
         long now = android.os.SystemClock.uptimeMillis();
         if (live != null) {
@@ -1051,7 +1050,7 @@ public final class FluidCloudStyle {
         boolean aod = aodNow();
         Integer accentColor = mediaCapsule && owner.accentWanted(true, aod) ? owner.mediaAccentColor(owner.nativeCurrentMediaColor(null), true, aod) : null;
         boolean sceneLook = owner.lockOwn(aod) && (!followOnlyPlaying || mediaPlaying);
-        Integer mediaColor = accentColor == null && scopeLock && (followActive() || sceneLook) ? owner.nativeCurrentMediaColor(null) : null;
+        Integer mediaColor = owner.enabled() && accentColor == null && scopeLock && (followActive() || sceneLook) ? owner.nativeCurrentMediaColor(null) : null;
         Integer followColor = mediaColor == null ? null : owner.maskedMediaColor(mediaColor, true, aod);
         Integer customColor = accentColor == null && followColor == null && scopeLock && background ? customBase() : null;
         Integer colour = accentColor != null ? accentColor : followColor != null ? followColor : customColor;
@@ -1087,6 +1086,7 @@ public final class FluidCloudStyle {
     public void refreshAfterAccent() {
         if (released) return;
         FluidCloudAccent owner = accent;
+        if (owner == null || !owner.enabled()) { lastFollowMedia = null; lastFollowMediaAt = 0L; }
         long latest=owner==null?-1:owner.colorRevision();
         if(observedAccentRevision==latest)return;
         observedAccentRevision=latest;
@@ -1123,7 +1123,8 @@ public final class FluidCloudStyle {
         if(owner!=null&&owner.enabled())return true;
         // The last lock/AOD look still needs a restoration refresh after its
         // final page switch is turned off, even when no media colour exists.
-        for(NotificationBinding binding:notificationSnapshot())if(binding.accentColor||binding.lockLook)return true;
+        for(NotificationBinding binding:notificationSnapshot())if(binding.accentColor||binding.lockLook
+                ||binding.colourDecision!=null&&(binding.colourDecision.accent!=null||binding.colourDecision.follow!=null))return true;
         return false;
     }
 
@@ -1330,11 +1331,12 @@ public final class FluidCloudStyle {
         sceneMaterial.businessFollowing(body,selected);
         boolean sceneScope=colorLive&&scopeFor(scene);
         boolean scope = sceneScope&&selected;
-        // On the lock screen and in AOD the scene's own page can ask for the look without the media-accent master.
+        // The page keeps its neutral look when the media-accent master stops colour sourcing.
         boolean sceneLook = colorLive && !binding.ordinary && lockScene && owner != null && owner.lockOwn(aod);
-        MediaBinding own = !binding.ordinary && colorLive && (scene != SHADE || scopeShade) && owner != null && (owner.enabled() || sceneLook) ? ownMedia(binding) : null;
+        boolean mediaAllowed = !lockScene || owner != null && owner.enabled();
+        MediaBinding own = !binding.ordinary && colorLive && (scene != SHADE || scopeShade) && owner != null && owner.enabled() ? ownMedia(binding) : null;
         Integer accentColor = own == null ? null : owner.mediaAccentColor(own.nativeColor, lockScene, aod);
-        boolean mediaWanted=binding.ordinary?colorLive&&lockScene&&notificationFollowActive():scope&&followActive()||sceneScope&&sceneLook&&(!followOnlyPlaying||mediaPlaying);
+        boolean mediaWanted=mediaAllowed&&(binding.ordinary?colorLive&&lockScene&&notificationFollowActive():scope&&followActive()||sceneScope&&sceneLook&&(!followOnlyPlaying||mediaPlaying));
         Integer mediaColor = mediaWanted && owner != null && accentColor == null ? followMediaColour(owner, body, lockScene) : null;
         Integer followColor = mediaColor == null || owner == null ? null : owner.maskedMediaColor(mediaColor, lockScene, aod);
         Integer customColor = !binding.ordinary && scope && background && accentColor == null && followColor == null ? customBase() : null;

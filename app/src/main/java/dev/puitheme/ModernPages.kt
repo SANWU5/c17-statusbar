@@ -42,9 +42,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.viewinterop.AndroidView
+import dev.puitheme.iosstatusbar.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,7 +65,7 @@ import top.yukonga.miuix.kmp.theme.*
 /** The top native surface owns every app popup, above both the page and navigation. */
 @Composable
 fun C17OverlayLayer(app: ModernMainActivity) {
-    val visible = app.freeNoticeRequired || app.thanksOpen || app.performanceOpen || app.donationImage != null || app.confirmation != null || app.editing != null || app.statusBarOrderChoice != null || app.colorEditing != null || app.fontCatalogOpen || app.fontScopeSelection != null || app.marqueePickerOpen || app.configScope != null || app.fontRenameTarget != null || app.downloadingFont != null || app.notificationOverridesOpen || (app.wallpaperEdit != null) || app.clockLaunchEditing != null
+    val visible = app.customPlugins.hasDialog || app.welcomeOpen || app.freeNoticeRequired || app.thanksOpen || app.performanceOpen || app.donationImage != null || app.confirmation != null || app.editing != null || app.statusBarOrderChoice != null || app.colorEditing != null || app.fontCatalogOpen || app.fontScopeSelection != null || app.marqueePickerOpen || app.configScope != null || app.fontRenameTarget != null || app.downloadingFont != null || app.notificationOverridesOpen || (app.wallpaperEdit != null) || app.clockLaunchEditing != null
     SideEffect { app.syncModalLayer(visible) }
     C17Scaffold(containerColor = Color.Transparent) {
         C17Dialogs(app)
@@ -72,6 +74,7 @@ fun C17OverlayLayer(app: ModernMainActivity) {
 
 @Composable
 private fun C17Dialogs(app: ModernMainActivity) {
+    if (app.welcomeOpen) { WelcomeFlow(app); return }
     if (app.freeNoticeRequired) {
         FreeNoticeDialog(app)
         // The thanks wall can be opened from the notice; it lies above it.
@@ -79,6 +82,7 @@ private fun C17Dialogs(app: ModernMainActivity) {
         return
     }
     if (app.thanksOpen) { ThanksWallDialog(app); return }
+    if (app.customPlugins.hasDialog) CustomPluginDialogs(app)
     if (app.performanceOpen && app.confirmation == null) PerformanceSheet(app)
     app.donationImage?.let { DonationDialog(app, it) }
     if (app.notificationOverridesOpen) NotificationOverridesDialog(app)
@@ -93,8 +97,8 @@ private fun C17Dialogs(app: ModernMainActivity) {
             onDismiss = { app.fontRenameTarget = null; app.fontCatalogOpen = true }) { app.renameLibraryFont(entry, it) }
     }
     app.downloadingFont?.let { entry ->
-        C17OverlayDialog(show = true, title = "下载 ${entry.displayName}",
-            summary = "${app.fontDownloadPercent}% · ${if (app.fontDownloadPercent == 100) "正在校验与入库" else "官方 GitHub 字体文件"}\n下载后选择作用范围，统一应用前保留原字体。",
+        C17OverlayDialog(show = true, title = trf("下载 %s", entry.displayName),
+            summary = trf("%1\$s%% · %2\$s\n下载后选择作用范围，统一应用前保留原字体。", app.fontDownloadPercent, if (app.fontDownloadPercent == 100) tr("正在校验与入库") else tr("官方 GitHub 字体文件")),
             onDismissRequest = app::cancelFontDownload) {
             C17TextButton(text = "取消下载", onClick = app::cancelFontDownload, modifier = Modifier.fillMaxWidth())
         }
@@ -144,8 +148,8 @@ private fun ClockLaunchAppDialog(app: ModernMainActivity, key: String) {
     val listState = key(key, query, category) { rememberLazyListState() }
     val defaultRow: @Composable () -> Unit = {
         C17RadioButtonPreference(title = if (component) "不打开应用" else "系统默认", selected = selected.isEmpty(), enabled = allowed,
-            summary = if (component) "保留文字显示，不占用点击区域" else app.clockLaunchDefault?.let { "打开 ${it.label}" }
-                ?: if (app.clockLaunchLoading) "正在读取系统默认程序…" else "沿用系统原生${if (calendar) "日历" else "时钟"}入口",
+            summary = if (component) "保留文字显示，不占用点击区域" else app.clockLaunchDefault?.let { trf("打开 %s", it.label) }
+                ?: if (app.clockLaunchLoading) "正在读取系统默认程序…" else trf("沿用系统原生%s入口", if (calendar) tr("日历") else tr("时钟")),
             radioButtonLocation = RadioButtonLocation.End,
             insideMargin = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
             onClick = { error = app.saveClockLaunchApp(key, "") })
@@ -158,7 +162,7 @@ private fun ClockLaunchAppDialog(app: ModernMainActivity, key: String) {
                 onTabSelected = { category = it }, modifier = Modifier.fillMaxWidth())
         }
     }
-    val dialogTitle = if (component) "${if (BigClockWidgetsSettings.textSide(key) == BigClockWidgetsSettings.LEFT) "左" else "右"}侧文字打开的应用"
+    val dialogTitle = if (component) trf("%s侧文字打开的应用", if (BigClockWidgetsSettings.textSide(key) == BigClockWidgetsSettings.LEFT) tr("左") else tr("右"))
         else if (calendar) "日期打开的应用" else "时间打开的应用"
     C17OverlayDialog(show = true, title = dialogTitle,
         modifier = Modifier.heightIn(max = (window.height * .82f).coerceAtMost(640.dp)),
@@ -166,7 +170,7 @@ private fun ClockLaunchAppDialog(app: ModernMainActivity, key: String) {
         onDismissRequest = app::dismissClockLaunchPicker) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (!compact) {
-                Text("当前：$selectedLabel", fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                Text(trf("当前：%s", selectedLabel), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 defaultRow()
                 controls()
@@ -176,12 +180,12 @@ private fun ClockLaunchAppDialog(app: ModernMainActivity, key: String) {
             LazyColumn(Modifier.weight(1f, fill = false).fillMaxWidth(), state = listState,
                 verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (compact) {
-                    item { Text("当前：$selectedLabel", fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    item { Text(trf("当前：%s", selectedLabel), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
                     item { defaultRow() }
                     item { controls() }
                 }
-                item { Text(if (app.clockLaunchLoading) "正在读取可启动应用…" else "可启动应用 · ${choices.size} 个",
+                item { Text(if (app.clockLaunchLoading) "正在读取可启动应用…" else trf("可启动应用 · %s 个", choices.size),
                     fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(top = 2.dp, bottom = 2.dp)) }
                 items(choices, key = { it.packageName }) { choice ->
@@ -193,10 +197,10 @@ private fun ClockLaunchAppDialog(app: ModernMainActivity, key: String) {
                         onClick = { error = app.saveClockLaunchApp(key, choice.packageName) })
                 }
                 if (!app.clockLaunchLoading && choices.isEmpty()) item {
-                    Text("没有符合条件的可启动应用", fontSize = 13.sp,
+                    Text(tr("没有符合条件的可启动应用"), fontSize = 13.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(vertical = 12.dp))
                 }
-                item { Text("所选应用卸载或停用后，自动回到系统默认。", fontSize = 12.sp,
+                item { Text(tr("所选应用卸载或停用后，自动回到系统默认。"), fontSize = 12.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(top = 8.dp)) }
             }
             if (error.isNotBlank()) Text(error, fontSize = 13.sp, color = MiuixTheme.colorScheme.error)
@@ -207,31 +211,36 @@ private fun ClockLaunchAppDialog(app: ModernMainActivity, key: String) {
 
 @Composable
 fun C17Pages(app: ModernMainActivity) {
-    val homeVisible = app.page == 0 && app.selectedGroup == null && !app.freeNoticeRequired &&
-        !app.uiSettingsOpen && !app.diagnosticsOpen && !app.iconManagementOpen
+    val homeVisible = app.page == 0 && app.selectedGroup == null && !app.freeNoticeRequired && !app.welcomeOpen &&
+        !app.uiSettingsOpen && !app.diagnosticsOpen && !app.iconManagementOpen && !app.customPlugins.opened
     DisposableEffect(app, homeVisible) {
         app.setHomeStatusVisible(homeVisible)
         onDispose { app.setHomeStatusVisible(false) }
     }
+    if (app.customPlugins.opened) {
+        SideEffect { app.syncModalLayer(app.customPlugins.hasDialog || app.confirmation != null || app.freeNoticeRequired || app.welcomeOpen) }
+        CustomPluginsPage(app)
+        return
+    }
     if (app.uiSettingsOpen) {
-        val visible = app.freeNoticeRequired || app.thanksOpen || app.performanceOpen || app.confirmation != null || app.editing != null || app.statusBarOrderChoice != null || app.colorEditing != null
+        val visible = app.welcomeOpen || app.freeNoticeRequired || app.thanksOpen || app.performanceOpen || app.confirmation != null || app.editing != null || app.statusBarOrderChoice != null || app.colorEditing != null
         SideEffect { app.syncModalLayer(visible) }
         UiSettingsPage(app)
         return
     }
     if (app.diagnosticsOpen) {
-        val visible = app.freeNoticeRequired || app.thanksOpen || app.performanceOpen || app.confirmation != null || app.editing != null || app.statusBarOrderChoice != null || app.colorEditing != null
+        val visible = app.welcomeOpen || app.freeNoticeRequired || app.thanksOpen || app.performanceOpen || app.confirmation != null || app.editing != null || app.statusBarOrderChoice != null || app.colorEditing != null
         SideEffect { app.syncModalLayer(visible) }
         DiagnosticsPage(app)
         return
     }
     if (app.iconManagementOpen) {
-        val visible = app.freeNoticeRequired || app.thanksOpen || app.performanceOpen || app.confirmation != null || app.editing != null || app.statusBarOrderChoice != null || app.colorEditing != null
+        val visible = app.welcomeOpen || app.freeNoticeRequired || app.thanksOpen || app.performanceOpen || app.confirmation != null || app.editing != null || app.statusBarOrderChoice != null || app.colorEditing != null
         SideEffect { app.syncModalLayer(visible) }
         IconManagementPage(app)
         return
     }
-    val modalVisible = app.freeNoticeRequired || app.thanksOpen || app.performanceOpen || app.donationImage != null || app.confirmation != null || app.editing != null || app.statusBarOrderChoice != null || app.colorEditing != null || app.fontCatalogOpen || app.fontScopeSelection != null || app.marqueePickerOpen || app.configScope != null || app.fontRenameTarget != null || app.downloadingFont != null || app.notificationOverridesOpen || (app.wallpaperEdit != null) || app.clockLaunchEditing != null
+    val modalVisible = app.welcomeOpen || app.freeNoticeRequired || app.thanksOpen || app.performanceOpen || app.donationImage != null || app.confirmation != null || app.editing != null || app.statusBarOrderChoice != null || app.colorEditing != null || app.fontCatalogOpen || app.fontScopeSelection != null || app.marqueePickerOpen || app.configScope != null || app.fontRenameTarget != null || app.downloadingFont != null || app.notificationOverridesOpen || (app.wallpaperEdit != null) || app.clockLaunchEditing != null
     SideEffect { app.syncModalLayer(modalVisible) }
     val group = app.selectedGroup?.let { SettingsCatalog.group(it) }
     var requestedSetting by remember { mutableStateOf<String?>(null) }
@@ -243,9 +252,13 @@ fun C17Pages(app: ModernMainActivity) {
     val detailPages = remember(group?.id, app.category, app.panelMode, revealedSetting) {
         SettingsCatalog.editorDetailPages(group, app.panelMode, revealedSetting).filter { group?.id != "carrier" || it.id == carrierScene(app.category) }
     }
-    var detailPageId by rememberSaveable(group?.id, app.category) {
+    var otherDetailPageId by rememberSaveable(group?.id, app.category) {
         mutableStateOf(detailPages.firstOrNull { page -> page.items.any { it.key == requestedSetting } }?.id
             ?: detailPages.firstOrNull()?.id ?: "all")
+    }
+    val detailPageId = if (group?.id == "network") app.networkDetailPage else otherDetailPageId
+    val selectDetailPage: (String) -> Unit = { id ->
+        if (group?.id == "network") app.networkDetailPage = id else otherDetailPageId = id
     }
     val activeDetail = detailPages.firstOrNull { it.id == detailPageId } ?: detailPages.firstOrNull()
     val detailMaster = when (group?.id) {
@@ -256,14 +269,13 @@ fun C17Pages(app: ModernMainActivity) {
             "dual" -> ClockLayoutSettings.DUAL_ENABLED
             else -> group.masterKey
         }
-        "native_network_badge" -> if (activeDetail?.id == "activity") NativeDataActivity.MASTER else NativeNetworkBadgeControls.MASTER
         else -> group?.takeUnless { it.independentSwitches }?.masterKey
     }
     val commonItems = SettingsCatalog.commonDetailItems(group).filter { SettingsCatalog.applicable(it, app.values) || it.key == requestedSetting }
     val commonKeys = commonItems.map { it.key }.toSet()
     val detailIconFamily = when (group?.id) {
         "battery" -> "battery"
-        "wifi" -> "wifi"
+        "network" -> if (activeDetail?.id == "wifi") "wifi" else null
         "data" -> "cellular"
         "status_hint_icons" -> "hint"
         else -> null
@@ -299,7 +311,7 @@ fun C17Pages(app: ModernMainActivity) {
         if (group == null) return@LaunchedEffect
         val requestedPage = detailPages.firstOrNull { page -> page.items.any { it.key == requested } }
         if (requestedPage != null && requestedPage.id != activeDetail?.id) {
-            detailPageId = requestedPage.id; return@LaunchedEffect
+            selectDetailPage(requestedPage.id); return@LaunchedEffect
         }
         if (requested == detailMaster) {
             detailScroll.scrollToItem(0); requestedSetting = null; return@LaunchedEffect
@@ -328,7 +340,7 @@ fun C17Pages(app: ModernMainActivity) {
         Column(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding())) {
         if (group != null && detailPages.size > 1) {
             UiContentTabs(tabs = detailPages.map { it.title }, selectedTabIndex = detailPages.indexOf(activeDetail),
-                onTabSelected = { requestedSetting = null; detailPageId = detailPages[it].id },
+                onTabSelected = { requestedSetting = null; selectDetailPage(detailPages[it].id) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp))
         }
         LazyColumn(
@@ -355,7 +367,7 @@ fun C17Pages(app: ModernMainActivity) {
                     val state = app.iconManagementState()
                     val assigned = state.overrides.keys.count { IconRoleRegistry.scopeOfRole(it) == iconFamily }
                     UiGroupCard {
-                        UiRow("图案与颜色", "图标管理中统一选择，位置和大小沿用本页设置", if (assigned > 0) "$assigned 项" else "选择", Icons.Outlined.Collections,
+                        UiRow("图案与颜色", "本页设置基础位置与尺寸；图标管理可单独调整图案、颜色和缩放", if (assigned > 0) trf("%s 项", assigned) else "选择", Icons.Outlined.Collections,
                             enabled = app.canEdit && !app.busy) { app.openIconAssignments(iconFamily) }
                     }
                 }
@@ -369,12 +381,12 @@ fun C17Pages(app: ModernMainActivity) {
                 val resetItems = (if (group.id == "carrier" || detailPages.size > 1) activeDetail?.items ?: emptyList() else group.items).distinctBy { it.key }
                 val resetTitle = title + if (detailPages.size > 1) " · ${activeDetail?.title}" else ""
                 item { UiGroupCard { UiRow(if (detailPages.size > 1) "恢复当前标签默认设置" else "恢复本页默认设置",
-                    "只重置$resetTitle" + if (commonItems.isNotEmpty() && detailPages.size > 1) "，不包含共用设置" else "", icon = MiuixIcons.Reset,
+                    trf("只重置%s", resetTitle) + if (commonItems.isNotEmpty() && detailPages.size > 1) "，不包含共用设置" else "", icon = MiuixIcons.Reset,
                     enabled = app.canEdit && !app.busy) {
                     app.resetGroup(group, items = resetItems, title = resetTitle)
                 }
                     if (commonItems.isNotEmpty() && detailPages.size > 1) UiRow("恢复共用设置默认值", "只重置共用设置，不包含当前标签", icon = MiuixIcons.Reset,
-                        enabled = app.canEdit && !app.busy) { app.resetGroup(group, items = commonItems, title = "$title · 共用设置") }
+                        enabled = app.canEdit && !app.busy) { app.resetGroup(group, items = commonItems, title = trf("%s · 共用设置", title)) }
                 } }
             } else when (app.page) {
                 0 -> {
@@ -427,25 +439,28 @@ fun C17Pages(app: ModernMainActivity) {
                         }
                     } else {
                         val term = app.query.trim()
+                        // Search both the shown language and the source text, field by field (tables hold whole fields).
+                        fun hit(text: String) = text.contains(term, true) || tr(text).contains(term, true)
                         val matches = SettingsCatalog.groups().mapNotNull { destination ->
                             val matchingItems = SettingsCatalog.searchItems(destination).filter {
-                                (SettingsCatalog.displayTitle(it, app.values) + it.description + it.section + it.labels.joinToString(" ")).contains(term, true)
+                                hit(SettingsCatalog.displayTitle(it, app.values)) || hit(it.description) || hit(it.section) || it.labels.any(::hit)
                             }
-                            if ((destination.title + destination.description).contains(term, true) || matchingItems.isNotEmpty()) destination to matchingItems else null
+                            if (hit(destination.title) || hit(destination.description) || matchingItems.isNotEmpty()) destination to matchingItems else null
                         }
                         matches.forEach { (destination, matchingItems) ->
                             item(key = "search-${destination.id}") {
                                 Column {
-                                    Text(destination.title, Modifier.padding(start = 16.dp, top = 2.dp, bottom = 6.dp),
+                                    Text(tr(destination.title), Modifier.padding(start = 16.dp, top = 2.dp, bottom = 6.dp),
                                         fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                                     UiGroupCard {
-                                        if (matchingItems.isEmpty()) SearchResultRow(destination.title, destination.description, term,
+                                        if (matchingItems.isEmpty()) SearchResultRow(tr(destination.title), tr(destination.description), term,
                                             groupIcon(destination.id)) { app.openGroup(destination.id) }
                                         matchingItems.forEach { setting ->
-                                            val displayTitle = SettingsCatalog.displayTitle(setting, app.values)
-                                            val summary = if (displayTitle.contains(term, true) || setting.section.contains(term, true)) setting.section
-                                                else setting.labels.firstOrNull { it.contains(term, true) }
-                                                    ?: setting.description.takeIf { it.contains(term, true) } ?: setting.section
+                                            val displayTitle = tr(SettingsCatalog.displayTitle(setting, app.values))
+                                            val section = tr(setting.section)
+                                            val summary = if (displayTitle.contains(term, true) || section.contains(term, true)) section
+                                                else setting.labels.map(::tr).firstOrNull { it.contains(term, true) }
+                                                    ?: tr(setting.description).takeIf { it.contains(term, true) } ?: section
                                             SearchResultRow(displayTitle, summary, term, groupIcon(destination.id)) {
                                                 if (destination.id == "carrier") app.category = when {
                                                     setting.key.startsWith(CarrierPanels.LOCKSCREEN + "_") -> SettingsCatalog.LOCK_SCREEN
@@ -459,7 +474,7 @@ fun C17Pages(app: ModernMainActivity) {
                                 }
                             }
                         }
-                        if (matches.isEmpty()) item { Text("没有找到相关配置", Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp),
+                        if (matches.isEmpty()) item { Text(tr("没有找到相关配置"), Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 20.dp),
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
                     }
                 }
@@ -491,9 +506,9 @@ private fun FreeNoticeDialog(app: ModernMainActivity) {
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(FreeNotice.DESCRIPTION, fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Text("鸣谢墙", Modifier.clip(RoundedCornerShape(8.dp))
+                Text(tr("鸣谢墙"), Modifier.clip(RoundedCornerShape(8.dp))
                     .clickable { app.openThanks() }.padding(vertical = 4.dp), fontSize = 14.sp, color = MiuixTheme.colorScheme.primary)
-                Text("请手动输入以下短句（包含标点）：", fontSize = 14.sp)
+                Text(tr("请手动输入以下短句（包含标点）："), fontSize = 14.sp)
                 Text(FreeNotice.PHRASE, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                 AndroidView(factory = { context ->
                     ManualConfirmationEditText(context).apply {
@@ -516,7 +531,7 @@ private fun FreeNoticeDialog(app: ModernMainActivity) {
                     if (view.text.toString() != value) { view.setText(value); view.setSelection(view.text.length) }
                 }, modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp)
                     .border(1.dp, MiuixTheme.colorScheme.outline, RoundedCornerShape(12.dp)).padding(12.dp))
-                Text("此输入框不提供复制、粘贴或拖入功能。", fontSize = 12.sp,
+                Text(tr("此输入框不提供复制、粘贴或拖入功能。"), fontSize = 12.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 error?.let { Text(it, color = Color(0xffd94a4a), fontSize = 13.sp) }
             }
@@ -703,7 +718,7 @@ private fun ActivationHero(app: ModernMainActivity, motionVisible: Boolean) {
                         null, Modifier.size(64.dp), tint = accent)
                 }
                 Column(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
-                    Text("主模块", Modifier.fillMaxWidth().heightIn(min = labelHeight),
+                    Text(tr("主模块"), Modifier.fillMaxWidth().heightIn(min = labelHeight),
                         style = C17CardTypography.label, color = mainPalette.secondary)
                     Spacer(Modifier.height(3.dp))
                     Text(statusTitle, Modifier.fillMaxWidth().heightIn(min = titleHeight),
@@ -759,6 +774,7 @@ private fun ConfigurationHeader(app: ModernMainActivity) {
             onTabSelected = { app.category = categories[it] }, modifier = Modifier.fillMaxWidth(), contour = true,
             height = searchHeight)
         C17TextField(value = app.query, onValueChange = { app.query = it }, label = "搜索所有配置", singleLine = true,
+            // The label is translated inside C17TextField.
             useLabelAsPlaceholder = true, insideMargin = DpSize(16.dp, 12.dp),
             leadingIcon = { Icon(MiuixIcons.Search, null, Modifier.padding(start = 16.dp, end = 12.dp).size(20.dp)) },
             modifier = Modifier.fillMaxWidth().onSizeChanged { size ->
@@ -828,11 +844,11 @@ private fun fullHelp(app: ModernMainActivity, group: SettingsCatalog.Group, desc
 
 @Composable
 private fun DetailIntro(app: ModernMainActivity, group: SettingsCatalog.Group, master: String?, modeReason: String) {
-    val description = if (group.id == "carrier") "只作用于${when (app.category) {
-        SettingsCatalog.LOCK_SCREEN -> "锁屏"
-        SettingsCatalog.CONTROL_CENTER -> "控制中心"
-        else -> "通知栏"
-    }}，可显示运营商、时间或自定义文本。" else if (group.id == "notification_icons" &&
+    val description = if (group.id == "carrier") trf("只作用于%s，可显示运营商、时间或自定义文本。", when (app.category) {
+        SettingsCatalog.LOCK_SCREEN -> tr("锁屏")
+        SettingsCatalog.CONTROL_CENTER -> tr("控制中心")
+        else -> tr("通知栏")
+    }) else if (group.id == "notification_icons" &&
         app.value(NotificationIconArea.MODE) == "image" && (app.value(NotificationIconArea.IMAGE_REVISION) as? String).isNullOrBlank())
         group.description + "\n尚未导入图片，当前会保留原生通知图标。" else group.description
     val conflicts = SettingsCatalog.conflictDescription(group.id, app.category)
@@ -848,12 +864,12 @@ private fun DetailIntro(app: ModernMainActivity, group: SettingsCatalog.Group, m
         Text(short, fontSize = 14.sp, lineHeight = 20.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         val guide = SettingsOrganization.guide(group.id)
         if (guide.isNotEmpty()) Text(guide, fontSize = 13.sp, lineHeight = 19.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        if (app.bool(StatusBarSettings.SAFE_MODE)) Text("已暂停：安全模式已开启，以下显示保存的选择。", fontSize = 13.sp,
+        if (app.bool(StatusBarSettings.SAFE_MODE)) Text(tr("已暂停：安全模式已开启，以下显示保存的选择。"), fontSize = 13.sp,
             lineHeight = 19.sp, color = MiuixTheme.colorScheme.primary)
         if (group.id.startsWith("shade_wallpaper"))
-            Text("功能未完成", fontSize = 13.sp, color = MiuixTheme.colorScheme.primary)
+            Text(tr("功能未完成"), fontSize = 13.sp, color = MiuixTheme.colorScheme.primary)
         if (group.id == "fluid_cloud_capsule")
-            Text("外观开关仅控制外观；常驻流体云在共用设置中独立开关。", fontSize = 13.sp, lineHeight = 19.sp,
+            Text(tr("外观开关仅控制外观；常驻流体云在共用设置中独立开关。"), fontSize = 13.sp, lineHeight = 19.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         if (group.id == "classic_text" || group.id.startsWith("shade_wallpaper") || group.id.startsWith("notification_big_clock"))
             Text(modeLabel, fontSize = 13.sp, color = MiuixTheme.colorScheme.primary)
@@ -863,7 +879,7 @@ private fun DetailIntro(app: ModernMainActivity, group: SettingsCatalog.Group, m
         if (group.id == MINI_STACK_GROUP) Text("${NotificationMiniStackSource.INSIDE} · ${NotificationMiniStackSource.LINK}",
             Modifier.clip(RoundedCornerShape(8.dp)).clickable { app.openUrl(NotificationMiniStackSource.URL) }.padding(vertical = 4.dp),
             fontSize = 13.sp, lineHeight = 19.sp, color = MiuixTheme.colorScheme.primary)
-        if (more) Text("详细说明", Modifier.clip(RoundedCornerShape(8.dp))
+        if (more) Text(tr("详细说明"), Modifier.clip(RoundedCornerShape(8.dp))
             .clickable { app.confirmation = UiConfirmation(group.title, help, "知道了") {} }.padding(vertical = 4.dp),
             fontSize = 13.sp, color = MiuixTheme.colorScheme.primary)
     }
@@ -887,7 +903,7 @@ private fun DetailSettingsSection(app: ModernMainActivity, group: SettingsCatalo
         SectionTitle(section.substringAfter(" · "))
         UiGroupCard {
             switches.forEach { item -> SettingsItem(app, item) }
-            if (folding) UiRow(if (advanced) "高级参数" else "参数设置", "$parameterCount 项 · 展开或收起不改变功能开关", if (expanded) "收起" else "展开") { expanded = !expanded }
+            if (folding) UiRow(if (advanced) "高级参数" else "参数设置", trf("%s 项 · 展开或收起不改变功能开关", parameterCount), if (expanded) "收起" else "展开") { expanded = !expanded }
             if (!folding || expanded) parameters.forEach { item ->
                 val paired = item.type == "color" && item.pairedKey.isNotEmpty() && items.any { it.key == item.pairedKey }
                 if (paired && item.scene == "light") {
@@ -917,6 +933,13 @@ private fun SettingsItem(app: ModernMainActivity, item: SettingsCatalog.Item) {
     // The switch always shows saved intent, even while a dependency pauses its runtime effect.
     val value = if (item.type == "numeric") SettingEditor.storedValue(item, app.values) else app.value(item.key)
     val enabled = app.canEdit && !app.busy && PanelMode.freezeReason(item.key).isEmpty() && (unavailable.isEmpty() || value == true && item.type == SettingsCatalog.BOOLEAN)
+    if (item.key == "label_enabled") {
+        val mode = NetworkDisplaySettings.mode(app.values)
+        val label = when (mode) { NetworkDisplaySettings.TEXT -> "文字"; NetworkDisplaySettings.HIDDEN -> "隐藏"; else -> "原生角标" }
+        UiRow("制式显示方式", "文字关闭后转为原生角标；隐藏需单独选择", label,
+            enabled = app.canEdit && !app.busy) { app.editing = item }
+        return
+    }
     if (item.key == NativeStatusIcons.LAYOUT) {
         UiRow(item.title, brief(item.description), "进入", enabled = !app.busy) { app.openHintIconOrder() }; return
     }
@@ -935,7 +958,7 @@ private fun SettingsItem(app: ModernMainActivity, item: SettingsCatalog.Item) {
                 enabled = enabled) { app.editing = item }
         } else {
             val order = (value as? Number)?.toInt() ?: 0
-            UiRow(item.title, "同一侧按优先级排列，同级由系统决定", if (order == 0) "系统顺序" else "优先级 $order",
+            UiRow(item.title, "同一侧按优先级排列，同级由系统决定", if (order == 0) "系统顺序" else trf("优先级 %s", order),
                 Icons.Outlined.SwapVert, enabled = enabled) { app.editing = item }
         }
         return
@@ -956,6 +979,11 @@ private fun SettingsItem(app: ModernMainActivity, item: SettingsCatalog.Item) {
     }
     if (item.key == NotificationIconOverrides.RULES) {
         UiRow(item.title, "按应用替换为文字、表情或图标", "进入", Icons.Outlined.EmojiEmotions, enabled = enabled) { app.openNotificationOverrides() }
+        return
+    }
+    if (item.key == QsWifiAlias.RULES) {
+        val count = runCatching { QsWifiAlias.parse(value?.toString() ?: "{}").size }.getOrDefault(0)
+        UiRow(item.title, item.description, if (count == 0) "选择网络" else trf("%s 个网络", count), Icons.Outlined.Wifi, enabled = enabled) { app.editing = item }
         return
     }
     if (item.key == FluidCloudCapsule.MARQUEE_PRESET) {
@@ -991,8 +1019,8 @@ private fun SettingsItem(app: ModernMainActivity, item: SettingsCatalog.Item) {
                     app.save(item.key, current)
                 })
                 val note = unavailable.ifEmpty { paused }.ifEmpty {
-                    if (StatusBarLayoutSettings.marginKey(item.key) && item.groupId in listOf("wifi", "label") &&
-                        app.bool(StatusBarLayoutSettings.WIFI_LABEL_SHARED)) "与 Wi-Fi 和网络制式共用，修改后两页同步"
+                    if (StatusBarLayoutSettings.sharedPositionKey(item.key) && item.groupId == "network" &&
+                        app.bool(StatusBarLayoutSettings.WIFI_LABEL_SHARED)) "Wi-Fi 与网络制式共用位置，大小各自独立"
                     else brief(item.description)
                 }
                 if (note.isNotEmpty()) Text(note, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -1016,6 +1044,14 @@ private fun SettingsItem(app: ModernMainActivity, item: SettingsCatalog.Item) {
 
 @Composable
 private fun EditSettingDialog(app: ModernMainActivity, item: SettingsCatalog.Item) {
+    if (item.key == "label_enabled") {
+        UiChoiceDialog("制式显示方式", listOf(NetworkDisplaySettings.TEXT, NetworkDisplaySettings.BADGE, NetworkDisplaySettings.HIDDEN),
+            listOf("文字", "原生角标", "隐藏"), NetworkDisplaySettings.mode(app.values),
+            description = "选择原生角标会关闭独立制式文字；隐藏会隐藏制式文字和原生角标。各自位置、大小、字体与颜色参数继续保留。",
+            onDismiss = { app.editing = null }, onChoice = { if (app.saveNetworkDisplayMode(it)) app.editing = null })
+        return
+    }
+    if (item.key == QsWifiAlias.RULES) { WifiAliasRulesDialog(app); return }
     if (item.key == NativeStatusIcons.LAYOUT) { LaunchedEffect(item.key) { app.editing = null; app.openHintIconOrder() }; return }
     if (item.key == IconManagementSettings.KEY) { LaunchedEffect(item.key) { app.editing = null; app.openIconManagement() }; return }
     if (item.key == NotificationIconOverrides.RULES) { LaunchedEffect(item.key) { app.editing = null; app.openNotificationOverrides() }; return }
@@ -1071,7 +1107,8 @@ private fun EditSettingDialog(app: ModernMainActivity, item: SettingsCatalog.Ite
 private fun AboutHero(app: ModernMainActivity) {
     val version = remember(app) { app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: "" }
     val versionLabel = remember(version) {
-        val suffix = version.substringBefore('+').substringAfter('-', "").lowercase(Locale.ROOT)
+        // 2.1.0 names its builds "2.1.0_beta.081"; older ones used "1.8.3-beta.95".
+        val suffix = version.substringBefore('+').replace('_', '-').substringAfter('-', "").lowercase(Locale.ROOT)
         if (suffix.split('.', '-').any { it.startsWith("alpha") || it.startsWith("beta") || it.startsWith("rc") }) "测试版" else "正式版"
     }
     UiGroupCard {
@@ -1084,9 +1121,7 @@ private fun AboutHero(app: ModernMainActivity) {
             Spacer(Modifier.height(4.dp))
             Text("$version · $versionLabel", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             Spacer(Modifier.height(6.dp))
-            Text("作者 ${ProjectContact.AUTHOR}", fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(12.dp))
-            Text("永久免费 · 捐赠自愿", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Text(trf("作者 %s · 永久免费，捐赠自愿", ProjectContact.AUTHOR), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
     }
 }
@@ -1094,60 +1129,67 @@ private fun AboutHero(app: ModernMainActivity) {
 @Composable
 private fun AboutActions(app: ModernMainActivity) {
     var section by rememberSaveable { mutableStateOf<String?>(null) }
-    fun toggle(name: String) { section = if (section == name) null else name }
+    fun toggle(name: String) { app.cancelPendingHistoricalCleanup(); section = if (section == name) null else name }
     fun fold(name: String) = if (section == name) "收起" else "展开"
+    val language = C17Language.current(app)
+    val languageName = C17Language.OPTIONS.firstOrNull { it.tag == language }?.nativeName
+        ?: stringResource(R.string.welcome_language_follow_system)
+    // Three groups instead of a card per entry: everyday entries, upkeep, then the project. Every former action is kept;
+    // the donation note lives in the free notice and the component licences in "开源许可".
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionTitle("常用")
         UiGroupCard {
-            UiRow("鸣谢墙", "感谢每一位伙伴", "查看", Icons.Outlined.FavoriteBorder) { app.openThanks() }
-        }
-        UiGroupCard {
-            UiRow("检查更新", app.updateMessage, if (app.checkingUpdates) "检查中" else "检查", Icons.Outlined.SystemUpdate,
-                enabled = !app.checkingUpdates && !app.busy) { app.checkUpdates() }
-        }
-        UiGroupCard {
-            UiRow("联系与捐赠", value = fold("contact"), icon = Icons.Outlined.FavoriteBorder) { toggle("contact") }
-            if (section == "contact") {
-                UiRow("联系作者", "QQ ${ProjectContact.QQ}", "复制", Icons.Outlined.ContentCopy) { app.toast(if (ProjectContact.copyQq(app)) "QQ号已复制" else "复制失败") }
-                UiRow("酷安", "作者主页 @${ProjectContact.COOLAPK}", "打开", Icons.Outlined.OpenInNew) { app.openUrl(ProjectContact.COOLAPK_URL) }
-                UiRow("捐赠说明", ProjectContact.DONATION_NOTE, icon = Icons.Outlined.Info) {
-                    app.confirmation = UiConfirmation("捐赠说明", ProjectContact.DONATION_NOTE + "\n\n联系作者：QQ ${ProjectContact.QQ}", "知道了") {}
-                }
-                UiRow("微信捐赠", value = "查看", icon = Icons.Outlined.FavoriteBorder) { app.donationImage = "donation/wechat.png" }
-                UiRow("支付宝捐赠", value = "查看", icon = Icons.Outlined.FavoriteBorder) { app.donationImage = "donation/alipay.jpg" }
-                UiRow("免费声明", "永久免费，捐赠完全自愿", icon = Icons.Outlined.Info) { app.confirmation = UiConfirmation("免费声明", FreeNotice.DESCRIPTION, "知道了") {} }
-            }
-        }
-        UiGroupCard {
-            UiRow("界面设置", "界面风格、配色、字号、名称", app.ui.uiStyleTitle, Icons.Outlined.Palette) { app.openUiSettings() }
-        }
-        UiGroupCard {
+            UiRow("扩展插件", "导入插件，扩展功能", "插件", Icons.Outlined.Extension) { app.openCustomPlugins() }
             UiRow("附属优化模块", "安装与自动优化", performanceHomeStatus(app), Icons.Outlined.Speed) { app.openPerformance() }
+            UiRow("界面设置", "风格、配色、字号、名称", app.ui.uiStyleTitle, Icons.Outlined.Palette) { app.openUiSettings() }
+            UiRow(stringResource(R.string.about_language), stringResource(R.string.about_language_summary), languageName,
+                Icons.Outlined.Language) { app.openWelcome(languageOnly = true) }
         }
+        SectionTitle("维护")
         UiGroupCard {
             UiRow("配置管理", "备份、分享、导入", value = fold("config"), icon = Icons.Outlined.Settings) { toggle("config") }
             if (section == "config") {
                 UiRow("导出配置", "保存为文件，可选择只导出部分页面", icon = Icons.Outlined.FileUpload, enabled = app.canEdit && !app.busy) { app.chooseExport() }
                 UiRow("分享配置", "发给朋友或其他应用，可选择只分享部分页面", icon = Icons.Outlined.Share, enabled = app.canEdit && !app.busy) { app.shareConfig() }
                 UiRow("导入配置", "读取文件后可选择只导入部分页面", icon = Icons.Outlined.FileDownload, enabled = app.canEdit && !app.busy) { app.chooseImport() }
-                UiRow("删除所有配置", "不可恢复，建议先导出备份", icon = Icons.Outlined.DeleteOutline, enabled = app.canEdit && !app.busy) { app.deleteAllSettings() }
+                UiRow("删除所有配置", "不可恢复；设置导出不含字体、图标和插件布局", icon = Icons.Outlined.DeleteOutline, enabled = app.canEdit && !app.busy) { app.deleteAllSettings() }
+                UiRow("历史配置残留清除", "可能误伤：连同当前配置、插件和导入资源一起清除，需 Root", icon = Icons.Outlined.DeleteOutline, enabled = !app.freeNoticeRequired && !app.busy && !app.maintenanceRunning) { app.clearHistoricalResiduals() }
             }
-        }
-        UiGroupCard {
             UiRow("问题诊断", "日志与挂钩状态", "查看", Icons.Outlined.Description) { app.openDiagnostics() }
+            UiRow("检查更新", app.updateMessage, if (app.checkingUpdates) "检查中" else "检查", Icons.Outlined.SystemUpdate,
+                enabled = !app.checkingUpdates && !app.busy) { app.checkUpdates() }
         }
+        SectionTitle("关于")
         UiGroupCard {
+            UiRow(stringResource(R.string.about_welcome), stringResource(R.string.about_welcome_summary),
+                icon = Icons.Outlined.Info) { app.openWelcome() }
+            UiRow("联系与捐赠", value = fold("contact"), icon = Icons.Outlined.FavoriteBorder) { toggle("contact") }
+            if (section == "contact") {
+                UiRow("联系作者", "QQ ${ProjectContact.QQ}", "复制", Icons.Outlined.ContentCopy) { app.toast(if (ProjectContact.copyQq(app)) "QQ号已复制" else "复制失败") }
+                UiRow("酷安", trf("作者主页 @%s", ProjectContact.COOLAPK), "打开", Icons.Outlined.OpenInNew) { app.openUrl(ProjectContact.COOLAPK_URL) }
+                UiRow("Telegram 群组", "交流使用问题、反馈错误、获取更新消息", "加入", Icons.Outlined.OpenInNew) { app.openUrl(ProjectContact.TELEGRAM_URL) }
+                // App292: two networks with different addresses; the X Layer entry is retired.
+                for ((network, address) in listOf(ProjectContact.CRYPTO_ETH_NETWORK to ProjectContact.CRYPTO_ETH_ADDRESS,
+                        ProjectContact.CRYPTO_TRON_NETWORK to ProjectContact.CRYPTO_TRON_ADDRESS)) {
+                    UiRow(trf("加密货币捐赠 · %s", network), address, "复制", Icons.Outlined.ContentCopy) {
+                        app.toast(if (ProjectContact.copyCryptoAddress(app, address)) trf("%s 地址已复制", network) else "复制失败")
+                    }
+                }
+                UiRow("微信捐赠", value = "查看", icon = Icons.Outlined.FavoriteBorder) { app.donationImage = "donation/wechat.png" }
+                UiRow("支付宝捐赠", value = "查看", icon = Icons.Outlined.FavoriteBorder) { app.donationImage = "donation/alipay.jpg" }
+                UiRow("免费声明", "永久免费，捐赠自愿", icon = Icons.Outlined.Info) { app.confirmation = UiConfirmation("免费声明", FreeNotice.DESCRIPTION, "知道了") {} }
+            }
+            UiRow("鸣谢墙", "感谢每一位伙伴", "查看", Icons.Outlined.FavoriteBorder) { app.openThanks() }
             UiRow("项目与开源", value = fold("project"), icon = Icons.Outlined.Code) { toggle("project") }
             if (section == "project") {
                 UiRow("项目源码", "SANWU5/c17-statusbar", icon = Icons.Outlined.Code) { app.openUrl("https://github.com/SANWU5/c17-statusbar") }
                 UiRow("正式发布", icon = Icons.Outlined.OpenInNew) { app.openLatestRelease() }
                 UiRow("开源许可", icon = Icons.Outlined.Article) {
-                    app.confirmation = UiConfirmation("开源许可", "C17 Statusbar：GPL-3.0-only\nMiuix：Apache-2.0\nCOUI：suqi8/coui · Apache-2.0（基于 Miuix）\n液态玻璃底栏：改编自 Miuix 示例与 Kyant0/AndroidLiquidGlass · Apache-2.0\n字体：SIL Open Font License 1.1\n圆角技术参考：MCGA · Zhuangzhi Meng (Gustate XiaoMeng) · GPL-3.0-or-later\n完整许可与版权声明随应用保留。", "知道了") {}
+                    app.confirmation = UiConfirmation("开源许可", "C17 Statusbar：GPL-3.0-only\nMiuix：Apache-2.0\nCOUI：suqi8/coui · Apache-2.0（基于 Miuix）\nMaterial 3：Google Jetpack Compose Material 3 · Apache-2.0\n液态玻璃底栏：改编自 Miuix 示例与 Kyant0/AndroidLiquidGlass · Apache-2.0\n字体：SIL Open Font License 1.1\n圆角技术参考：MCGA · Zhuangzhi Meng (Gustate XiaoMeng) · GPL-3.0-or-later\n完整许可与版权声明随应用保留。", "知道了") {}
                 }
-                UiRow("Miuix", value = "0.9.4", icon = Icons.Outlined.Palette) { app.openUrl("https://github.com/compose-miuix-ui/miuix") }
-                UiRow("COUI", "ColorOS 风格组件", value = "1.1.0", icon = Icons.Outlined.Palette) { app.openUrl("https://github.com/suqi8/coui") }
                 UiRow("功能鸣谢", NotificationMiniStackSource.SHORT, "酷安", Icons.Outlined.OpenInNew) {
                     app.confirmation = UiConfirmation("功能鸣谢", NotificationMiniStackSource.DECLARATION + "\n\n" + NotificationMiniStackSource.TECHNICAL_ORIGIN
-                        + "鸣谢不代表许可声明。", "知道了", linkLabel = "${NotificationMiniStackSource.LINK}（酷安 @${NotificationMiniStackSource.AUTHOR}）",
+                        + "鸣谢不代表许可声明。", "知道了", linkLabel = trf("%1\$s（酷安 @%2\$s）", NotificationMiniStackSource.LINK, NotificationMiniStackSource.AUTHOR),
                         linkUrl = NotificationMiniStackSource.URL) {}
                 }
             }
@@ -1177,7 +1219,7 @@ private fun HintPriorityDialog(app: ModernMainActivity) {
     }
     C17OverlayDialog(show = true, title = "显示优先级", onDismissRequest = { app.editing = null }) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("长按图标名称后上下拖动，靠前的优先显示。系统当前未启用的提示不会被强制显示。", fontSize = 14.sp,
+            Text(tr("长按图标名称后上下拖动，靠前的优先显示。系统当前未启用的提示不会被强制显示。"), fontSize = 14.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState(), enabled = dragging == null)) {
                 ordered.forEach { slot -> key(slot) {
@@ -1206,7 +1248,10 @@ private fun HintPriorityDialog(app: ModernMainActivity) {
     }
 }
 
-@Composable private fun SectionTitle(title: String) { Text(title, Modifier.padding(start = 12.dp, top = 8.dp, bottom = 2.dp), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
+@Composable private fun SectionTitle(title: String) {
+    if (c17Material) UiSectionHeader(title)
+    else Text(title, Modifier.padding(start = 12.dp, top = 8.dp, bottom = 2.dp), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+}
 private fun concise(description: String) = brief(description, 34)
 private fun carrierScene(category: String) = when (category) {
     SettingsCatalog.LOCK_SCREEN -> "lockscreen"
@@ -1235,7 +1280,9 @@ private fun destinationEnabled(app: ModernMainActivity, group: SettingsCatalog.G
         "status_icon_library" -> app.iconManagementState().let { it.scopePacks.isNotEmpty() || it.overrides.isNotEmpty() || it.appearances.isNotEmpty() || it.animations.isNotEmpty() }
         "carrier" -> if (category != null) app.bool(carrierPrefix(category) + "_enabled")
             else CarrierPanels.GROUPS.any { app.bool(it + "_enabled") }
-        "native_network_badge" -> app.bool(group.masterKey) || app.bool(NativeDataActivity.MASTER)
+        "network" -> app.bool("wifi_enabled") || app.bool(NetworkDisplaySettings.WIFI_HIDDEN) ||
+            NetworkDisplaySettings.mode(app.values) != NetworkDisplaySettings.BADGE ||
+            app.bool(NativeNetworkBadgeControls.MASTER) || app.bool(NativeDataActivity.MASTER) || app.bool(StatusBarLayoutSettings.WIFI_LABEL_SHARED)
         "notification_clear_landscape" -> app.bool(group.masterKey) || app.bool(NotificationClearAppearance.LANDSCAPE_MASTER)
         "classic_text" -> app.bool(group.masterKey) || app.bool(ClassicTextSettings.CLOCK_MASTER)
         "clock" -> app.bool(group.masterKey) || app.bool(ClockLayoutSettings.DUAL_ENABLED)
@@ -1253,7 +1300,7 @@ private fun displayValue(item: SettingsCatalog.Item, value: Any?): String {
 private fun groupIcon(id: String): ImageVector = when (id) {
     "speed" -> Icons.Outlined.Speed
     "data" -> Icons.Outlined.SignalCellularAlt
-    "wifi" -> Icons.Outlined.Wifi
+    "network", "wifi", QsWifiAlias.GROUP -> Icons.Outlined.Wifi
     "label" -> C17SectionIcons.Network5G
     "native_network_badge" -> Icons.Outlined.TextFields
     "network_order", StatusBarLayoutSettings.GROUP -> Icons.Outlined.SwapHoriz

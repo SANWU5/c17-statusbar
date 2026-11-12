@@ -12,6 +12,8 @@ public abstract class Drawable {
     private final Rect bounds = new Rect();
     private int[] state=new int[0];
     private int level;
+    private int layoutDirection;
+    private boolean visibleForCheck=true;
     public abstract void draw(Canvas canvas);
     public abstract void setAlpha(int alpha);
     public abstract void setColorFilter(ColorFilter filter);
@@ -20,7 +22,17 @@ public abstract class Drawable {
     public void setColorFilter(int color,android.graphics.PorterDuff.Mode mode){setColorFilter(new android.graphics.PorterDuffColorFilter(color,mode));}
     protected boolean onStateChange(int[] value){return false;}
     protected boolean onLevelChange(int value){return false;}
-    public boolean setVisible(boolean visible,boolean restart){return false;}
+    public boolean setVisible(boolean visible,boolean restart){boolean changed=visibleForCheck!=visible;visibleForCheck=visible;return changed;}
+    public boolean isVisible(){return visibleForCheck;}
+    public final boolean setLayoutDirection(int value){if(layoutDirection==value)return false;layoutDirection=value;return onLayoutDirectionChanged(value);}
+    public int getLayoutDirection(){return layoutDirection;}
+    public boolean onLayoutDirectionChanged(int value){return false;}
+    public void setAutoMirrored(boolean value){}
+    public boolean isAutoMirrored(){return false;}
+    public void setHotspot(float x,float y){}
+    public void setHotspotBounds(int left,int top,int right,int bottom){}
+    public void getHotspotBounds(Rect out){out.set(bounds);}
+    public void jumpToCurrentState(){}
     public void scheduleSelf(Runnable task,long when){if(callback!=null)callback.scheduleDrawable(this,task,when);}
     public void unscheduleSelf(Runnable task){if(callback!=null)callback.unscheduleDrawable(this,task);}
     public abstract int getOpacity();

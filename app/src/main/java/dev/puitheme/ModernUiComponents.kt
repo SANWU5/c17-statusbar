@@ -77,9 +77,6 @@ import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import kotlinx.coroutines.delay
 import kotlin.math.ceil
-import io.github.suqi8.coui.kmp.basic.NavigationBar as CouiNavigationBar
-import io.github.suqi8.coui.kmp.basic.NavigationBarDefaults as CouiNavigationBarDefaults
-import io.github.suqi8.coui.kmp.basic.NavigationBarItem as CouiNavigationBarItem
 import io.github.suqi8.coui.kmp.basic.ColorPicker as CouiColorPicker
 import io.github.suqi8.coui.kmp.basic.TabRow as CouiTabRow
 import io.github.suqi8.coui.kmp.basic.TabRowWithContour as CouiTabRowWithContour
@@ -97,7 +94,9 @@ fun UiContentTabs(
     height: Dp? = null,
 ) {
     if (tabs.isEmpty()) return
-    val coui = LocalC17Coui.current
+    val tabs = tabs.map { tr(it) }
+    val coui = c17Coui
+    val material = c17Material
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
     val style = MiuixTheme.textStyles.body2.copy(fontSize = 14.sp)
@@ -108,6 +107,12 @@ fun UiContentTabs(
             val selected = measurer.measure(label, style = style.copy(fontWeight = FontWeight.Medium), softWrap = false)
             maxOf(normal.size.width, selected.size.width) to maxOf(normal.size.height, selected.size.height)
         }
+    }
+    if (material) {
+        C17MaterialTabs(tabs, selectedTabIndex.coerceIn(0, tabs.lastIndex), onTabSelected, connected = contour,
+            enabled = enabled, height = height, labelWidths = labels.map { with(density) { it.first.toDp() } },
+            labelHeight = with(density) { labels.maxOf { it.second }.toDp() }, modifier = modifier)
+        return
     }
     if (coui && enabled) {
         val selected = selectedTabIndex.coerceIn(0, tabs.lastIndex)
@@ -189,13 +194,31 @@ fun UiContentTabs(
     }
 }
 
+/** A list section header: Material uses its primary title-small header; Miuix and COUI their grey caption. */
+@Composable
+fun UiSectionHeader(title: String, modifier: Modifier = Modifier) {
+    if (c17Material) Text(tr(title), modifier.padding(start = 16.dp, top = 12.dp, bottom = 2.dp),
+        style = MiuixTheme.textStyles.headline2, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.primary)
+    else Text(tr(title), modifier.padding(start = 12.dp, top = 4.dp), fontSize = 13.sp,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+}
+
+/** Explanatory text under a group, in every family the quiet summary colour. */
+@Composable
+fun UiSectionNote(text: String, modifier: Modifier = Modifier) {
+    Text(tr(text), modifier.padding(start = if (c17Material) 16.dp else 12.dp, end = 12.dp), fontSize = 13.sp,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+}
+
 /** Shared group container for the selected UI component family. */
 @Composable
 fun UiGroupCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    C17Card(modifier = modifier.fillMaxWidth(), content = content)
+    // Material groups are segmented lists, not cards; Miuix and COUI keep their native grouped cards.
+    if (c17Material) C17MaterialSegmentedGroup(modifier, content)
+    else C17Card(modifier = modifier.fillMaxWidth(), content = content)
 }
 
 @Composable
@@ -204,8 +227,11 @@ private fun UiRowIcon(icon: ImageVector, enabled: Boolean) {
         imageVector = icon,
         contentDescription = null,
         modifier = Modifier.padding(end = 16.dp).size(24.dp),
-        tint = if (enabled) MiuixTheme.colorScheme.onSurface else
-            MiuixTheme.colorScheme.disabledOnSecondaryVariant,
+        tint = when {
+            !enabled -> MiuixTheme.colorScheme.disabledOnSecondaryVariant
+            c17Material -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+            else -> MiuixTheme.colorScheme.onSurface
+        },
     )
 }
 
@@ -248,10 +274,11 @@ fun UiRow(
 @Composable
 private fun UiRowValue(value: String, enabled: Boolean) {
     Text(
-        text = value,
+        text = tr(value),
         style = MiuixTheme.textStyles.body2,
-        maxLines = if (LocalC17Coui.current) Int.MAX_VALUE else 1,
-        overflow = if (LocalC17Coui.current) TextOverflow.Clip else TextOverflow.Ellipsis,
+        // COUI and Material measure the value and wrap it to a second line instead of cutting it off.
+        maxLines = if (c17Style == C17UiStyle.MIUIX) 1 else Int.MAX_VALUE,
+        overflow = if (c17Style == C17UiStyle.MIUIX) TextOverflow.Ellipsis else TextOverflow.Clip,
         color = if (enabled) MiuixTheme.colorScheme.onSurfaceVariantActions else
             MiuixTheme.colorScheme.disabledOnSecondaryVariant,
     )
@@ -317,7 +344,8 @@ private fun UiColorChip(
     val secondaryColor = if (enabled) MiuixTheme.colorScheme.onSurfaceVariantSummary else
         MiuixTheme.colorScheme.disabledOnSecondaryVariant
     C17Card(
-        modifier = modifier.squircleBorder(width = { 0.75.dp }, color = { outline }, cornerRadius = 12.dp),
+        // Material chips are tonal surfaces; the hairline frame belongs to the Miuix and COUI looks.
+        modifier = if (c17Material) modifier else modifier.squircleBorder(width = { 0.75.dp }, color = { outline }, cornerRadius = 12.dp),
         cornerRadius = 12.dp,
         insideMargin = PaddingValues(10.dp),
         pressFeedbackType = PressFeedbackType.Sink,
@@ -329,7 +357,7 @@ private fun UiColorChip(
                     .border(0.75.dp, outline, CircleShape),
             )
             Column(Modifier.weight(1f)) {
-                Text(text = label, fontSize = 12.sp, color = textColor)
+                Text(text = tr(label), fontSize = 12.sp, color = textColor)
                 Text(text = "#%06X".format(color and 0xFFFFFF), fontSize = 11.sp,
                     color = secondaryColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -397,7 +425,7 @@ fun UiInputDialog(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (context.isNotEmpty()) Text(context, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                if (context.isNotEmpty()) Text(tr(context), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 C17TextField(
                     value = value,
                     onValueChange = { value = it; error = null },
@@ -408,7 +436,7 @@ fun UiInputDialog(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = when {
-                            pattern || scientific -> KeyboardType.Ascii
+                            scientific -> KeyboardType.Ascii
                             integer -> KeyboardType.Number
                             numeric -> KeyboardType.Decimal
                             else -> KeyboardType.Text
@@ -420,7 +448,7 @@ fun UiInputDialog(
                 )
                 val shown = if (preview == null) "" else preview(value)
                 if (shown.isNotEmpty()) UiPreviewLine(shown)
-                if (presets.isNotEmpty()) UiPresetChips(presets, value) { value = it; error = null }
+                if (presets.isNotEmpty()) UiPresetChips(presets, value, pattern) { value = it; error = null }
                 if (numeric) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (allowNegative) C17TextButton(text = "正 / 负", modifier = Modifier.weight(1f), onClick = {
                         value = when { value.startsWith("-") -> value.removePrefix("-"); value.startsWith("+") -> "-" + value.removePrefix("+"); else -> "-$value" }
@@ -428,9 +456,9 @@ fun UiInputDialog(
                     })
                     C17TextButton(text = if (scientific) "小数键盘" else "科学计数", modifier = Modifier.weight(1f), onClick = { scientific = !scientific })
                 }
-                if (valueSummary.isNotEmpty()) Text(valueSummary, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                if (description.isNotEmpty()) Text(description, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                if (numeric && scientific) Text("科学计数示例：1.2e3 = 1200；可直接粘贴完整数值。", fontSize = 12.sp,
+                if (valueSummary.isNotEmpty()) Text(tr(valueSummary), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                if (description.isNotEmpty()) Text(tr(description), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                if (numeric && scientific) Text(tr("科学计数示例：1.2e3 = 1200；可直接粘贴完整数值。"), fontSize = 12.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             UiDialogError(error)
@@ -446,7 +474,7 @@ private fun UiPreviewLine(shown: CharSequence) {
     val color = if (error) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.primary
     val sketched = shown is android.text.Spanned && shown.getSpans(0, shown.length, android.text.style.ReplacementSpan::class.java).isNotEmpty()
     if (!sketched) {
-        Text("预览：$shown", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = color)
+        Text(tr("预览：") + shown, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = color)
         return
     }
     val argb = color.toArgb()
@@ -461,7 +489,7 @@ private fun UiPreviewLine(shown: CharSequence) {
         },
         update = { view ->
             view.setTextColor(argb)
-            view.text = android.text.SpannableStringBuilder("预览：").append(shown)
+            view.text = android.text.SpannableStringBuilder(tr("预览：")).append(shown)
         },
     )
 }
@@ -469,19 +497,48 @@ private fun UiPreviewLine(shown: CharSequence) {
 /** "预设": ready-made values for a field, one tap fills the input (the preview and the check still apply). */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun UiPresetChips(presets: List<Pair<String, String>>, current: String, onPick: (String) -> Unit) {
+private fun UiPresetChips(presets: List<Pair<String, String>>, current: String, pattern: Boolean, onPick: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("预设", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Text(tr("预设"), fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        val groups = if (pattern) listOf("常用", "中文", "英文", "组合") else listOf("")
+        var selectedGroup by remember(presets) {
+            val name = presets.firstOrNull { it.first == current }?.second.orEmpty()
+            mutableStateOf(groups.firstOrNull { it != "常用" && name.startsWith("$it：") } ?: groups.first())
+        }
+        if (pattern) {
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                groups.forEach { group ->
+                    val selected = group == selectedGroup
+                    Box(Modifier.clip(RoundedCornerShape(10.dp))
+                        .background(if (selected) MiuixTheme.colorScheme.primary.copy(alpha = .16f) else Color.Transparent)
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { selectedGroup = group }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)) {
+                        Text(tr(group), fontSize = 13.sp,
+                            color = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    }
+                }
+            }
+        }
+        val choices = if (!pattern) presets else presets.filter { (_, name) ->
+            when (selectedGroup) {
+                "常用" -> !name.startsWith("中文：") && !name.startsWith("英文：") && !name.startsWith("组合：")
+                else -> name.startsWith("$selectedGroup：")
+            }
+        }
         androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            presets.forEach { (format, name) ->
+            choices.forEach { (format, name) ->
                 val on = format == current
                 Box(Modifier.clip(RoundedCornerShape(10.dp))
                     .background(if (on) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface.copy(alpha = .08f))
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onPick(format) }
                     .padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    Text(name, fontSize = 13.sp, color = if (on) Color.White else MiuixTheme.colorScheme.onSurface)
-                }
+                    // A translated name is shown whole; the source drops the group prefix the tab already says.
+                    val translated = tr(name)
+                    Text(if (translated != name) translated else if (pattern && selectedGroup != "常用") name.substringAfter('：') else name,
+                        fontSize = 13.sp, color = if (on) Color.White else MiuixTheme.colorScheme.onSurface)
+                    }
             }
         }
     }
@@ -526,16 +583,16 @@ fun UiConfirmDialog(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                Text(summary + if (expiresAt > 0) "\n${trialRemaining} 秒后自动恢复" else "",
+                Text(tr(summary) + if (expiresAt > 0) "\n" + trf("%d 秒后自动恢复", trialRemaining) else "",
                     fontSize = 14.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 // An outbound link keeps the dialog open: returning from the browser still shows the same choice.
-                if (onLink != null && linkLabel.isNotEmpty()) Text(linkLabel, Modifier.padding(top = 8.dp)
+                if (onLink != null && linkLabel.isNotEmpty()) Text(tr(linkLabel), Modifier.padding(top = 8.dp)
                     .clip(RoundedCornerShape(8.dp)).clickable(onClick = onLink).padding(vertical = 4.dp),
                     fontSize = 14.sp, color = MiuixTheme.colorScheme.primary)
             }
             UiDialogActions(
                 onDismiss = onDismiss,
-                confirmLabel = if (remaining > 0) "$confirmLabel（${remaining}秒）" else confirmLabel,
+                confirmLabel = if (remaining > 0) trf("%1\$s（%2\$d秒）", tr(confirmLabel), remaining) else confirmLabel,
                 confirmEnabled = remaining == 0,
                 onConfirm = {
                     if (remaining == 0) onConfirm()
@@ -553,6 +610,8 @@ fun UiChoiceDialog(
     selected: String,
     description: String = "",
     optionDisabledReason: (String) -> String = { "" },
+    /** A short description under an enabled option; a disabled option shows its reason instead. */
+    optionSummary: (String) -> String = { "" },
     onDismiss: () -> Unit,
     onChoice: (String) -> Unit,
 ) {
@@ -564,21 +623,22 @@ fun UiChoiceDialog(
                     .verticalScroll(rememberScrollState())
                     .selectableGroup(),
             ) {
-                if (description.isNotEmpty()) Text(description, Modifier.padding(bottom = 10.dp),
+                if (description.isNotEmpty()) Text(tr(description), Modifier.padding(bottom = 10.dp),
                     fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 values.forEachIndexed { index, value ->
                     val disabledReason = optionDisabledReason(value)
                     C17RadioButtonPreference(
                         title = labels.getOrNull(index) ?: value,
-                        summary = disabledReason.takeIf { it.isNotEmpty() },
+                        summary = disabledReason.ifEmpty { optionSummary(value) }.takeIf { it.isNotEmpty() },
                         enabled = disabledReason.isEmpty(),
                         selected = selected == value,
                         onClick = { if (disabledReason.isEmpty()) { onChoice(value); onDismiss() } },
                     )
                 }
-                if (values.isEmpty()) Text(text = "暂无可选项")
+                if (values.isEmpty()) Text(text = tr("暂无可选项"))
             }
-            C17TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.fillMaxWidth())
+            if (c17Material) C17MaterialDialogActions(onDismiss, null, true, null)
+            else C17TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -590,6 +650,7 @@ fun UiColorDialog(
     initial: Int,
     initialCustomAlpha: Boolean,
     description: String = "",
+    alphaDescription: String = "关闭后跟随系统透明度",
     onDismiss: () -> Unit,
     onConfirm: (Int, Boolean) -> Unit,
 ) {
@@ -621,7 +682,7 @@ fun UiColorDialog(
             ) {
                 C17SwitchPreference(
                     title = "自定义透明度",
-                    summary = "关闭后跟随系统透明度",
+                    summary = alphaDescription,
                     checked = customAlpha,
                     onCheckedChange = {
                         customAlpha = it
@@ -635,7 +696,7 @@ fun UiColorDialog(
                     hex = colorText(selected.toArgb(), customAlpha)
                     error = null
                 }
-                if (LocalC17Coui.current) CouiColorPicker(color = color, onColorChanged = pick, modifier = Modifier.fillMaxWidth())
+                if (c17Coui) CouiColorPicker(color = color, onColorChanged = pick, modifier = Modifier.fillMaxWidth())
                 else ColorPicker(color = color, onColorChanged = pick, modifier = Modifier.fillMaxWidth())
                 C17TextField(
                     value = hex,
@@ -666,7 +727,7 @@ fun UiColorDialog(
 private fun UiDialogError(error: String?) {
     if (error != null) {
         Text(
-            text = error,
+            text = tr(error),
             style = MiuixTheme.textStyles.body2,
             color = MiuixTheme.colorScheme.error,
         )
@@ -680,6 +741,10 @@ private fun UiDialogActions(
     confirmEnabled: Boolean = true,
     onConfirm: () -> Unit,
 ) {
+    if (c17Material) {
+        C17MaterialDialogActions(onDismiss, tr(confirmLabel), confirmEnabled, onConfirm)
+        return
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -690,7 +755,7 @@ private fun UiDialogActions(
             onClick = onConfirm,
             enabled = confirmEnabled,
             modifier = Modifier.weight(1f),
-            colors = ButtonDefaults.textButtonColorsPrimary(),
+            primary = true,
         )
     }
 }
@@ -714,33 +779,8 @@ private fun parseArgb(text: String): Int? {
 /** Ordinary navigation: an opaque surface through the gesture inset, with safe tab targets. */
 @Composable
 fun C17Navigation(page: Int, safeInsets: PaddingValues = PaddingValues(), onPage: (Int) -> Unit) {
-    if (LocalC17Coui.current) {
-        val density = LocalDensity.current
-        val measurer = rememberTextMeasurer()
-        val labels = listOf("主页", "配置", "关于")
-        val style = MiuixTheme.textStyles.main.copy(
-            fontSize = CouiNavigationBarDefaults.LabelFontSize, fontWeight = FontWeight.Medium)
-        val labelHeight = remember(style, density.fontScale, density.density, measurer) {
-            labels.maxOf { measurer.measure(it, style = style, softWrap = false).size.height }
-        }
-        // Native cells use a fixed 56dp. An outer minimum lets their icon/label anchors grow
-        // with text without letting tab hit targets extend into the system gesture padding.
-        val itemHeight = (CouiNavigationBarDefaults.IconTopPadding + CouiNavigationBarDefaults.IconSize +
-            4.dp + with(density) { labelHeight.toDp() } + CouiNavigationBarDefaults.LabelBottomPadding)
-            .coerceAtLeast(CouiNavigationBarDefaults.ItemHeight)
-        val item = Modifier.heightIn(min = itemHeight)
-        val surface = MiuixTheme.colorScheme.background
-        CouiNavigationBar(
-            modifier = Modifier.background(surface)
-                .pointerInput(Unit) { detectTapGestures { /* Consume taps in the bar's unused inset. */ } }
-                .padding(safeInsets),
-            color = surface,
-            defaultWindowInsetsPadding = false,
-        ) {
-            CouiNavigationBarItem(selected = page == 0, onClick = { onPage(0) }, icon = Icons.Outlined.Home, label = labels[0], modifier = item)
-            CouiNavigationBarItem(selected = page == 1, onClick = { onPage(1) }, icon = Icons.Outlined.Settings, label = labels[1], modifier = item)
-            CouiNavigationBarItem(selected = page == 2, onClick = { onPage(2) }, icon = Icons.Outlined.Info, label = labels[2], modifier = item)
-        }
+    if (c17Material) {
+        C17MaterialNavigationBar(page, safeInsets, onPage)
         return
     }
     val labels = arrayOf("主页", "配置", "关于")
@@ -772,7 +812,7 @@ fun C17Navigation(page: Int, safeInsets: PaddingValues = PaddingValues(), onPage
                         .background(indicator), contentAlignment = Alignment.Center) {
                         Icon(icons[index], contentDescription = null, modifier = Modifier.size(24.dp), tint = tint)
                     }
-                    Text(label, color = tint, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                    Text(tr(label), color = tint, fontSize = 12.sp, fontWeight = FontWeight.Medium,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }

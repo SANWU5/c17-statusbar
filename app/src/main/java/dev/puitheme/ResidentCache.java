@@ -17,7 +17,7 @@ import java.util.concurrent.Executors;
 
 /** Built-in resource cache: files the module would otherwise fetch from its own app again after every SystemUI start, kept in SystemUI's own
  * device-protected storage (files/c17-resident-cache). It is read before the user unlocks, survives SystemUI restarts and reboots,
- * runs no process and no timer, and only touches the disk when something is missing or the source changed.
+ * needs no additional process or timer for local fallback, and only fetches missing or changed resources.
  *
  * It holds the imported custom font (every SystemUI start, and every new weight the status bar asks for, opened the font through the
  * app's provider, which starts the app's process when it is not running; one copy per font revision is kept) and the icon libraries in
@@ -26,7 +26,8 @@ import java.util.concurrent.Executors;
  *
  * It is enabled by default without an app action or a settings broadcast. Legacy installed/running preferences are retained only for
  * compatibility; they no longer disable this built-in cache. Safety mode pauses reads and writes without removing persisted files.
- * SystemUI never reads the former root-manager backup directory; there is no mount or resident daemon. */
+ * The optional companion supplies immutable bytes over a root-authenticated socket on resource workers only.
+ * Local storage remains the fallback when the companion is absent; draw paths never wait on IPC. */
 final class ResidentCache {
     static final String INSTALLED = "resident_cache_installed";
     static final String RUNNING = "resident_cache_running";
@@ -51,6 +52,33 @@ final class ResidentCache {
     private volatile String lastError = "";
     private final java.util.Set<String> pendingFonts=java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<String,Boolean>());
     private volatile long hits, misses, writes;
+    private final ResourceMemoryCache memory = new ResourceMemoryCache(8L * 1024L * 1024L);
+    private Context callbackContext;
+    private final android.content.ComponentCallbacks2 callbacks = new android.content.ComponentCallbacks2() {
+        @Override public void onConfigurationChanged(android.content.res.Configuration value) { }
+        @Override public void onLowMemory() { trim(true); }
+        @Override public void onTrimMemory(int level) {
+            // Hiding a panel is not memory pressure. Keep the current core set warm.
+            if (level == TRIM_MEMORY_UI_HIDDEN) return;
+            if (level >= TRIM_MEMORY_RUNNING_LOW) trim(level == TRIM_MEMORY_RUNNING_CRITICAL || level >= TRIM_MEMORY_COMPLETE);
+        }
+    };
+    private void trim(boolean severe) {
+        memory.trim(severe);
+        if (!released) try { worker.execute(() -> CompanionCacheClient.trim(severe)); }
+        catch (java.util.concurrent.RejectedExecutionException stopped) { }
+    }
+    private byte[] shared(String name, int max) {
+        byte[] bytes = memory.get(name);
+        if (bytes != null && bytes.length <= max) return bytes;
+        bytes = CompanionCacheClient.get(CompanionCacheClient.key("host-resource-v1", name), max);
+        if (bytes != null) memory.put(name, bytes, false);
+        return bytes;
+    }
+    private void remember(String name, byte[] bytes) {
+        memory.put(name, bytes, false);
+        CompanionCacheClient.put(CompanionCacheClient.key("host-resource-v1", name), bytes, false);
+    }
 
     /** First usable SystemUI context, independently of settings delivery. Never resets an already applied safety-mode pause. */
     synchronized void initialize(Context context) {
@@ -63,6 +91,11 @@ final class ResidentCache {
         }
         boolean wasRunning = running, first = !initialized;
         installed = true; running = !paused; initialized = true;
+        if (callbackContext == null) {
+            Context app = context.getApplicationContext();
+            callbackContext = app == null ? context : app;
+            callbackContext.registerComponentCallbacks(callbacks);
+        }
         final File store = folder;
         if (running && (first || !wasRunning)) worker.execute(() -> {
             if (!running || released) return;
@@ -74,7 +107,7 @@ final class ResidentCache {
     synchronized void configure(Context context, Bundle settings) {
         if (released) return;
         paused = SafetyMode.enabled(settings);
-        if (paused) running = false;
+        if (paused) { running = false; memory.trim(true); }
         initialize(context);
         if(settings!=null&&settings.containsKey(FontScopes.KEY))try{
             java.util.Set<String> keep=new java.util.HashSet<>();
@@ -155,8 +188,12 @@ final class ResidentCache {
         File store = folder;
         boolean use = running && !released && store != null && libraryId != null && libraryId.matches("[0-9a-f]{16,128}") && path != null;
         File cached = use ? new File(store, "icon-" + libraryId + "-" + digest(path)) : null;
+        if (cached != null) {
+            byte[] ready = shared(cached.getName(), max);
+            if (ready != null) { hits++; return ready; }
+        }
         if (cached != null && cached.isFile() && cached.length() > 0 && cached.length() <= max) {
-            try (InputStream input = new FileInputStream(cached)) { byte[] bytes = IconPackArchive.readEntry(input, max); hits++; return bytes; }
+            try (InputStream input = new FileInputStream(cached)) { byte[] bytes = IconPackArchive.readEntry(input, max); hits++; remember(cached.getName(), bytes); return bytes; }
             catch (IOException damaged) { if (!cached.delete()) cached.deleteOnExit(); }
         }
         byte[] bytes;
@@ -164,7 +201,7 @@ final class ResidentCache {
             if (input == null) return null;
             bytes = IconPackArchive.readEntry(input, max);
         }
-        if (cached != null) { misses++; keep(store, cached, bytes); }
+        if (cached != null) { misses++; keep(store, cached, bytes); remember(cached.getName(), bytes); }
         return bytes;
     }
     /** v3 has a separate namespace and validates cached/provider bytes before publication to a decoder. */
@@ -174,10 +211,12 @@ final class ResidentCache {
         boolean manifest="manifest.json".equals(path);if(!manifest&&!IconManagementSettings.validPackId(expectedHash))throw IconManagementJson.error("v3 资源必须有摘要");
         File store=folder;boolean use=running&&!released&&store!=null;
         File cached=use?new File(store,"icon-v3-"+libraryId+'-'+digest(path)+'-'+(manifest?"manifest":expectedHash)+".data"):null;
-        if(cached!=null&&cached.isFile())try{byte[] bytes=IconManagementRepository.read(cached,max);validateIconV3(bytes,manifest,expectedHash);hits++;return bytes;}
+        if(cached!=null)try{byte[] bytes=shared(cached.getName(),max);if(bytes!=null){validateIconV3(bytes,manifest,expectedHash);hits++;return bytes;}}
+        catch(IOException|RuntimeException damaged){memory.removePrefixExcept(cached.getName(),"");}
+        if(cached!=null&&cached.isFile())try{byte[] bytes=IconManagementRepository.read(cached,max);validateIconV3(bytes,manifest,expectedHash);hits++;remember(cached.getName(),bytes);return bytes;}
         catch(IOException|RuntimeException damaged){if(!cached.delete())cached.deleteOnExit();}
         byte[] bytes;try(InputStream input=source.open()){if(input==null)return null;bytes=IconManagementArchive.readEntry(input,max);}validateIconV3(bytes,manifest,expectedHash);
-        if(cached!=null){misses++;keep(store,cached,bytes);}return bytes;
+        if(cached!=null){misses++;keep(store,cached,bytes);remember(cached.getName(),bytes);}return bytes;
     }
     private static void validateIconV3(byte[] bytes,boolean manifest,String expectedHash)throws IOException{
         if(manifest)IconManagementManifest.parse(bytes).requireRuntimeHashes();else IconAssetDecoder.verify(bytes,expectedHash);
@@ -196,8 +235,12 @@ final class ResidentCache {
         boolean use = running && !released && store != null && group != null && version != null && !version.isEmpty();
         String prefix = use ? "file-" + safe(group) + "-" : null;
         File cached = use ? new File(store, prefix + digest(version)) : null;
+        if (cached != null) {
+            byte[] ready = shared(cached.getName(), max);
+            if (ready != null) { hits++; return ready; }
+        }
         if (cached != null && cached.isFile() && cached.length() > 0 && cached.length() <= max) {
-            try (InputStream input = new FileInputStream(cached)) { byte[] bytes = IconPackArchive.readEntry(input, max); hits++; return bytes; }
+            try (InputStream input = new FileInputStream(cached)) { byte[] bytes = IconPackArchive.readEntry(input, max); hits++; remember(cached.getName(), bytes); return bytes; }
             catch (IOException damaged) { if (!cached.delete()) cached.deleteOnExit(); }
         }
         byte[] bytes;
@@ -208,6 +251,8 @@ final class ResidentCache {
         if (cached != null) {
             misses++;
             keep(store, cached, bytes);
+            memory.removePrefixExcept(prefix, cached.getName());
+            remember(cached.getName(), bytes);
             File[] files = store.listFiles();
             if (files != null) for (File old : files)
                 if (old.getName().startsWith(prefix) && !old.getName().equals(cached.getName()) && !old.delete()) old.deleteOnExit();
@@ -278,10 +323,17 @@ final class ResidentCache {
         report.putLong(R_WRITES, writes);
         report.putString(R_ERROR, lastError == null ? "" : lastError);
         report.putString(R_PATH, store == null ? "" : store.getPath());
+        report.putLong("memory_bytes", memory.bytes()); report.putLong("memory_hits", memory.hits());
+        report.putLong("memory_misses", memory.misses()); report.putLong("memory_evictions", memory.evictions());
+        CompanionCacheClient.report(report);
         return report;
     }
 
-    void release() { released = true; running = false; worker.shutdown(); }
+    void release() {
+        released = true; running = false; memory.trim(true);
+        if (callbackContext != null) { callbackContext.unregisterComponentCallbacks(callbacks); callbackContext = null; }
+        worker.shutdown();
+    }
 
     static String safe(String revision) {
         StringBuilder result = new StringBuilder();

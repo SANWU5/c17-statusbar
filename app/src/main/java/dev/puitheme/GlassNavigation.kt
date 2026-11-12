@@ -59,7 +59,7 @@ object GlassNavigationPreference {
  */
 @Composable
 fun C17MainContent(app: ModernMainActivity) {
-    if (!app.glassNavigation || !GlassNavigationPreference.supported()) {
+    if (!app.floatingGlassNavigation) {
         C17Pages(app)
         return
     }
@@ -72,9 +72,9 @@ fun C17MainContent(app: ModernMainActivity) {
     val powerSave = rememberC17PowerSave()
     val items = remember {
         listOf(
-            NavigationItem("主页", MiuixIcons.Home),
-            NavigationItem("配置", MiuixIcons.Settings),
-            NavigationItem("关于", MiuixIcons.Info),
+            NavigationItem(tr("主页"), MiuixIcons.Home),
+            NavigationItem(tr("配置"), MiuixIcons.Settings),
+            NavigationItem(tr("关于"), MiuixIcons.Info),
         )
     }
     Box(Modifier.fillMaxSize()) {
@@ -82,16 +82,6 @@ fun C17MainContent(app: ModernMainActivity) {
             C17Pages(app)
         }
         if (app.navigationShown) {
-            if (app.ui.coui) {
-                CouiGlassNavigationBar(
-                    selectedIndex = app.page,
-                    onItemClick = app::selectPage,
-                    backdrop = backdrop,
-                    isBlurActive = !powerSave,
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                        .onSizeChanged { app.reportNavigationHeight(it.height / density.density) },
-                )
-            } else {
             IosLiquidGlassNavigationBar(
                 items = items,
                 selectedIndex = app.page,
@@ -102,14 +92,13 @@ fun C17MainContent(app: ModernMainActivity) {
                     .align(Alignment.BottomCenter)
                     .onSizeChanged { app.reportNavigationHeight(it.height / density.density) },
             )
-            }
         }
     }
 }
 
 /** Observe saver changes without page changes, polling, a sensor or an app-wide receiver. */
 @Composable
-private fun rememberC17PowerSave(): Boolean {
+internal fun rememberC17PowerSave(): Boolean {
     val context = LocalContext.current
     val manager = remember(context) { context.getSystemService(Context.POWER_SERVICE) as? PowerManager }
     var enabled by remember(manager) { mutableStateOf(manager?.isPowerSaveMode == true) }

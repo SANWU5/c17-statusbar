@@ -61,6 +61,16 @@ public final class ConfigTransferCheck {
 
     public static void main(String[] args) throws Exception {
         nestedArrays();
+        // Automatic text sizing retires the editor, not the schema or old partial backups.
+        equal(1,ConfigTransfer.SCHEMA_VERSION);
+        equal(ConfigTransfer.Type.NUMBER,ConfigTransfer.types().get(StatusBarSettings.SLOT_WIDTH));
+        for(float historicalWidth:new float[]{0f,22f,73.25f,30000f}) {
+            Map<String,Object> old=values("\"slot_width\":"+historicalWidth);
+            equal(historicalWidth,old.get(StatusBarSettings.SLOT_WIDTH));
+            String partial=ConfigTransfer.exportJson(old,Collections.singleton(StatusBarSettings.SLOT_WIDTH));
+            ConfigTransfer.PreparedImport restored=ConfigTransfer.prepare(partial,true);
+            equal(1,restored.count);equal(historicalWidth,restored.values().get(StatusBarSettings.SLOT_WIDTH));
+        }
         Map<String, Object> stored = new LinkedHashMap<>();
         stored.put(StatusBarSettings.DIAGNOSTICS_ENABLED, true);
         stored.put(StatusBarSettings.FONT_REVISION, "local-font-revision-marker");

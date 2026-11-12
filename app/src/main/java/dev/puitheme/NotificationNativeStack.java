@@ -53,6 +53,13 @@ public final class NotificationNativeStack {
     private java.lang.ref.WeakReference<View> stackView=new java.lang.ref.WeakReference<>(null);
     private final ThreadLocal<Scope> scenes=new ThreadLocal<>();
     private final Map<Object,FlowState> observedRulers=new WeakHashMap<>();
+    private static final long FLOW_RETRY_MIN=250L,FLOW_RETRY_MAX=4000L;
+    private android.os.Handler flowRetryHandler;
+    private Runnable flowRetryTask;
+    private long flowRetryAt=-1L;
+    private boolean retryingFlows;
+    private long flowFailures;
+    private String lastFlowFailure="none";
     // The real ruler owns a Context. Resolve Resources once; its live Configuration follows
     // rotation without relying on the big-clock callback order.
     private final Map<Object,Resources> rulerResources=new WeakHashMap<>();
@@ -70,8 +77,17 @@ public final class NotificationNativeStack {
         ManagedRow(View view,ManagedScene scene){parent=new java.lang.ref.WeakReference<>(view.getParent());this.scene=scene;generation=scene.generation;}
     }
     private static final class FlowState {
-        boolean nativeValue,applied;
-        FlowState(boolean nativeValue){this.nativeValue=nativeValue;}
+        // The old contract must remain usable after reset/resolve replaces the current Access.
+        // Neither this value nor the retry callback may strongly retain the weak-map ruler.
+        final Access nativeAccess;
+        boolean nativeValue,applied,restoring,waitingForFlow,syncing;
+        long nextAttempt,retryDelay,revision;
+        FlowState(boolean nativeValue,Access nativeAccess){this.nativeValue=nativeValue;this.nativeAccess=nativeAccess;}
+    }
+    private static final class FlowRetry implements Runnable {
+        final java.lang.ref.WeakReference<NotificationNativeStack> owner;
+        FlowRetry(NotificationNativeStack owner){this.owner=new java.lang.ref.WeakReference<>(owner);}
+        @Override public void run(){NotificationNativeStack stack=owner.get();if(stack!=null)stack.retryPendingFlows();}
     }
 
     public interface NativeAction { Object run() throws Throwable; }
@@ -144,15 +160,24 @@ public final class NotificationNativeStack {
         }
     }
     public void configure(Bundle source) {
-        portraitClockEnabled=NotificationBigClockSettings.enabled(source,false);
-        landscapeClockEnabled=NotificationBigClockSettings.enabled(source,true);
+        configure(source,NotificationBigClockSettings.enabled(source,false),NotificationBigClockSettings.enabled(source,true));
+    }
+    /** Standalone notification modules own no clock; both orientation policies are independent. */
+    public void configureIndependent(Bundle source) {
+        configure(source,true,true);
+    }
+    private void configure(Bundle source,boolean portraitAllowed,boolean landscapeAllowed) {
+        portraitClockEnabled=portraitAllowed;
+        landscapeClockEnabled=landscapeAllowed;
         landscapeEnabled=source!=null&&Boolean.TRUE.equals(source.get(FeatureOptions.STACK_LANDSCAPE_ENABLED));
         enabled=source!=null&&!SafetyMode.enabled(source)
                 &&Boolean.TRUE.equals(source.get(NotificationBigClockSettings.STACK_ENABLED))
                 &&(portraitClockEnabled||landscapeClockEnabled&&landscapeEnabled);
         Object value=source==null?null:source.get(NotificationBigClockSettings.VISIBLE_COUNT);
         float count=value instanceof Number?((Number)value).floatValue():1f;
-        completeCount=!finite(count)?1:Math.max(1,count>=Integer.MAX_VALUE?Integer.MAX_VALUE:Math.round(count));
+        // Standalone settings use exact integers; converting them through float would round large counts.
+        completeCount=value instanceof Integer?Math.max(1,(Integer)value)
+                :!finite(count)?1:Math.max(1,count>=Integer.MAX_VALUE?Integer.MAX_VALUE:Math.round(count));
         configurationChanged();
     }
     public boolean enabled(){return enabled&&hooksReady&&access!=null&&!ModuleLifecycle.removed();}
@@ -172,11 +197,16 @@ public final class NotificationNativeStack {
     }
     private void clearManaged(){managedScenes.clear();managedRows.clear();}
     /** Read only on an explicit diagnostic/probe. Counting never allocates a frame log. */
-    public String diagnosticSummary(){return "whole requested="+enabled+" landscape="+landscapeEnabled+" ready="+hooksReady+" resolved="+(access!=null)
+    public String diagnosticSummary(){
+        int pendingSync=0,pendingRestore=0;
+        for(FlowState state:observedRulers.values())if(!state.applied){if(state.restoring)pendingRestore++;else pendingSync++;}
+        return "whole requested="+enabled+" landscape="+landscapeEnabled+" ready="+hooksReady+" resolved="+(access!=null)
             +" portraitClock="+portraitClockEnabled+" landscapeClock="+landscapeClockEnabled
             +" update="+updateCalls+" shade="+shadeCalls+" current="+currentCalls+" apply="+applyCalls
             +" changed="+borderChanges+" rows="+lastRows+" eligible="+lastEligibleRows+" count="+completeCount+" native="+lastNativeBorder
-            +" chosen="+lastAppliedBorder+" stage="+lastStage;}
+            +" chosen="+lastAppliedBorder+" stage="+lastStage+" flowPendingSync="+pendingSync+" flowPendingRestore="+pendingRestore
+            +" flowFailures="+flowFailures+" flowLastFailure="+lastFlowFailure
+            +" flowRetryIn="+(flowRetryAt<0L?-1L:Math.max(0L,flowRetryAt-android.os.SystemClock.uptimeMillis()));}
     /** All three native callbacks must be installed before any saved request becomes active. */
     public void hooksReady(boolean ready){hooksReady=ready&&access!=null;if(!hooksReady){scenes.remove();clearManaged();restoreFlows();}}
     public boolean resolve(ClassLoader loader) {
@@ -218,7 +248,7 @@ public final class NotificationNativeStack {
                 if(access.manager.isInstance(manager)&&scroll>=0){next=new Scope(ruler,manager,scroll,extension,ambient);shadeCalls++;lastStage="shade-scope";}
                 else lastStage="native-manager-or-scroll";
             }else if(access.ruler.isInstance(ruler)) {
-                restoreFlow(ruler,access);lastStage="native-orientation";
+                restoreFlow(ruler);lastStage="native-orientation";
             }else lastStage="native-keyguard-ruler";
         }catch(ReflectiveOperationException|RuntimeException unknownState){lastStage="scene-reflection";}
         else lastStage=enabled()?"native-page-or-type":"disabled-or-hooks";
@@ -234,42 +264,91 @@ public final class NotificationNativeStack {
     public boolean currentStacked(Object ruler,boolean nativeValue) {
         currentCalls++;
         Access nativeAccess=access;
-        if(nativeAccess==null||!nativeAccess.ruler.isInstance(ruler))return nativeValue;
-        boolean active=enabledFor(ruler);
         FlowState state=observedRulers.get(ruler);
-        if(active&&state==null){state=new FlowState(nativeValue);observedRulers.put(ruler,state);}
+        boolean active=nativeAccess!=null&&nativeAccess.ruler.isInstance(ruler)&&enabledFor(ruler);
+        if(active&&state==null){state=new FlowState(nativeValue,nativeAccess);observedRulers.put(ruler,state);}
         boolean result=active||nativeValue;
         // Native collectors drive appearance/clipping separately from target calculation.
         // Late enable must notify that same native StateFlow, and not just override a getter.
-        if(state!=null&&(!active||!state.applied||state.nativeValue!=nativeValue)) {
-            state.applied=syncFlow(ruler,result,nativeAccess);state.nativeValue=nativeValue;
+        if(state!=null) {
+            if(state.nativeValue!=nativeValue){state.nativeValue=nativeValue;state.applied=false;}
+            if(!active||!state.applied||state.restoring)attemptFlow(ruler,state,!active,true);
         }
-        if(!active)observedRulers.remove(ruler);
         return result;
     }
-    private static boolean syncFlow(Object ruler,boolean value,Access nativeAccess) {
-        if(nativeAccess.flow==null||nativeAccess.flowValue==null||nativeAccess.flowSet==null)return true;
+    /** 1: synchronized (or no optional capability); 0: constructor not ready; -1: retryable failure. */
+    private int syncFlow(Object ruler,boolean value,Access nativeAccess) {
+        if(nativeAccess.flow==null||nativeAccess.flowValue==null||nativeAccess.flowSet==null)return 1;
+        String stage="flow_access";
         try {
             Object flow=nativeAccess.flow.get(ruler);
-            if(flow==null)return false; // Getter can run during the ruler's constructor.
-            if(!Boolean.valueOf(value).equals(nativeAccess.flowValue.invoke(flow)))
+            if(flow==null)return 0; // Getter can run during the ruler's constructor.
+            stage="flow_read";
+            if(!Boolean.valueOf(value).equals(nativeAccess.flowValue.invoke(flow))){stage="flow_write";
                 nativeAccess.flowSet.invoke(flow,Boolean.valueOf(value));
-            return true;
-        }catch(ReflectiveOperationException|RuntimeException unsupported){return true;/* Original collector retained. */}
+            }
+            return 1;
+        }catch(ReflectiveOperationException|RuntimeException unavailable){recordFlowFailure(stage,unavailable);return -1;}
+    }
+    private void recordFlowFailure(String stage,Throwable failure) {
+        if(failure instanceof java.lang.reflect.InvocationTargetException&&failure.getCause()!=null)failure=failure.getCause();
+        String reason=failure.getClass().getName();reason=reason.substring(reason.lastIndexOf('.')+1);
+        if(reason.length()>64)reason=reason.substring(0,64);
+        flowFailures++;lastFlowFailure=stage+":"+reason; // Never retain exception/message or notification content.
     }
     private void restoreFlows() {
-        Access nativeAccess=access;
-        if(nativeAccess!=null)for(Object ruler:new ArrayList<>(observedRulers.keySet()))restoreFlow(ruler,nativeAccess);
-        observedRulers.clear();
+        for(Object ruler:new ArrayList<>(observedRulers.keySet()))restoreFlow(ruler);
+        scheduleFlowRetry();
     }
-    private void restoreFlow(Object ruler,Access nativeAccess) {
-        FlowState previous=observedRulers.remove(ruler);if(previous==null)return;
+    private void restoreFlow(Object ruler) {
+        FlowState state=observedRulers.get(ruler);if(state!=null)attemptFlow(ruler,state,true,false);
+    }
+    private void attemptFlow(Object ruler,FlowState state,boolean restoring,boolean getter) {
+        if(state.restoring!=restoring){state.restoring=restoring;state.applied=false;state.waitingForFlow=false;
+            state.nextAttempt=0L;state.retryDelay=0L;state.revision++;}
+        if(state.syncing)return; // A collector can synchronously enter the hooked getter again.
+        long now=android.os.SystemClock.uptimeMillis();
+        // A constructor's next getter may observe its newly assigned Flow immediately. Actual
+        // invocation failures always wait, including repeated configuration/getter callbacks.
+        if(now<state.nextAttempt&&!(getter&&state.waitingForFlow))return;
+        long revision=state.revision;int result=-1;state.syncing=true;
         try {
-            boolean nativeValue=previous.nativeValue;
-            if(nativeAccess.nativeCurrent!=null&&nativeAccess.nativeCurrent.getType()==Boolean.TYPE)
-                nativeValue=nativeAccess.nativeCurrent.getBoolean(ruler);
-            syncFlow(ruler,nativeValue,nativeAccess);
-        }catch(ReflectiveOperationException|RuntimeException unsupported){/* Native fallback. */}
+            boolean value=true;Access nativeAccess=state.nativeAccess;
+            if(restoring){value=state.nativeValue;
+                if(nativeAccess.nativeCurrent!=null&&nativeAccess.nativeCurrent.getType()==Boolean.TYPE)
+                    value=nativeAccess.nativeCurrent.getBoolean(ruler);}
+            result=syncFlow(ruler,value,nativeAccess);
+        }catch(ReflectiveOperationException|RuntimeException unavailable){recordFlowFailure("native_read",unavailable);}
+        finally{state.syncing=false;}
+        if(revision!=state.revision){state.applied=false;state.nextAttempt=now+FLOW_RETRY_MIN;}
+        else if(result==1){
+            state.applied=true;state.waitingForFlow=false;state.nextAttempt=0L;state.retryDelay=0L;
+            if(restoring&&observedRulers.get(ruler)==state)observedRulers.remove(ruler);
+        }else{
+            state.applied=false;state.waitingForFlow=result==0;
+            state.retryDelay=result==0?FLOW_RETRY_MIN:Math.min(FLOW_RETRY_MAX,Math.max(FLOW_RETRY_MIN,state.retryDelay*2L));
+            state.nextAttempt=now+state.retryDelay;
+        }
+        scheduleFlowRetry();
+    }
+    /** One coalesced, bounded-backoff retry, including after hooks have been removed. */
+    private void scheduleFlowRetry() {
+        if(retryingFlows)return;
+        long earliest=Long.MAX_VALUE;
+        for(FlowState state:observedRulers.values())if(!state.applied&&!state.syncing)earliest=Math.min(earliest,state.nextAttempt);
+        if(earliest==Long.MAX_VALUE){if(flowRetryHandler!=null&&flowRetryAt>=0L)flowRetryHandler.removeCallbacks(flowRetryTask);flowRetryAt=-1L;return;}
+        if(flowRetryAt>=0L&&flowRetryAt<=earliest)return;
+        if(flowRetryHandler==null){flowRetryHandler=new android.os.Handler(android.os.Looper.getMainLooper());flowRetryTask=new FlowRetry(this);}
+        if(flowRetryAt>=0L)flowRetryHandler.removeCallbacks(flowRetryTask);
+        flowRetryAt=earliest;
+        if(!flowRetryHandler.postDelayed(flowRetryTask,Math.max(0L,earliest-android.os.SystemClock.uptimeMillis())))flowRetryAt=-1L;
+    }
+    private void retryPendingFlows() {
+        flowRetryAt=-1L;retryingFlows=true;
+        try{for(Object ruler:new ArrayList<>(observedRulers.keySet())){
+            FlowState state=observedRulers.get(ruler);
+            if(state!=null&&!state.applied)attemptFlow(ruler,state,!enabledFor(ruler),false);
+        }}finally{retryingFlows=false;scheduleFlowRetry();}
     }
     /** Called after native configuration changes and on every saved-setting change. Native
      * collectors must not retain the module's enabled value when landscape is opted out. */
@@ -278,9 +357,8 @@ public final class NotificationNativeStack {
         Scope scene=scenes.get();
         if(scene!=null&&!enabledFor(scene.ruler))scenes.remove();
         if(!enabled()){scenes.remove();restoreFlows();foldNow();touchDownY=Float.NaN;return;}
-        Access nativeAccess=access;
         for(Object ruler:new ArrayList<>(observedRulers.keySet()))
-            if(!enabledFor(ruler))restoreFlow(ruler,nativeAccess);
+            if(!enabledFor(ruler))restoreFlow(ruler);
     }
     private boolean enabledFor(Object ruler) {
         Access nativeAccess=access;

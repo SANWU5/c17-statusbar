@@ -52,6 +52,7 @@ public final class FeatureOptions {
         add(defaults, groups, "data", "data_single_enabled", true);
         add(defaults, groups, "data", DataBatterySpacing.ENABLED, false);
         add(defaults, groups, "wifi", "wifi_icon_enabled", true);
+        add(defaults, groups, "wifi", NetworkDisplaySettings.WIFI_HIDDEN, false);
         add(defaults, groups, "wifi", "wifi_badge_hidden", true);
         add(defaults, groups, "wifi", "wifi_activity_hidden", true);
         add(defaults, groups, "label", StatusBarSettings.LABEL_HIDDEN, false);
@@ -105,6 +106,11 @@ public final class FeatureOptions {
         add(defaults, groups, "fluid_cloud_accent", FluidCloudAccent.AOD_CUSTOM, false);
         add(defaults, groups, "fluid_cloud_accent", FluidCloudAccent.AOD_GRADIENT, false);
         add(defaults, groups, "fluid_cloud_capsule", FluidCloudCapsule.MASTER, false);
+        add(defaults, groups, "privacy_dot", PrivacyIndicatorSettings.HIDE_DOT, false);
+        add(defaults, groups, "privacy_dot", PrivacyIndicatorSettings.CAPSULE, false);
+        add(defaults, groups, "privacy_dot", PrivacyIndicatorSettings.CAMERA, true);
+        add(defaults, groups, "privacy_dot", PrivacyIndicatorSettings.MICROPHONE, true);
+        add(defaults, groups, "privacy_dot", PrivacyIndicatorSettings.LOCATION, false);
         add(defaults, groups, "fluid_cloud_capsule", FluidCloudCapsule.FILL_ENABLED, false);
         add(defaults, groups, "fluid_cloud_capsule", FluidCloudCapsule.FOLLOW_MEDIA, false);
         add(defaults, groups, "fluid_cloud_capsule", FluidCloudCapsule.BORDER_ENABLED, false);
@@ -227,6 +233,8 @@ public final class FeatureOptions {
     public boolean textStyle(String group) { return groupEffect(group, 3); }
     /** Hiding owns only the label; disabling its group restores the native label behavior. */
     public boolean hideNetworkLabel() { return effective("label", StatusBarSettings.LABEL_HIDDEN); }
+    /** Display and custom styling have separate switches. */
+    public boolean hideWifiIcon() { return !safeMode && isEnabled(NetworkDisplaySettings.WIFI_HIDDEN); }
     public boolean hideNativeNetworkBadge() { return effective("data", "data_badge_hidden"); }
     public boolean singleSignal(String layout) {
         return enabled("data") && "single".equals(layout);

@@ -190,7 +190,10 @@ public final class NetworkSpeedControls {
     private void fitSystem(View host, TextView number, TextView unit) {
         Binding binding = views.get(host);
         float[] native_ = nativeSizes.get(host);
-        boolean grown = native_ != null && (number.getTextSize() > native_[0] + .5f || unit.getTextSize() > native_[1] + .5f);
+        // A different font/weight can be wider at the same point size. Fit actual
+        // styled metrics, not only the size multiplier; native-only stays untouched.
+        boolean grown = native_ != null && (native_.length > 2 && native_[2] != 0f
+                || number.getTextSize() > native_[0] + .5f || unit.getTextSize() > native_[1] + .5f);
         if (!grown) {
             if (binding != null) restore(host, binding);
             return;
@@ -234,8 +237,13 @@ public final class NetworkSpeedControls {
 
     /** The sizes the OEM layout gave the two texts, before any scale; the host only grows beyond them. */
     public void nativeSizes(View host, float numberPixels, float unitPixels) {
+        nativeSizes(host, numberPixels, unitPixels, false);
+    }
+
+    /** The caller knows whether a custom font or weight is currently applied. */
+    public void nativeSizes(View host, float numberPixels, float unitPixels, boolean customTypography) {
         if (host == null) return;
-        nativeSizes.put(host, new float[]{numberPixels, unitPixels});
+        nativeSizes.put(host, new float[]{numberPixels, unitPixels, customTypography ? 1f : 0f});
     }
 
     public void onViewDetached(View host) {

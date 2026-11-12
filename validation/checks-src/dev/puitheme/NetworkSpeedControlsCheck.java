@@ -170,6 +170,7 @@ public final class NetworkSpeedControlsCheck {
         controls.apply(null,null,null);controls.beforeNativeLayout(null);controls.afterNativeLayout(null,null,null);controls.onViewDetached(null);
         nativeTextStaysCentred();
         enlargedTextGetsRoom();
+        sameSizeTypographyGetsRoom();
         System.out.println("NetworkSpeedControlsCheck: "+checks+" checks passed");
     }
     /** The OEM centres the digits in the host; no setting, position or gap may take that alignment over. */
@@ -225,5 +226,39 @@ public final class NetworkSpeedControlsCheck {
         equal(expected.leftMargin,actual.leftMargin);equal(expected.rightMargin,actual.rightMargin);
         equal(expected.topMargin,actual.topMargin);equal(expected.bottomMargin,actual.bottomMargin);
         equal(expected.isMarginRelative(),actual.isMarginRelative());equal(expected.getMarginStart(),actual.getMarginStart());equal(expected.getMarginEnd(),actual.getMarginEnd());
+    }
+    /** Replay a changed text advance without changing text size: a font/weight
+     * choice must fit the actual line and then restore the OEM allocation. */
+    private static void sameSizeTypographyGetsRoom(){
+        NetworkSpeedControls controls=new NetworkSpeedControls();NetworkSpeedView host=new NetworkSpeedView();host.nativeLayout();
+        controls.configure(settings("system",4f));
+        int nativeWidth=host.getLayoutParams().width;
+        float number=host.mSpeedNumber.getTextSize(),unit=host.mSpeedUnit.getTextSize();
+        FrameLayout.LayoutParams originalNumber=new FrameLayout.LayoutParams(params(host.mSpeedNumber));
+        FrameLayout.LayoutParams originalUnit=new FrameLayout.LayoutParams(params(host.mSpeedUnit));
+        // Same size, longer advance, as a wide imported typeface produces.
+        host.mSpeedNumber.setText("1024.00");
+        controls.nativeSizes(host,number,unit,true);apply(controls,host);
+        int wanted=(int)Math.ceil(host.mSpeedNumber.getPaint().measureText("1024.00"));
+        require(host.getLayoutParams().width>=wanted,"custom typography at native size gets its actual width");
+        equal(number,host.mSpeedNumber.getTextSize());equal(unit,host.mSpeedUnit.getTextSize());
+        same(originalNumber,params(host.mSpeedNumber));same(originalUnit,params(host.mSpeedUnit));
+        int requests=host.layoutRequests;
+        for(int i=0;i<30;i++)apply(controls,host);
+        equal(requests,host.layoutRequests);
+        host.mSpeedNumber.setText("1.0");apply(controls,host);
+        equal(nativeWidth,host.getLayoutParams().width);
+        host.mSpeedNumber.setText("1024.00");apply(controls,host);
+        require(host.getLayoutParams().width>=wanted,"later native traffic update rechecks styled width");
+        controls.nativeSizes(host,number,unit,false);apply(controls,host);
+        equal(nativeWidth,host.getLayoutParams().width);
+        same(originalNumber,params(host.mSpeedNumber));same(originalUnit,params(host.mSpeedUnit));
+        // A real native configuration change is the next baseline, not the old wider text allocation.
+        controls.nativeSizes(host,number,unit,true);apply(controls,host);
+        controls.beforeNativeLayout(host);host.applyNativeConfiguration(30,8,10);
+        controls.afterNativeLayout(host,host.mSpeedNumber,host.mSpeedUnit);
+        require(host.getLayoutParams().width>=wanted,"font remains fitted after native configuration");
+        controls.onViewDetached(host);equal(30,host.getLayoutParams().width);
+        equal(8,params(host.mSpeedNumber).bottomMargin);equal(10,params(host.mSpeedUnit).topMargin);
     }
 }

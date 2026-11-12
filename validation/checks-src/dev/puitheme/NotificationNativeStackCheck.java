@@ -51,6 +51,19 @@ public final class NotificationNativeStackCheck {
         public Object getValue(){reads++;return value;}
         public void setValue(Object value){writes++;this.value=Boolean.TRUE.equals(value);}
     }
+    public static final class FailingFlow implements WriteFlow {
+        boolean value,alwaysFail,failAfterWrite;int readFailures,writeFailures,reads,attempts;
+        Runnable onWrite;
+        public Object getValue(){reads++;if(readFailures>0){readFailures--;throw new IllegalStateException("flow read");}return value;}
+        public void setValue(Object next){attempts++;if(alwaysFail||writeFailures>0){if(writeFailures>0)writeFailures--;throw new IllegalStateException("flow write");}
+            value=Boolean.TRUE.equals(next);if(onWrite!=null)onWrite.run();if(failAfterWrite){failAfterWrite=false;throw new IllegalStateException("flow collector");}}
+    }
+    public static final class NoFlowRuler {
+        private final NativeContext context=new NativeContext();
+        private final Manager stackAlgorithmManager=new Manager();
+        public boolean currentIsStackedNotification;
+        public boolean getCurrentIsStackedNotification(){return currentIsStackedNotification;}
+    }
     public static final class NativeContext extends Context {
         final Resources resources=new Resources();
         int reads;
@@ -81,9 +94,140 @@ public final class NotificationNativeStackCheck {
         return nativeStack;
     }
     public static void main(String[] args)throws Throwable {
+        if(args.length>0){if("flow-apply-failure".equals(args[0]))flowApplyFailure();
+            else if("flow-restore-failure".equals(args[0]))flowRestoreFailure();
+            else throw new AssertionError(args[0]);
+            System.out.println("Notification native stack failure checks passed: "+checks);return;}
         upwardGesture();nativeScrollAndDimensions();scopesAndFallback();directionDependencies();nativeSceneAndFlow();liveOrientationAndFlow();savedClockDependency();
-        foldBackAndTransition();managedRows();
+        foldBackAndTransition();managedRows();flowApplyFailure();flowRestoreFailure();flowRetryLifecycle();
         System.out.println("Notification native stack checks passed: "+checks);
+    }
+    private static void flowApplyFailure()throws Throwable {
+        NotificationNativeStack helper=helper(1);Ruler ruler=new Ruler();FailingFlow flow=new FailingFlow();
+        ruler._isStackedNotification=flow;flow.writeFailures=1;check(helper.currentStacked(ruler,false));
+        check(!flow.value&&flow.attempts==1);
+        for(int i=0;i<1000;i++)check(helper.currentStacked(ruler,false));
+        check(flow.attempts==1); // A failed setter is not retried once per frame.
+        android.os.SystemClock.uptime+=250;helper.currentStacked(ruler,false);
+        check(flow.value&&flow.attempts==2); // Fails on the old false-success implementation.
+        check(helper.diagnosticSummary().contains("flowPendingSync=0 flowPendingRestore=0"));
+        check(helper.diagnosticSummary().contains("flowFailures=1 flowLastFailure=flow_write:IllegalStateException"));
+        int reads=flow.reads;for(int i=0;i<1000;i++)helper.currentStacked(ruler,false);
+        check(flow.reads==reads&&flow.attempts==2);helper.configure(null);check(!flow.value);
+    }
+    private static void flowRestoreFailure()throws Throwable {
+        NotificationNativeStack helper=helper(1);Ruler ruler=new Ruler();FailingFlow flow=new FailingFlow();ruler._isStackedNotification=flow;
+        helper.currentStacked(ruler,false);check(flow.value);flow.writeFailures=1;helper.configure(null);
+        check(flow.value&&flow.attempts==2);
+        for(int i=0;i<1000;i++){helper.configurationChanged();check(!helper.currentStacked(ruler,false));}
+        check(flow.attempts==2);
+        android.os.SystemClock.uptime+=250;helper.configurationChanged();
+        check(!flow.value&&flow.attempts==3); // Old restore discarded this pending record.
+    }
+    private static java.util.Map<?,?> flowStates(NotificationNativeStack helper)throws Throwable {
+        Field f=NotificationNativeStack.class.getDeclaredField("observedRulers");f.setAccessible(true);return (java.util.Map<?,?>)f.get(helper);
+    }
+    private static android.os.Handler retryHandler(NotificationNativeStack helper)throws Throwable {
+        Field f=NotificationNativeStack.class.getDeclaredField("flowRetryHandler");f.setAccessible(true);return (android.os.Handler)f.get(helper);
+    }
+    private static void retryFlow(NotificationNativeStack helper)throws Throwable {
+        android.os.Handler handler=retryHandler(helper);check(handler!=null&&handler.delayed!=null);
+        android.os.SystemClock.uptime+=handler.delay;Runnable callback=handler.delayed;handler.delayed=null;callback.run();
+    }
+    private static ClassLoader nativeLoader(final Class<?> ruler){return new ClassLoader(NotificationNativeStackCheck.class.getClassLoader()){
+        @Override public Class<?> loadClass(String name)throws ClassNotFoundException {
+            if(NotificationNativeStack.EXTENSION.equals(name))return Extension.class;
+            if(NotificationNativeStack.SHADE_RULER.equals(name))return ruler;
+            if(NotificationNativeStack.MANAGER.equals(name))return Manager.class;
+            if(NotificationNativeStack.ALGORITHM.equals(name))return Algorithm.class;
+            if(NotificationNativeStack.AMBIENT.equals(name))return Ambient.class;
+            if(NotificationNativeStack.ROW.equals(name))return Row.class;
+            if(NotificationNativeStack.EXPANDABLE.equals(name))return Expandable.class;
+            return super.loadClass(name);
+        }
+    };}
+    private static void flowRetryLifecycle()throws Throwable {
+        // Disabling, removing hooks, reset, resolve failure and a different ruler contract must
+        // finish restoration without another native getter. Every pending record owns its Access.
+        for(int boundary=0;boundary<6;boundary++){
+            NotificationNativeStack helper=helper(1);Ruler ruler=new Ruler();FailingFlow flow=new FailingFlow();ruler._isStackedNotification=flow;
+            helper.currentStacked(ruler,false);flow.writeFailures=1;
+            switch(boundary){case 0:helper.configure(null);break;case 1:helper.hooksReady(false);break;
+                case 2:helper.reset();break;case 3:check(!helper.resolve(new ClassLoader(null){}));break;
+                case 4:check(helper.resolve(nativeLoader(NoFlowRuler.class)));helper.hooksReady(true);
+                    check(helper.currentStacked(new NoFlowRuler(),false));break;
+                default:ruler.context.resources.getConfiguration().orientation=Configuration.ORIENTATION_LANDSCAPE;helper.configurationChanged();}
+            check(flow.value&&flowStates(helper).containsKey(ruler));retryFlow(helper);
+            check(!flow.value&&!flowStates(helper).containsKey(ruler));check(retryHandler(helper).delayed==null);
+        }
+        NotificationNativeStack helper=helper(1);Ruler ruler=new Ruler();FailingFlow flow=new FailingFlow();ruler._isStackedNotification=flow;
+        flow.readFailures=1;helper.currentStacked(ruler,false);check(flow.reads==1&&flow.attempts==0);
+        check(helper.diagnosticSummary().contains("flowPendingSync=1 flowPendingRestore=0"));
+        check(helper.diagnosticSummary().contains("flowLastFailure=flow_read:IllegalStateException"));
+        retryFlow(helper);check(flow.value&&flow.attempts==1);helper.configure(null);check(!flow.value);
+        // A permanently throwing implementation retains bounded retries, no callback queue growth.
+        helper=helper(1);ruler=new Ruler();flow=new FailingFlow();flow.alwaysFail=true;ruler._isStackedNotification=flow;
+        helper.currentStacked(ruler,false);
+        long[] delays={250,500,1000,2000,4000,4000};
+        for(long delay:delays){android.os.Handler handler=retryHandler(helper);check(handler.delay==delay);int scheduled=handler.scheduled,attempts=flow.attempts;
+            for(int i=0;i<1000;i++){helper.currentStacked(ruler,false);helper.configurationChanged();}
+            check(flow.attempts==attempts&&handler.scheduled==scheduled);retryFlow(helper);check(flow.attempts==attempts+1);}
+        // Changing the requested mode takes effect immediately, even during a long backoff.
+        flow.alwaysFail=false;helper.configure(null);check(!flow.value&&flowStates(helper).isEmpty());
+        check(retryHandler(helper).delayed==null);
+        helper.configure(settings(1));helper.currentStacked(ruler,false);flow.writeFailures=1;helper.configure(null);
+        check(flow.value);check(helper.diagnosticSummary().contains("flowPendingSync=0 flowPendingRestore=1"));
+        helper.configure(settings(1));helper.currentStacked(ruler,false);check(flow.value);
+        check(retryHandler(helper).delayed==null);helper.configure(null);check(!flow.value);
+        // A later native change wins over the value captured before the failed restore.
+        helper.configure(settings(1));helper.currentStacked(ruler,false);flow.writeFailures=1;helper.reset();
+        ruler.currentIsStackedNotification=true;retryFlow(helper);check(flow.value&&flowStates(helper).isEmpty());
+        // A live ruler can finish constructing after the first getter, with no lifecycle event.
+        helper=helper(1);ruler=new Ruler();ruler._isStackedNotification=null;helper.currentStacked(ruler,false);
+        Flow initialized=new Flow();ruler._isStackedNotification=initialized;retryFlow(helper);check(initialized.value);helper.configure(null);
+        // Unsupported optional Flow capabilities create no retry or retained restoration obligation.
+        helper=new NotificationNativeStack();helper.configure(settings(1));check(helper.resolve(nativeLoader(NoFlowRuler.class)));helper.hooksReady(true);
+        NoFlowRuler noFlow=new NoFlowRuler();check(helper.currentStacked(noFlow,false));check(retryHandler(helper)==null);
+        check(helper.diagnosticSummary().contains("flowFailures=0 flowLastFailure=none"));
+        helper.configure(null);check(flowStates(helper).isEmpty());
+        // Deterministic collection seam: removing all weak keys leaves the queued callback inert.
+        helper=helper(1);ruler=new Ruler();flow=new FailingFlow();flow.alwaysFail=true;ruler._isStackedNotification=flow;helper.currentStacked(ruler,false);
+        check(flowStates(helper) instanceof java.util.WeakHashMap);flowStates(helper).clear();int attempts=flow.attempts;
+        retryFlow(helper);check(flow.attempts==attempts&&retryHandler(helper).delayed==null);
+        Field task=NotificationNativeStack.class.getDeclaredField("flowRetryTask");task.setAccessible(true);
+        Object callback=task.get(helper);int captures=0;for(Field capture:callback.getClass().getDeclaredFields())
+            if(!java.lang.reflect.Modifier.isStatic(capture.getModifiers())){captures++;check(capture.getType()==java.lang.ref.WeakReference.class);}
+        check(captures==1);
+        // A collector may throw after its setter already took effect. Retrying verifies the
+        // current value and must not emit a duplicate setter/collector notification.
+        helper=helper(1);ruler=new Ruler();flow=new FailingFlow();ruler._isStackedNotification=flow;flow.failAfterWrite=true;
+        helper.currentStacked(ruler,false);check(flow.value&&flow.attempts==1);retryFlow(helper);
+        check(flow.value&&flow.attempts==1&&retryHandler(helper).delayed==null);helper.configure(null);
+        // A setter can synchronously re-enter the getter and then disable the module.
+        final NotificationNativeStack reentrant=helper(1);final Ruler reentrantRuler=new Ruler();FailingFlow reentrantFlow=new FailingFlow();
+        reentrantRuler._isStackedNotification=reentrantFlow;reentrantFlow.onWrite=()->{
+            check(reentrant.currentStacked(reentrantRuler,false));reentrant.configure(null);
+        };
+        reentrant.currentStacked(reentrantRuler,false);check(reentrantFlow.value&&reentrantFlow.attempts==1);
+        reentrantFlow.onWrite=null;retryFlow(reentrant);check(!reentrantFlow.value&&flowStates(reentrant).isEmpty());
+        // Two deadlines share one callback; the later failure is not retried early or starved.
+        helper=helper(1);Ruler first=new Ruler(),second=new Ruler();FailingFlow firstFlow=new FailingFlow(),secondFlow=new FailingFlow();
+        firstFlow.writeFailures=1;secondFlow.writeFailures=1;first._isStackedNotification=firstFlow;second._isStackedNotification=secondFlow;
+        helper.currentStacked(first,false);android.os.SystemClock.uptime+=100;helper.currentStacked(second,false);
+        android.os.Handler handler=retryHandler(helper);check(handler.scheduled==1);handler.delay-=100;retryFlow(helper);
+        check(firstFlow.value&&!secondFlow.value&&secondFlow.attempts==1&&handler.delay==100);
+        retryFlow(helper);check(secondFlow.value&&handler.delayed==null);helper.configure(null);
+        check(!firstFlow.value&&!secondFlow.value&&flowStates(helper).isEmpty());
+        // Fault injection at native-state access retains the same restoration obligation and
+        // reports its own stage rather than mislabelling it as a Flow setter exception.
+        helper=helper(1);ruler=new Ruler();flow=new FailingFlow();ruler._isStackedNotification=flow;helper.currentStacked(ruler,false);
+        Field accessField=NotificationNativeStack.class.getDeclaredField("access");accessField.setAccessible(true);
+        Object nativeAccess=accessField.get(helper);Field nativeCurrent=NotificationNativeStack.Access.class.getDeclaredField("nativeCurrent");
+        nativeCurrent.setAccessible(true);Object original=nativeCurrent.get(nativeAccess);
+        nativeCurrent.set(nativeAccess,NoFlowRuler.class.getDeclaredField("currentIsStackedNotification"));
+        helper.configure(null);check(flow.value&&flowStates(helper).containsKey(ruler));
+        check(helper.diagnosticSummary().contains("flowLastFailure=native_read:IllegalArgumentException"));
+        nativeCurrent.set(nativeAccess,original);retryFlow(helper);check(!flow.value&&flowStates(helper).isEmpty());
     }
     public static final class GestureStack extends View {
         final Resources resources=new Resources();int updates;

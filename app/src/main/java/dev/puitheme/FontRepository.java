@@ -25,7 +25,7 @@ import java.util.function.BooleanSupplier;
 
 /** Shared font source and bounded weight cache. Imported files stay in private device storage. */
 public final class FontRepository {
-    private static final String MODULE = "dev.puitheme.iosstatusbar";
+    private static final String MODULE = ModuleVariant.PACKAGE;
     private static String mode = "system", revision = "";
     private static volatile long styleRevision;
     private static final long FONT_RETRY_MS=5000L;

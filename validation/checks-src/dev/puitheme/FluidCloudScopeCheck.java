@@ -217,12 +217,20 @@ public final class FluidCloudScopeCheck {
             NotificationBackgroundViewExtImp extension=(NotificationBackgroundViewExtImp)ordinary.mExt;extension.proxyForCheck.styleForCheck=style;
             extension.notifyBlurParamChanged((NotificationBlurMode)style.sceneBlurMode(extension,NotificationBlurMode.WALLPAPER_A));extension.viewBlurManager.mode=NotificationBlurMode.WALLPAPER_A;style.sceneMaterialChanged(extension);
             style.refreshAfterAccent();drain();style.finishFillFadesForCheck();
+            equal(false,style.notificationUsesAccent(music.getMBackgroundNormal()),"independent lock custom cannot bypass the media-accent master");
+            equal(null,style.normalNotificationColor(music.getMBackgroundNormal()),"media card remains neutral while the media-accent master is off");
+            equal(null,style.normalNotificationColor(timer.getMBackgroundNormal()),"timer cannot follow media through an independent lock look while the master is off");
+            equal(null,style.normalNotificationColor(ordinary),"ordinary notification follow cannot bypass the master either");
+            settings.putBoolean(FluidCloudAccent.ENABLED,true);accent.configure(settings);style.configure(settings);drain();style.finishFillFadesForCheck();
             equal(true,style.notificationUsesAccent(music.getMBackgroundNormal()),"independent lock custom still styles a media card with all scopes off");
             equal(MEDIA,style.normalNotificationColor(music.getMBackgroundNormal()),"independent lock media keeps current album colour");
             equal(MEDIA,style.normalNotificationColor(timer.getMBackgroundNormal()),"independent lock custom still colours an opted-out timer card");
             equal(true,output.active.get(ordinary),"ordinary notification follow is independent of business scope");equal(MEDIA,style.normalNotificationColor(ordinary),"ordinary notification keeps current media colour");
             settings.putBoolean(FluidCloudStyle.NOTIFICATION_FOLLOW,false);accent.configure(settings);style.configure(settings);drain();style.finishFillFadesForCheck();
             check(!Boolean.TRUE.equals(output.active.get(ordinary)),"ordinary follow still obeys its own switch");equal(MEDIA,style.normalNotificationColor(timer.getMBackgroundNormal()),"ordinary switch cannot disable independent lock card appearance");
+            settings.putBoolean(FluidCloudAccent.ENABLED,false);accent.configure(settings);drain();style.finishFillFadesForCheck();
+            equal(null,style.normalNotificationColor(music.getMBackgroundNormal()),"accent-only disable revokes independent media-card colouring");
+            equal(null,style.normalNotificationColor(timer.getMBackgroundNormal()),"accent-only disable revokes independent timer following");
         }finally{style.release();accent.release();drain();}
     }
     public static void main(String[] args)throws Exception{policy();classification();floatingRestore();diagnosticFacts();notificationRestore();independentAccent();followedMediaRestore();independentLockAndOrdinary();System.out.println("FluidCloudScopeCheck: "+checks+" checks passed");}

@@ -143,7 +143,8 @@ public final class SystemWeatherProviderCheck {
     }
     private static final class Colours extends Canvas {
         final List<Integer> colours=new ArrayList<>();final List<Integer> alpha=new ArrayList<>();
-        void record(Paint p){colours.add(p.getColor());alpha.add(p.getAlpha());}
+        final List<android.graphics.LinearGradient> gradients=new ArrayList<>();
+        void record(Paint p){colours.add(p.getColor());alpha.add(p.getAlpha());if(p.getShader() instanceof android.graphics.LinearGradient)gradients.add((android.graphics.LinearGradient)p.getShader());}
         public void drawPath(Path path,Paint paint){record(paint);super.drawPath(path,paint);}
         public void drawCircle(float x,float y,float r,Paint paint){record(paint);super.drawCircle(x,y,r,paint);}
         public void drawRoundRect(RectF rect,float x,float y,Paint paint){record(paint);super.drawRoundRect(rect,x,y,paint);}
@@ -158,9 +159,9 @@ public final class SystemWeatherProviderCheck {
         check(!mono.colours.isEmpty()&&mono.colours.stream().allMatch(value->value==0x80445566),"component colour covers all module glyph shapes");
         WeatherTextIcon.Span original=span(BigClockTextContent.resolveStyled("（天气:{图标:原色}）",NOON,TimeZone.getTimeZone("UTC")));Colours colours=new Colours();
         original.draw(colours,"\ufffc",0,1,0f,0,20,30,paint);
-        check(colours.colours.stream().anyMatch(value->(value&0xffffff)==0x5aaaff)
-                &&colours.colours.stream().anyMatch(value->(value&0xffffff)==0xd7e0ed)
-                &&colours.alpha.stream().allMatch(value->value==128),"original colours are module-owned cloud/rain palette with parent alpha");
+        check(colours.gradients.stream().anyMatch(value->java.util.Arrays.equals(value.colors,new int[]{0xff86d6ff,0xff3b9bff}))
+                &&colours.gradients.stream().anyMatch(value->java.util.Arrays.equals(value.colors,new int[]{0xffffffff,0xffdde5f0}))
+                &&colours.alpha.stream().allMatch(value->value==128),"v3 original colours keep the selected cloud/rain gradients and parent alpha");
         check(paint.getColor()==0x80445566&&paint.getStyle()==Paint.Style.STROKE&&paint.getStrokeWidth()==7f&&colours.getSaveCount()==1,"module draw restores caller paint and canvas");
         for(WeatherTextIcon.Kind kind:WeatherTextIcon.Kind.values())if(kind!=WeatherTextIcon.Kind.UNKNOWN){
             Colours canvas=new Colours();new WeatherTextIcon.Span(kind,null,true).draw(canvas,"\ufffc",0,1,0f,0,20,30,paint);

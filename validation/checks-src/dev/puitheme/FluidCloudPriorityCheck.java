@@ -123,10 +123,11 @@ public final class FluidCloudPriorityCheck {
         colourStyle();
         fillFade();
         lockOwnLook();
+        disableKeepsCustomLook();
         System.out.println("FluidCloudPriorityCheck: "+checks+" checks passed");
     }
 
-    /** The lock screen's and AOD's own page asks for the look: the card takes its media's colour without the media-accent and style masters. */
+    /** Lock/AOD look settings retain neutral glass, but only the media-accent master can supply media colour. */
     private static void lockOwnLook() throws Exception {
         for(String name:new String[]{"lock","aod"}) {
             boolean aod=name.equals("aod");
@@ -138,18 +139,53 @@ public final class FluidCloudPriorityCheck {
             s.config.putBoolean(other,true);s.apply();
             check(!s.usesAccent[0]&&s.colour[0]==null,name+": the other scene's look asks for nothing here");
             s.config.putBoolean(own,true);s.apply();
-            check(s.usesAccent[0]&&s.colour[0]!=null&&s.colour[0]==MEDIA,name+": its own gradient asks for the media accent, no master needed");
-            check(!s.accent.enabled(),name+": and the media-accent master is still off");
-            s.config.putBoolean(own,false);s.config.putBoolean(aod?FluidCloudAccent.AOD_CUSTOM:FluidCloudAccent.LOCK_CUSTOM,true);s.apply();
-            check(s.usesAccent[0]&&s.colour[0]!=null,name+": so does its custom look (the colour carries its mask)");
+            check(!s.usesAccent[0]&&s.colour[0]==null&&gradient(s)==null&&s.layer[0]==null,name+": its gradient cannot bypass the media-accent master");
+            check(!s.accent.enabled()&&s.accent.lockOwn(aod),name+": media colour is off while the independently selected neutral look stays requested");
+            s.config.putBoolean(own,false);s.config.putBoolean(aod?FluidCloudAccent.AOD_CUSTOM:FluidCloudAccent.LOCK_CUSTOM,true);
+            s.config.putFloat(aod?FluidCloudAccent.AOD_MASK_OPACITY:FluidCloudAccent.LOCK_MASK_OPACITY,0f);s.apply();
+            check(!s.usesAccent[0]&&s.colour[0]==null&&fill(s)==null,name+": custom opacity and mask cannot reactivate media colour either");
+            s.config.putBoolean(FluidCloudAccent.ENABLED,true);s.apply();
+            check(s.usesAccent[0]&&s.colour[0]!=null&&s.colour[0]==MEDIA,name+": enabling media accent makes the existing look use the current media colour");
+            s.config.putBoolean(FluidCloudAccent.ENABLED,false);s.apply();
+            check(!s.usesAccent[0]&&s.colour[0]==null&&fill(s)==null&&gradient(s)==null,name+": switching it off while active removes the media colour again");
             s.config.putBoolean(aod?FluidCloudAccent.AOD_CUSTOM:FluidCloudAccent.LOCK_CUSTOM,false);s.apply();
             check(!s.usesAccent[0]&&s.colour[0]==null,name+": nothing asked again: native");
+            s.style.release();s.accent.release();Handler.drainForCheck();
         }
         // The other scenes still wait for the master: the shade and the floating card are untouched by the lock page.
         Scene shade=new Scene();
         shade.config.putBoolean(FluidCloudAccent.LOCK_GRADIENT,true);shade.config.putBoolean(FluidCloudAccent.AOD_GRADIENT,true);
         shade.config.putBoolean(FluidCloudAccent.LOCK_CUSTOM,true);shade.apply();
         check(!shade.usesAccent[0]&&shade.colour[0]==null,"the lock page's looks do not colour the shade's card");
+        shade.style.release();shade.accent.release();Handler.drainForCheck();
+    }
+
+    /** Disabling media colour falls through to a user's existing custom colour, with its scene's gradient and opacity. */
+    private static void disableKeepsCustomLook() throws Exception {
+        for(boolean aod:new boolean[]{false,true}) for(boolean music:new boolean[]{false,true}) {
+            Scene s=new Scene();s.lock(true,aod);
+            if(!music)s.entry.immersiveCardView=new ViewGroup(new android.content.Context());
+            s.config.putBoolean(FluidCloudAccent.ENABLED,true);s.config.putBoolean(FluidCloudStyle.MASTER,true);
+            s.config.putBoolean(FluidCloudStyle.DESKTOP_BACKGROUND,true);s.config.putBoolean(FluidCloudStyle.FOLLOW_MEDIA,true);
+            s.config.putString(FluidCloudStyle.BACKGROUND_MODE,"custom");s.config.putInt(FluidCloudStyle.BACKGROUND_COLOR,CUSTOM);
+            s.config.putFloat(FluidCloudStyle.BACKGROUND_OPACITY,37f);s.config.putBoolean(FluidCloudStyle.LOCK_CAPSULE,true);
+            s.config.putBoolean(FluidCloudAccent.LOCK_GRADIENT,true);s.config.putBoolean(FluidCloudAccent.AOD_GRADIENT,true);
+            s.config.putBoolean(FluidCloudAccent.LOCK_CUSTOM,true);s.config.putBoolean(FluidCloudAccent.AOD_CUSTOM,true);
+            s.config.putFloat(FluidCloudAccent.LOCK_OPACITY,25f);s.config.putFloat(FluidCloudAccent.AOD_OPACITY,25f);
+            s.config.putFloat(FluidCloudAccent.LOCK_MASK_OPACITY,0f);s.config.putFloat(FluidCloudAccent.AOD_MASK_OPACITY,0f);
+            s.config.putFloat(FluidCloudAccent.LOCK_LIGHT,0f);s.config.putFloat(FluidCloudAccent.AOD_LIGHT,0f);s.apply();
+            check(s.colour[0]!=null&&s.colour[0]==MEDIA,"before disable, the live media source takes precedence: AOD="+aod+", music="+music);
+            s.config.putBoolean(FluidCloudAccent.ENABLED,false);s.apply();
+            check(!s.usesAccent[0]&&s.colour[0]!=null&&s.colour[0]==CUSTOM,"disabling media accent restores the user's custom colour: AOD="+aod+", music="+music);
+            check(fill(s)==null&&s.layer[0]!=null&&(s.layer[0]&0xffffff)==(CUSTOM&0xffffff)&&(s.layer[0]>>>24)==64,
+                    "the existing custom gradient and lock/AOD opacity remain effective after disable");
+            LockCapsuleTint.Plan plan=s.style.lockCapsulePlan(music);
+            check(plan!=null&&"custom".equals(plan.source)&&(plan.argb&0xffffff)==(CUSTOM&0xffffff),"capsule falls through to the existing custom source, never cached media");
+            s.config.putBoolean(FluidCloudStyle.DESKTOP_BACKGROUND,false);s.apply();
+            check(s.colour[0]==null&&s.layer[0]==null&&s.overlayColour[0]==null&&s.style.lockCapsulePlan(music)==null,
+                    "without a custom source, neutral glass has no media gradient, flat tint or capsule tint");
+            s.style.release();s.accent.release();Handler.drainForCheck();
+        }
     }
 
     /** Coloured non-media fluid cards use the same selected lock/AOD fade as music; ordinary notification policy is separate. */

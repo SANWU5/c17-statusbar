@@ -7,6 +7,7 @@ public class Handler {
     public Handler(Looper looper) { }
     public Looper getLooper() { return Looper.getMainLooper(); }
     public boolean post(Runnable task) {postedForCheck.add(task);return true; }
+    public boolean sendMessage(Message message) {return post(message.getCallback());}
     public static void drainForCheck(){
         while(!postedForCheck.isEmpty()){
             java.util.List<Runnable> pending=new java.util.ArrayList<>(postedForCheck);postedForCheck.clear();

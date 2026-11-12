@@ -83,10 +83,10 @@ public final class WeatherTextIconCheck {
         Paint paint=new Paint();paint.setTextSize(20f);paint.setColor(0x8044aabb);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(3f);
         Shader shader=new LinearGradient(0f,0f,0f,20f,0xff00ff00,0xff0000ff,Shader.TileMode.CLAMP);paint.setShader(shader);
         Paint.FontMetricsInt metrics=new Paint.FontMetricsInt();int width=span.getSize(paint,"\ufffc",0,1,metrics);
-        check(width==27&&metrics.ascent<0&&metrics.descent>=0,"native aspect and text metrics determine inline size");
+        check(width==20&&metrics.ascent<0&&metrics.descent>=0,"native aspect follows visible text height without enlarging the font");
         DrawCanvas target=new DrawCanvas();span.draw(target,"\ufffc",0,1,10f,0,20,30,paint);
         check(target.pictureDraws==1&&target.lastPicture!=original&&target.lastPicture.commandsForCheck()==original.commandsForCheck(),"span draws an independent exact native vector recording, never a replacement path");
-        check(Math.abs(target.nativeScaleX-.675f)<.001f&&Math.abs(target.nativeScaleY-.675f)<.001f, "native Picture is scaled through the canvas rather than clipped by smaller drawable bounds");
+        check(Math.abs(target.nativeScaleX-.5f)<.001f&&Math.abs(target.nativeScaleY-.5f)<.001f, "native Picture is scaled to glyph height through the canvas rather than clipped by smaller drawable bounds");
         check(target.lastRectColor==paint.getColor()&&target.coverageAlpha==128,"native silhouette supports selected component colour");
         check(target.lastFillShader==shader&&target.lastRectMode instanceof android.graphics.PorterDuffXfermode
                 &&((android.graphics.PorterDuffXfermode)target.lastRectMode).mode==android.graphics.PorterDuff.Mode.SRC_IN,"native icon coverage follows current text shader with a bounded local mask");
@@ -122,6 +122,14 @@ public final class WeatherTextIconCheck {
         catch(ReflectiveOperationException failure){throw new AssertionError(failure);}
     }
     public static void main(String[] args) throws Exception {
+        final int[] reads={0};
+        Paint glyphPaint=new Paint(){@Override public void getTextBounds(String value,int start,int end,android.graphics.Rect rect){reads[0]++;rect.set(0,-13,12,2);}};
+        glyphPaint.setTextSize(20);
+        WeatherTextIcon.IconMetrics glyph=new WeatherTextIcon.IconMetrics();glyph.update(glyphPaint);
+        check(glyph.top==-13&&glyph.height==15,"weather uses visible glyph height and baseline, not 1.35 em");
+        for(int i=0;i<1000;i++)glyph.update(glyphPaint);
+        check(reads[0]==1,"stable frames reuse measured glyph bounds");
+        glyphPaint.setTextSize(30);glyph.update(glyphPaint);check(reads[0]==2,"font size invalidates metrics");
         try{nativeResources();inlineTemplates();drawAndRestore();}finally{SystemWeatherText.clear();}
         System.out.println("WeatherTextIconCheck: "+checks+" checks passed (native vector and delivery seams; phone raster pending)");
     }

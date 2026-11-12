@@ -18,7 +18,7 @@ public final class Upgrade157Check {
     private static Map<String, Object> wire(Bundle snapshot, int schema) {
         Map<String, Object> result = new LinkedHashMap<>();
         for (String key : snapshot.keySet()) result.put(key, snapshot.get(key));
-        if(schema<37)for(String key:Upgrade169.DEFAULTS.keySet())result.remove(key); if(schema<38)for(String key:Upgrade171.DEFAULTS.keySet())result.remove(key); if(schema<39)for(String key:Upgrade172.DEFAULTS.keySet())result.remove(key); if(schema<40)for(String key:Upgrade173.DEFAULTS.keySet())result.remove(key); if(schema<41)for(String key:Upgrade174.DEFAULTS.keySet())result.remove(key); if(schema<42)for(String key:Upgrade175.DEFAULTS.keySet())result.remove(key); if(schema<44)for(String key:Upgrade184.DEFAULTS.keySet())result.remove(key); if(schema<45)for(String key:Upgrade185.DEFAULTS.keySet())result.remove(key); if(schema<46)for(String key:Upgrade186.DEFAULTS.keySet())result.remove(key); if(schema<47)for(String key:Upgrade187.DEFAULTS.keySet())result.remove(key); if(schema<48)for(String key:Upgrade188.DEFAULTS.keySet())result.remove(key); if(schema<43)for(String key:Upgrade177.DEFAULTS.keySet())result.remove(key); if(schema<36)for(String key:Upgrade168.DEFAULTS.keySet())result.remove(key); if(schema<35)for(String key:Upgrade166.DEFAULTS.keySet())result.remove(key); if(schema<34)for(String key:Upgrade160.DEFAULTS.keySet())result.remove(key); if (schema < 33) for (String key : Upgrade157.DEFAULTS.keySet()) result.remove(key);
+        if(schema<37)for(String key:Upgrade169.DEFAULTS.keySet())result.remove(key); if(schema<38)for(String key:Upgrade171.DEFAULTS.keySet())result.remove(key); if(schema<39)for(String key:Upgrade172.DEFAULTS.keySet())result.remove(key); if(schema<40)for(String key:Upgrade173.DEFAULTS.keySet())result.remove(key); if(schema<41)for(String key:Upgrade174.DEFAULTS.keySet())result.remove(key); if(schema<42)for(String key:Upgrade175.DEFAULTS.keySet())result.remove(key); if(schema<44)for(String key:Upgrade184.DEFAULTS.keySet())result.remove(key); if(schema<45)for(String key:Upgrade185.DEFAULTS.keySet())result.remove(key); if(schema<46)for(String key:Upgrade186.DEFAULTS.keySet())result.remove(key); if(schema<47)for(String key:Upgrade187.DEFAULTS.keySet())result.remove(key); if(schema<48)for(String key:Upgrade188.DEFAULTS.keySet())result.remove(key); if(schema<49)for(String key:Upgrade195.DEFAULTS.keySet())result.remove(key); if(schema<50)for(String key:Upgrade196.DEFAULTS.keySet())result.remove(key); if(schema<52)for(String key:Upgrade279.DEFAULTS.keySet())result.remove(key); if(schema<51)for(String key:Upgrade209.DEFAULTS.keySet())result.remove(key); if(schema<43)for(String key:Upgrade177.DEFAULTS.keySet())result.remove(key); if(schema<36)for(String key:Upgrade168.DEFAULTS.keySet())result.remove(key); if(schema<35)for(String key:Upgrade166.DEFAULTS.keySet())result.remove(key); if(schema<34)for(String key:Upgrade160.DEFAULTS.keySet())result.remove(key); if (schema < 33) for (String key : Upgrade157.DEFAULTS.keySet()) result.remove(key);
         if (schema < 32) for (String key : Upgrade154.DEFAULTS.keySet()) result.remove(key);
         if (schema < 31) for (String key : Upgrade146.DEFAULTS.keySet()) result.remove(key);
         if (schema < 30) for (String key : Upgrade144.DEFAULTS.keySet()) result.remove(key);
@@ -27,7 +27,7 @@ public final class Upgrade157Check {
         return result;
     }
     private static void mirrors() {
-        equal(48,SettingsFrameworkMirror.VERSION, "current framework schema");
+        equal(52,SettingsFrameworkMirror.VERSION, "current framework schema");
         equal(Collections.<String, Object>singletonMap(FILL, false), Upgrade157.DEFAULTS, "one independent neutral option");
         equal(Collections.singletonMap(FILL, false), QsTileFullFill.BOOLEANS, "runtime registers only the new Boolean");
         equal(false, Upgrade154.DEFAULTS.containsKey(FILL), "schema32 batch stays frozen");
@@ -38,7 +38,7 @@ public final class Upgrade157Check {
         values.put(StatusBarSettings.CLOCK_OFFSET_X, -8.25f);
         Bundle full = SettingsSnapshot.fromPreferences(values);
         equal(true, SettingsSnapshot.complete(full), "current snapshot is complete");
-        equal(877 + Upgrade160.DEFAULTS.size() + Upgrade166.DEFAULTS.size() + Upgrade168.DEFAULTS.size() + Upgrade169.DEFAULTS.size() + Upgrade171.DEFAULTS.size() + Upgrade172.DEFAULTS.size() + Upgrade173.DEFAULTS.size() + Upgrade174.DEFAULTS.size() + Upgrade175.DEFAULTS.size() + Upgrade177.DEFAULTS.size() + Upgrade184.DEFAULTS.size() + Upgrade185.DEFAULTS.size() + Upgrade186.DEFAULTS.size() + Upgrade187.DEFAULTS.size() + Upgrade188.DEFAULTS.size(), full.keySet().size(), "frozen 877-field snapshot plus each subsequent independent batch");
+        equal(877 + Upgrade160.DEFAULTS.size() + Upgrade166.DEFAULTS.size() + Upgrade168.DEFAULTS.size() + Upgrade169.DEFAULTS.size() + Upgrade171.DEFAULTS.size() + Upgrade172.DEFAULTS.size() + Upgrade173.DEFAULTS.size() + Upgrade174.DEFAULTS.size() + Upgrade175.DEFAULTS.size() + Upgrade177.DEFAULTS.size() + Upgrade184.DEFAULTS.size() + Upgrade185.DEFAULTS.size() + Upgrade186.DEFAULTS.size() + Upgrade187.DEFAULTS.size() + Upgrade188.DEFAULTS.size() + Upgrade195.DEFAULTS.size() + Upgrade196.DEFAULTS.size() + Upgrade209.DEFAULTS.size() + Upgrade279.DEFAULTS.size(), full.keySet().size(), "frozen 877-field snapshot plus each subsequent independent batch");
         for (int schema : new int[]{29, 30, 31, 32}) {
             Map<String, Object> historical = wire(full, schema);
             for (Object mixed : new Object[]{false, true, null, 0, 0f, "false"}) {
@@ -75,7 +75,7 @@ public final class Upgrade157Check {
         }
         ActivationGuardPreferencesCheck.MemoryPreferences remote = new ActivationGuardPreferencesCheck.MemoryPreferences();
         equal(true, SettingsFrameworkMirror.write(remote, full, 157L), "complete current snapshot publishes");
-        equal(48, remote.values.get(SettingsFrameworkMirror.SCHEMA), "publication advertises current schema48");
+        equal(52, remote.values.get(SettingsFrameworkMirror.SCHEMA), "publication advertises current schema51");
         equal(true, SettingsFrameworkMirror.decode(remote.getAll()).get(FILL), "published fill choice reads back");
     }
     private static void migration() {

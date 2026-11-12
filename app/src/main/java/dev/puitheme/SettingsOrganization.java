@@ -12,18 +12,18 @@ public final class SettingsOrganization {
     private static final Map<String, String> GUIDES;
     static {
         Map<String, String> guides = new LinkedHashMap<>();
+        guides.put(QsWifiAlias.GROUP,"只修改控制中心 WiFi 名称。列表来自系统允许读取的已保存网络或模块实际识别过的连接；不会修改 SSID、密码、接入点或网络配置。");
         guides.put("statusbar_layout", "只管理元素区域与顺序；左右间距在各元素页独立设置，无需开启自定义排序。");
         guides.put("speed", "显示样式、大小、位置与刷新速度分别管理；左右间距独立于网速外观开关。");
-        guides.put("data", "信号外形与布局分别设置；网络角标隐藏不影响独立制式文字，小箭头在原生角标页管理。");
-        guides.put("wifi", "图标外形、原生标记与位置分别设置；和网络制式共用位置不会改变彼此显示规则。");
-        guides.put("label", "隐藏优先于文字替换；统一名称和自定义内容二选一。逐制式内容收在高级设置。");
-        guides.put("native_network_badge", "角标 1、角标 2 与数据小箭头分别设置；网络制式文字会暂停原生角标，不暂停小箭头。");
+        guides.put("data", "信号外形与布局分别设置；制式显示方式、角标与数据小箭头在网络组合中管理。");
+        guides.put("network", "Wi-Fi 与独立制式文字共用位置和左右间距，大小各自设置；原生角标保持信号角位置并独立微调。Wi-Fi 显示与自定义分别开关；制式文字关闭后转为原生角标，隐藏需单独选择。");
         guides.put("clock", "默认时钟和双排时钟互斥；通用设置中的等宽、冒号和左右间距同时供两种模式使用。");
         guides.put("carrier", "通知、控制中心、锁屏各自开关；共用左右间距单独保存。");
         guides.put("font", "在“其他 → 字体配置”先选字体，再选作用范围并统一应用；未选范围保留原字体，字号、粗细与颜色仍在各功能页设置。");
         guides.put("battery", "样式、内文字、布局与颜色分标签；每种独立颜色有自己的开关。系统百分比关闭时保留所选样式。");
         guides.put("notification_icons", "显示方式决定图片、文字和原生图标参数；图标数量与指定应用替换分别管理。");
         guides.put("status_hint_icons", "显示数量与保留优先级在本页；左右位置与逐个排序在排列页面，不会强制显示系统隐藏的图标。");
+        guides.put("privacy_dot", "只影响屏幕角落的隐私小点和摄像头处的胶囊；下拉面板里的隐私图标、系统的使用记录和权限管理不受影响。");
         guides.put("notification_icon_overrides", "逐应用规则独立保存；单个文字或图片显示方式会暂停这些规则。");
         guides.put("status_icon_library", "先选图标库，再选应用范围；单项选择优先，颜色和透明度独立设置。关闭总开关暂停图案、颜色和动画，保留配置与图标库；重开后恢复。未适配状态保留原生。");
         guides.put("qs_appearance", "浅色和深色分别设置底色与渐变；圆角、铺满和图标大小是独立功能。");
@@ -60,7 +60,7 @@ public final class SettingsOrganization {
     /** A full block folds, never a lone slider. Ordinary controls remain visible by default. */
     public static boolean advanced(String group, String section) {
         String title = section.contains(" · ") ? section.substring(section.lastIndexOf(" · ") + 3) : section;
-        if ("label".equals(group) && section.contains("自定义显示内容")) return true;
+        if (("label".equals(group)||"network".equals(group)) && section.contains("自定义显示内容")) return true;
         if ("fluid_cloud_capsule".equals(group)) return Arrays.asList("跑马灯", "向内渐隐", "出现回弹", "实时频谱").contains(section);
         if (group.startsWith("notification_big_clock")) return Arrays.asList("锁屏质感", "玻璃边框", "主时间立体边缘", "收起样式", "收起位置", "回弹效果", "通知顶部边缘").contains(section);
         if (group.startsWith("shade_wallpaper")) return "大时钟区域".equals(section);

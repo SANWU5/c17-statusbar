@@ -12,7 +12,7 @@ public final class Upgrade166Check {
         if(!Objects.equals(expected,actual))throw new AssertionError(reason+": "+expected+" != "+actual);
     }
     public static void main(String[] args) throws Exception {
-        equal(48,SettingsFrameworkMirror.VERSION,"current mirror schema");
+        equal(52,SettingsFrameworkMirror.VERSION,"current mirror schema");
         Map<String,Object> additions=new LinkedHashMap<>();additions.put(KEY,true);additions.put(NativeStatusIcons.LAYOUT,"{}");
         equal(additions,Upgrade166.DEFAULTS,"only two neutral additions in the unpublished schema35 batch");
         ActivationGuardPreferencesCheck.MemoryPreferences store=new ActivationGuardPreferencesCheck.MemoryPreferences();
@@ -29,12 +29,12 @@ public final class Upgrade166Check {
             equal(writes,store.writes,"idempotent migration");
         }
         Bundle full=SettingsSnapshot.fromPreferences(Collections.emptyMap());
-        equal(979,full.keySet().size(),"current snapshot includes every subsequent independent batch");
+        equal(1000,full.keySet().size(),"current snapshot includes every subsequent independent batch");
         historicalCopies(full);
         currentRequired(full);
         hintLayoutCompatibility(full);
         Map<String,Object> old=new LinkedHashMap<>();
-        for(String key:full.keySet())if(!Upgrade166.DEFAULTS.containsKey(key)&&!Upgrade168.DEFAULTS.containsKey(key)&&!Upgrade169.DEFAULTS.containsKey(key)&&!Upgrade171.DEFAULTS.containsKey(key)&&!Upgrade172.DEFAULTS.containsKey(key)&&!Upgrade173.DEFAULTS.containsKey(key)&&!Upgrade174.DEFAULTS.containsKey(key)&&!Upgrade175.DEFAULTS.containsKey(key)&&!Upgrade177.DEFAULTS.containsKey(key)&&!Upgrade184.DEFAULTS.containsKey(key)&&!Upgrade185.DEFAULTS.containsKey(key)&&!Upgrade186.DEFAULTS.containsKey(key)&&!Upgrade187.DEFAULTS.containsKey(key)&&!Upgrade188.DEFAULTS.containsKey(key))old.put(key,full.get(key));
+        for(String key:full.keySet())if(!Upgrade166.DEFAULTS.containsKey(key)&&!Upgrade168.DEFAULTS.containsKey(key)&&!Upgrade169.DEFAULTS.containsKey(key)&&!Upgrade171.DEFAULTS.containsKey(key)&&!Upgrade172.DEFAULTS.containsKey(key)&&!Upgrade173.DEFAULTS.containsKey(key)&&!Upgrade174.DEFAULTS.containsKey(key)&&!Upgrade175.DEFAULTS.containsKey(key)&&!Upgrade177.DEFAULTS.containsKey(key)&&!Upgrade184.DEFAULTS.containsKey(key)&&!Upgrade185.DEFAULTS.containsKey(key)&&!Upgrade186.DEFAULTS.containsKey(key)&&!Upgrade187.DEFAULTS.containsKey(key)&&!Upgrade188.DEFAULTS.containsKey(key)&&!Upgrade195.DEFAULTS.containsKey(key)&&!Upgrade196.DEFAULTS.containsKey(key)&&!Upgrade209.DEFAULTS.containsKey(key)&&!Upgrade279.DEFAULTS.containsKey(key))old.put(key,full.get(key));
         old.put(SettingsFrameworkMirror.SCHEMA,34);old.put(SettingsFrameworkMirror.REVISION,166L);
         Map<String,Object> untouched=new LinkedHashMap<>(old);
         Bundle decoded=SettingsFrameworkMirror.decode(old);
@@ -98,7 +98,7 @@ public final class Upgrade166Check {
                 Upgrade93.DEFAULTS,Upgrade96.DEFAULTS,Upgrade98.DEFAULTS,Upgrade99.DEFAULTS,Upgrade100.DEFAULTS,
                 Upgrade101.DEFAULTS,Upgrade103.DEFAULTS,Upgrade105.DEFAULTS,Upgrade106.DEFAULTS,Upgrade107.DEFAULTS,
                 Upgrade108.DEFAULTS,Upgrade117.DEFAULTS,Upgrade118.DEFAULTS,Upgrade135.DEFAULTS,Upgrade136.DEFAULTS,
-                Upgrade144.DEFAULTS,Upgrade146.DEFAULTS,Upgrade154.DEFAULTS,Upgrade157.DEFAULTS,Upgrade160.DEFAULTS,Upgrade166.DEFAULTS,Upgrade168.DEFAULTS,Upgrade169.DEFAULTS,Upgrade171.DEFAULTS,Upgrade172.DEFAULTS,Upgrade173.DEFAULTS,Upgrade174.DEFAULTS,Upgrade175.DEFAULTS,Upgrade177.DEFAULTS,Upgrade184.DEFAULTS,Upgrade185.DEFAULTS,Upgrade186.DEFAULTS,Upgrade187.DEFAULTS,Upgrade188.DEFAULTS);
+                Upgrade144.DEFAULTS,Upgrade146.DEFAULTS,Upgrade154.DEFAULTS,Upgrade157.DEFAULTS,Upgrade160.DEFAULTS,Upgrade166.DEFAULTS,Upgrade168.DEFAULTS,Upgrade169.DEFAULTS,Upgrade171.DEFAULTS,Upgrade172.DEFAULTS,Upgrade173.DEFAULTS,Upgrade174.DEFAULTS,Upgrade175.DEFAULTS,Upgrade177.DEFAULTS,Upgrade184.DEFAULTS,Upgrade185.DEFAULTS,Upgrade186.DEFAULTS,Upgrade187.DEFAULTS,Upgrade188.DEFAULTS,Upgrade195.DEFAULTS,Upgrade196.DEFAULTS,Upgrade209.DEFAULTS,Upgrade279.DEFAULTS);
         for(int index=0;index<batches.size();index++)if(schema<index+2)
             for(String key:batches.get(index).keySet())result.remove(key);
         if(schema<12)result.remove(FluidCloudStyle.BACKGROUND_COLOR_CUSTOMIZED);

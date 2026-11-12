@@ -1,12 +1,16 @@
 package android.graphics;
 public class Path {
+    public static int creationsForCheck;
+    public Path(){creationsForCheck++;}
     public enum Direction {CW,CCW}
+    public enum Op {DIFFERENCE,INTERSECT,UNION,XOR,REVERSE_DIFFERENCE}
     public enum FillType {WINDING,EVEN_ODD,INVERSE_WINDING,INVERSE_EVEN_ODD}
     final java.awt.geom.Path2D.Float rasterPath=new java.awt.geom.Path2D.Float();
     public float nativeRadiusX,nativeRadiusY;
+    public static int roundRectWritesForCheck;
     private final RectF recordedBounds=new RectF();
     private boolean empty=true;
-    public void addRoundRect(RectF rect,float x,float y,Direction direction){recordedBounds.set(rect.left,rect.top,rect.right,rect.bottom);nativeRadiusX=x;nativeRadiusY=y;empty=false;rasterPath.append(new java.awt.geom.RoundRectangle2D.Float(rect.left,rect.top,rect.width(),rect.height(),x*2,y*2),false);}
+    public void addRoundRect(RectF rect,float x,float y,Direction direction){roundRectWritesForCheck++;recordedBounds.set(rect.left,rect.top,rect.right,rect.bottom);nativeRadiusX=x;nativeRadiusY=y;empty=false;appendSymmetric(new java.awt.geom.RoundRectangle2D.Float(rect.left,rect.top,rect.width(),rect.height(),x*2,y*2),direction);}
     public void reset() {empty=true;rasterPath.reset();}
     public boolean isEmpty(){return empty;}
     public void computeBounds(RectF output,boolean exact){output.set(recordedBounds.left,recordedBounds.top,recordedBounds.right,recordedBounds.bottom);}
@@ -25,4 +29,30 @@ public class Path {
     public void rQuadTo(float a,float b,float c,float d){float x=x(),y=y();quadTo(x+a,y+b,x+c,y+d);}
     public void transform(Matrix matrix) {float[] v=new float[9];matrix.getValues(v);rasterPath.transform(new java.awt.geom.AffineTransform(v[0],v[3],v[1],v[4],v[2],v[5]));updated();}
     public void close() {if(rasterPath.getCurrentPoint()!=null){rasterPath.closePath();updated();}}
+    public void addCircle(float x,float y,float radius,Direction direction){appendSymmetric(new java.awt.geom.Ellipse2D.Float(x-radius,y-radius,radius*2,radius*2),direction);updated();}
+    public void addRect(float left,float top,float right,float bottom,Direction direction){appendSymmetric(new java.awt.geom.Rectangle2D.Float(left,top,right-left,bottom-top),direction);updated();}
+    /** AWT ellipses and round rectangles have opposite default windings. Android's
+     * explicit CW/CCW must keep overlapping subpaths filled instead of punching holes. */
+    private void appendSymmetric(java.awt.Shape shape,Direction direction){
+        java.awt.geom.PathIterator iterator=shape.getPathIterator(null,.01);double[] p=new double[6];
+        double x=0,y=0,firstX=0,firstY=0,area=0;
+        while(!iterator.isDone()){int type=iterator.currentSegment(p);
+            if(type==java.awt.geom.PathIterator.SEG_MOVETO){x=firstX=p[0];y=firstY=p[1];}
+            else if(type==java.awt.geom.PathIterator.SEG_LINETO){area+=x*p[1]-p[0]*y;x=p[0];y=p[1];}
+            else if(type==java.awt.geom.PathIterator.SEG_CLOSE)area+=x*firstY-firstX*y;
+            iterator.next();
+        }
+        if((area>0)!=(direction==Direction.CW)){
+            java.awt.geom.Rectangle2D bounds=shape.getBounds2D();
+            shape=new java.awt.geom.AffineTransform(-1,0,0,1,2*bounds.getCenterX(),0).createTransformedShape(shape);
+        }
+        rasterPath.append(shape,false);
+    }
+    public void arcTo(RectF oval,float startAngle,float sweepAngle,boolean forceMoveTo){rasterPath.append(new java.awt.geom.Arc2D.Float(oval.left,oval.top,oval.width(),oval.height(),-startAngle,-sweepAngle,java.awt.geom.Arc2D.OPEN),!forceMoveTo);updated();}
+    public boolean op(Path other,Op operation){
+        java.awt.geom.Area a=new java.awt.geom.Area(rasterPath),b=new java.awt.geom.Area(other.rasterPath);
+        switch(operation){case DIFFERENCE:a.subtract(b);break;case INTERSECT:a.intersect(b);break;case UNION:a.add(b);break;case XOR:a.exclusiveOr(b);break;default:b.subtract(a);a=b;break;}
+        setShapeForCheck(a);return true;
+    }
+    void setShapeForCheck(java.awt.Shape shape){rasterPath.reset();rasterPath.append(shape,false);updated();}
 }

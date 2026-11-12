@@ -36,11 +36,11 @@ public final class ShadeWallpaperRepository {
     private ShadeWallpaperRepository() { }
 
     private static File directory(Context context, String scene) {
-        if (!ShadeWallpaperSettings.validScene(scene)) throw new IllegalArgumentException("Unknown wallpaper scene");
+        if (!ShadeWallpaperSettings.assetScene(scene)) throw new IllegalArgumentException("Unknown wallpaper scene");
         return new File(context.createDeviceProtectedStorageContext().getFilesDir(), "shade-wallpapers/" + scene);
     }
     public static Uri uri(String scene, String revision) {
-        if (!ShadeWallpaperSettings.validScene(scene) || !ShadeWallpaperSettings.validRevision(revision))
+        if (!ShadeWallpaperSettings.assetScene(scene) || !ShadeWallpaperSettings.validRevision(revision))
             throw new IllegalArgumentException("Invalid wallpaper asset");
         return Uri.parse("content://" + StatusBarSettings.AUTHORITY + "/shade-wallpaper/" + scene + "/" + revision + ".png");
     }
@@ -50,7 +50,7 @@ public final class ShadeWallpaperRepository {
         List<String> segments = uri.getPathSegments();
         if (segments.size() != 3 || !"shade-wallpaper".equals(segments.get(0))) throw new IOException("Unknown wallpaper asset");
         String scene = segments.get(1), filename = segments.get(2);
-        if (!ShadeWallpaperSettings.validScene(scene) || !filename.endsWith(".png")
+        if (!ShadeWallpaperSettings.assetScene(scene) || !filename.endsWith(".png")
                 || !ShadeWallpaperSettings.validRevision(filename.substring(0, filename.length() - 4)))
             throw new IOException("Invalid wallpaper asset");
         File parent = directory(context, scene).getCanonicalFile();
@@ -124,7 +124,7 @@ public final class ShadeWallpaperRepository {
     }
     /** The picture, turned and cut as the user chose ({@code crop} null: the whole picture), made into the private PNG SystemUI reads. */
     public static PreparedWallpaper prepare(Context context, Uri source, String scene, Crop crop) throws Exception {
-        if (!ShadeWallpaperSettings.validScene(scene)) throw new IOException("无效的下拉场景");
+        if (!ShadeWallpaperSettings.assetScene(scene)) throw new IOException("无效的下拉场景");
         byte[] data = readSource(context, source);
         Bitmap decoded = null, turned = null, normalized = null;
         try {
@@ -207,7 +207,7 @@ public final class ShadeWallpaperRepository {
     }
     /** Call on the import worker after saving. One current and one previous revision bound disk use. */
     public static void prune(Context context, String scene, String currentRevision) {
-        if (!ShadeWallpaperSettings.validScene(scene) || !ShadeWallpaperSettings.validRevision(currentRevision)) return;
+        if (!ShadeWallpaperSettings.assetScene(scene) || !ShadeWallpaperSettings.validRevision(currentRevision)) return;
         synchronized (LOCK) {
             pruneFiles(directory(context, scene), currentRevision);
         }
@@ -249,6 +249,7 @@ public final class ShadeWallpaperRepository {
     public static void clear(Context context) {
         // Configuration is already removed, so retained files cannot become active wallpapers.
         for (String scene : ShadeWallpaperSettings.SCENES) try { delete(context, scene); } catch (IOException | RuntimeException ignored) { }
+        try { delete(context, QsCardSettings.WALLPAPER_SCENE); } catch (IOException | RuntimeException ignored) { }
     }
     public static final class PreparedWallpaper implements AutoCloseable {
         private final File temporary, target;

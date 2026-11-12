@@ -845,7 +845,7 @@ internal class LegendEgg(icon: ImageBitmap, measurer: TextMeasurer, private val 
         drawRoundRect(Brush.horizontalGradient(listOf(legendGold, legendDeep), left, left + up.size.width + 16f * density), Offset(left, upTop),
             Size(up.size.width + 16f * density, up.size.height + 6f * density), CornerRadius(10f * density), alpha = show)
         drawText(up, Color(0xFF2A1A04), Offset(left + 8f * density, upTop + 3f * density), show)
-        val clock = layout("距结束  13天 07:42:${(59 - (t * 1f).toInt()).toString().padStart(2, '0')}", 11.sp, FontWeight.Medium)
+        val clock = layout(trf("距结束  13天 07:42:%s", (59 - (t * 1f).toInt()).toString().padStart(2, '0')), 11.sp, FontWeight.Medium)
         drawText(clock, Color(0xAAFFFFFF), Offset(left, top.y + panel.height - clock.size.height - 16f * density), show)
         for (i in 0 until 3) {
             drawCircle(if (i == 0) Color.White else Color(0x66FFFFFF), (if (i == 0) 4f else 3f) * density,

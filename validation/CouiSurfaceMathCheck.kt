@@ -17,14 +17,16 @@ fun main() {
     val content = listOf(Color.Black, Color.White, Color.Red, Color.Green, Color.Blue,
         Color(0xFF5D2038), Color(0xFF12CDAD), Color(0xFFEAC092))
     for (dark in listOf(false, true)) for (accent in accents) {
-        val tint = if (dark) Color(0xFF22262D).copy(alpha = .88f) else Color.White.copy(alpha = .80f)
-        val strongest = if (dark) .25f else .15f
-        val surfaces = c17GlassSurfaces(tint, accent, strongest)
+        // C17FloatingBarColors: ColorOS 17 Gallery capsule frost; the overlay range also covers press states.
+        val tint = if (dark) Color(0xFF262628).copy(alpha = .78f) else Color.White.copy(alpha = .82f)
+        val strongest = if (dark) .12f else .06f
+        val pillInk = if (dark) Color.White else Color.Black
+        val surfaces = c17GlassSurfaces(tint, pillInk, strongest)
         val originalInk = if (dark) Color.White.copy(alpha = .4f) else Color.Black.copy(alpha = .4f)
         val ink = c17ReadableInk(accent, surfaces)
         val idle = c17ReadableInk(originalInk, surfaces)
         for (underlay in content) for (overlay in listOf(0f, strongest * .5f, strongest)) {
-            val surface = accent.copy(alpha = overlay).compositeOver(tint.compositeOver(underlay))
+            val surface = pillInk.copy(alpha = overlay).compositeOver(tint.compositeOver(underlay))
             requireCheck(c17ColorContrast(ink, surface) >= 4.499f, "active on $underlay, dark=$dark, accent=$accent")
             requireCheck(c17ColorContrast(idle, surface) >= 4.499f, "idle on $underlay, dark=$dark, accent=$accent")
         }

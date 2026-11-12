@@ -27,6 +27,12 @@ test-ui.xml
 
 # Local screenshots, promotional exports and verification APKs are not source assets.
 /artifacts/
+/outputs/
+
+# Generated Python caches and workstation-only editor permissions.
+**/__pycache__/
+*.pyc
+/.claude/settings.local.json
 
 # User-supplied PUI conversion output is optional local input, not public source.
 /app/src/main/assets/icon-management-v3/pui-coloros17.zip

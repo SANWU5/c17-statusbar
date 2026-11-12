@@ -11,64 +11,69 @@
 </head>
 <body>
   <main class="page">
-    <header class="heading"><div><p class="eyebrow">STATUS C17</p><h1>附属模块</h1></div><span class="version" id="version">附属模块</span></header>
-    <p class="demo-notice" id="demo-notice" hidden>离线演示 · 只读示例，未连接手机</p>
-
+    <header class="heading"><h1>附属模块</h1><div class="heading-actions"><span class="version" id="version">—</span><button class="link" id="refresh" type="button">刷新</button></div></header>
+    <p class="demo-notice" id="demo-notice" hidden>离线演示 · 只读</p>
     <section class="hero" id="status-card" data-tone="neutral" aria-labelledby="status-title">
-      <div class="ring" aria-hidden="true">
-        <svg viewBox="0 0 80 80" width="84" height="84" focusable="false"><circle class="ring-track" cx="40" cy="40" r="34"></circle><circle class="ring-arc" id="ring-arc" cx="40" cy="40" r="34" stroke-dasharray="0 214" transform="rotate(-90 40 40)"></circle></svg>
-        <span class="ring-text" id="ring-text">—</span>
-      </div>
-      <div class="hero-text">
-        <p class="hero-kicker"><span class="status-dot" aria-hidden="true"></span>系统界面编译状态</p>
-        <h2 id="status-title">正在读取</h2>
-        <p class="hero-message" id="status-message">正在连接管理器…</p>
-      </div>
-      <div class="record-line"><span id="source">暂无记录</span><time id="time">—</time></div>
+      <div class="status-line"><span class="status-dot" aria-hidden="true"></span><h2 id="status-title">正在读取</h2></div>
+      <p class="hero-message" id="status-message">正在连接…</p>
     </section>
-
-    <div class="section-heading"><h3>收益记录</h3><span id="benefit-since">尚无记录</span></div>
-    <section class="benefits" aria-label="收益记录">
-      <div class="tile"><span class="tile-label">累计编译</span><strong id="benefit-compiles">—</strong><small id="benefit-compiles-note">ART 实测耗时</small></div>
-      <div class="tile"><span class="tile-label">免去重编译</span><strong id="benefit-saved">—</strong><small id="benefit-saved-note">相比每次都重编</small></div>
-      <div class="tile"><span class="tile-label">系统界面</span><strong id="benefit-aot">—</strong><small id="benefit-aot-note">是否使用预编译产物</small></div>
-      <div class="tile"><span class="tile-label">运行时编译</span><strong id="benefit-jit">—</strong><small id="benefit-jit-note">JIT 线程占用</small></div>
-    </section>
-    <p class="benefit-note" id="benefit-note">耗时来自 ART 每次编译的返回值；“免去”按各组件上次编译耗时估算。没有做前后对比，不给出加速百分比。</p>
-
     <div class="actions">
-      <button class="control primary" id="optimize" type="button" disabled><strong id="optimize-title">立即优化</strong><small>复用有效结果，需要时才编译</small></button>
-      <button class="control secondary" id="refresh" type="button"><strong>刷新状态</strong><small>读取真实记录</small></button>
-      <button class="control secondary" id="module-toggle" type="button" disabled><strong id="module-toggle-title">模块状态</strong><small id="module-toggle-note">读取后可操作</small></button>
+      <button class="control primary" id="optimize" type="button" disabled><strong id="optimize-title">立即优化</strong></button>
+      <button class="control secondary" id="module-toggle" type="button" disabled><strong id="module-toggle-title">模块状态</strong><small class="sr-only" id="module-toggle-note">读取后可操作</small></button>
     </div>
-    <p class="action-hint" id="action-hint" aria-live="polite">读取后可操作</p>
-
-    <section class="auto-card" aria-labelledby="auto-heading">
-      <div class="auto-heading"><h3 id="auto-heading">自动规则</h3><span class="auto-tag" id="auto-tag">待确认</span></div>
-      <p>息屏或连续 10 分钟无操作 · 电量高于 15% · 电池低于 55℃，充电与否不影响。</p>
-      <button class="link" id="auto-details" type="button">查看计划与诊断 · <span id="auto-title">待确认</span></button>
+    <p class="action-hint" id="action-hint" aria-live="polite" hidden></p>
+    <section class="features" aria-label="功能">
+      <div class="feature-row">
+        <div class="feature-copy"><h3 id="rescue-heading">系统UI防炸</h3><p>触发后清空 SystemUI 数据</p></div>
+        <button class="switch-control" id="rescue-toggle" type="button" role="switch" aria-label="系统UI防炸" aria-checked="false" disabled><span id="rescue-toggle-title">待确认</span><span class="switch-track" aria-hidden="true"></span></button>
+      </div>
+      <div class="feature-row"><h3>常驻缓存</h3><span class="feature-state" id="cache-title">待确认</span></div>
     </section>
-
     <details class="details" id="details">
-      <summary>运行记录与诊断<span aria-hidden="true">＋</span></summary>
+      <summary>详情<span aria-hidden="true">＋</span></summary>
       <div class="details-body">
-        <p class="notice" id="reason" hidden></p>
-        <dl>
-          <div><dt>记录</dt><dd id="record-validity">尚未读取</dd></div>
-          <div><dt>本次编译</dt><dd id="compiled">—</dd></div>
-          <div><dt>直接复用</dt><dd id="reused">—</dd></div>
-          <div><dt>延期</dt><dd id="deferred">—</dd></div>
-          <div><dt>ART 核验</dt><dd id="verified">—</dd></div>
-          <div><dt>核验结论</dt><dd id="verification">尚未核验</dd></div>
-          <div><dt>计划登记</dt><dd id="schedule">尚未读取</dd></div>
-          <div><dt>任务优先级</dt><dd id="priority">—</dd></div>
-        </dl>
-        <div class="rule"><strong>自动</strong><p>需要编译时，息屏或无操作 10 分钟再处理；电量高于 15%，电池温度低于 55℃，充电与否不影响。</p></div>
-        <div class="rule"><strong>手动</strong><p>立即执行，不等待屏幕、电量、温度或充电条件；仍保留操作超时、可靠取消和防重叠。</p></div>
-        <p class="scope">仅处理系统界面和已识别控制中心插件的主 DEX；有效结果直接复用。</p>
+        <section class="detail-section" aria-labelledby="usage-heading">
+          <h3 id="usage-heading">系统UI防炸</h3>
+          <p>作用：系统界面卡死、反复崩溃时，清空它的数据，恢复正常开机。</p>
+          <p>用法：开机动画期间，5 秒内连按 5 次<strong>音量上键</strong>。</p>
+          <p id="rescue-toggle-note">尚未确认</p>
+          <p id="rescue-result" aria-live="polite">尚无恢复记录</p>
+          <p class="scope" id="rescue-time">—</p>
+        </section>
+        <section class="detail-section" aria-labelledby="cache-detail-heading">
+          <h3 id="cache-detail-heading">缓存</h3><p id="cache-detail">尚未读取</p>
+          <p class="scope">后台准备资源，内存紧张时释放可重建缓存。</p>
+        </section>
+        <section class="detail-section" aria-labelledby="benefit-heading">
+          <div class="section-heading"><h3 id="benefit-heading">统计</h3><span id="benefit-since">尚无记录</span></div>
+          <div class="benefits">
+            <div class="tile"><span class="tile-label">累计编译</span><strong id="benefit-compiles">—</strong><small id="benefit-compiles-note">ART 实测耗时</small></div>
+            <div class="tile"><span class="tile-label">免去重编译</span><strong id="benefit-saved">—</strong><small id="benefit-saved-note">相比每次都重编</small></div>
+            <div class="tile"><span class="tile-label">系统界面</span><strong id="benefit-aot">—</strong><small id="benefit-aot-note">预编译产物</small></div>
+            <div class="tile"><span class="tile-label">运行时编译</span><strong id="benefit-jit">—</strong><small id="benefit-jit-note">JIT 线程占用</small></div>
+          </div>
+          <p class="scope" id="benefit-note">编译耗时为实测，“免去”耗时为估算，均不代表加速幅度。</p>
+        </section>
+        <section class="detail-section" aria-labelledby="auto-heading">
+          <div class="section-heading"><h3 id="auto-heading">自动优化</h3><span id="auto-tag">待确认</span></div><p id="auto-title">待确认</p>
+          <p class="scope">息屏或无操作 10 分钟，电量高于 15%、电池低于 55℃时执行。手动优化立即执行。</p>
+        </section>
+        <section class="detail-section" aria-labelledby="records-heading">
+          <h3 id="records-heading">运行记录</h3><p class="notice" id="reason" hidden></p>
+          <div class="record-overview"><div class="ring" aria-hidden="true"><svg viewBox="0 0 80 80" width="64" height="64" focusable="false"><circle class="ring-track" cx="40" cy="40" r="34"></circle><circle class="ring-arc" id="ring-arc" cx="40" cy="40" r="34" stroke-dasharray="0 214" transform="rotate(-90 40 40)"></circle></svg><span class="ring-text" id="ring-text">—</span></div><div><p id="source">暂无记录</p><time id="time">—</time></div></div>
+          <dl>
+            <div><dt>记录</dt><dd id="record-validity">尚未读取</dd></div><div><dt>本次编译</dt><dd id="compiled">—</dd></div>
+            <div><dt>直接复用</dt><dd id="reused">—</dd></div><div><dt>延期</dt><dd id="deferred">—</dd></div>
+            <div><dt>ART 核验</dt><dd id="verified">—</dd></div><div><dt>核验结论</dt><dd id="verification">尚未核验</dd></div>
+            <div><dt>计划</dt><dd id="schedule">尚未读取</dd></div><div><dt>优先级</dt><dd id="priority">—</dd></div>
+          </dl>
+          <h4>执行日志</h4><pre class="execution-log" id="execution-log">尚无记录</pre>
+          <h4>失败记录</h4><pre class="execution-log" id="failure-log">尚无失败记录</pre>
+          <p class="scope">保留最近日志及历史失败，请核对时间。仅优化系统界面与控制中心组件，有效结果直接复用。</p>
+        </section>
+        <p class="footer" id="connection">Status C17</p>
       </div>
     </details>
-    <p class="footer" id="connection">Status C17 附属模块 · 页面可见时更新状态</p>
   </main>
 </body>
 </html>

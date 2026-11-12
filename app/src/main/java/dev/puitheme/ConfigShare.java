@@ -16,7 +16,7 @@ import java.util.UUID;
 /** A configuration prepared for the system share sheet: a private snapshot of the JSON the receiver can read once, through a
  * provider that only answers an exact, temporary read grant. Nothing here touches preferences; old snapshots are removed. */
 public final class ConfigShare {
-    public static final String AUTHORITY = "dev.puitheme.iosstatusbar.config";
+    public static final String AUTHORITY = ModuleVariant.PACKAGE + ".config";
     public static final String FILE_NAME = "C17-settings.json";
     static final long SNAPSHOT_LIFETIME_MS = 10L * 60L * 1000L;
     private static final int RETAINED = 3;

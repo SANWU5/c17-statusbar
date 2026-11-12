@@ -28,7 +28,7 @@ foreach ($variant in @('debug', 'release')) {
 Write-Output "$count classes major52"
 
 $apk = "$C17Root/app/build/outputs/apk/release/app-release.apk"
-& "$C17BuildTools/apksigner.bat" verify --verbose --print-certs $apk > "$C17Out/signature-code$Code.log" 2>&1
+& "$C17JdkBin/java.exe" -Xms16m -Xmx128m -XX:+UseSerialGC -jar "$C17BuildTools/lib/apksigner.jar" verify --verbose --print-certs $apk > "$C17Out/signature-code$Code.log" 2>&1
 if ($LASTEXITCODE -ne 0) { Get-Content "$C17Out/signature-code$Code.log" -Tail 20; Write-Output 'SIGNATURE FAILED (is the keystore configured?)'; exit 1 }
 & "$C17BuildTools/zipalign.exe" -c -P 16 -v 4 $apk > "$C17Out/align-code$Code.log" 2>&1
 if ($LASTEXITCODE -ne 0) { Write-Output 'ALIGNMENT FAILED'; exit 1 }
@@ -37,8 +37,8 @@ $line = (Get-Content "$C17Out/badging-code$Code.log" | Select-String -Pattern '^
 if ($line -notmatch "versionCode='$Code'" -or $line -notmatch "versionName='$([regex]::Escape($Version))'") { Write-Output "VERSION MISMATCH: $line"; exit 1 }
 
 # artifacts/1.8.3-<test build>-code102 (the folder word is built from code points to keep this file ASCII for PowerShell 5.1).
-$base = ($Version -split '-beta')[0]
-$folder = if ($Version -match '-beta') {
+$base = ($Version -split '[-_]beta')[0]
+$folder = if ($Version -match '[-_]beta') {
     "$base-" + [char]0x6D4B + [char]0x8BD5 + [char]0x7248 + "-code$Code"
 } else { "$Version-code$Code" }
 $release = "$C17Root/artifacts/$folder"

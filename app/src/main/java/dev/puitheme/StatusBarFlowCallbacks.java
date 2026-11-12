@@ -52,7 +52,11 @@ final class StatusBarFlowCallbacks {
         boolean completed = false;
         try {
             if (measure) flow.beforeNativeMeasure(root); else flow.beforeNativeLayout(root);
-            Object result = nativeCall.proceed();
+            NetworkSharedSlotLayout bridge = measure ? flow.beginNativeContentMeasure(root) : null;
+            Object result;
+            boolean nativeSucceeded = false;
+            try { result = nativeCall.proceed(); nativeSucceeded = true; }
+            finally { if (bridge != null) bridge.endNativeMeasure(root, nativeSucceeded); }
             completed = true;
             if (measure) flow.afterMeasure(root); else flow.afterLayout(root);
             return result;

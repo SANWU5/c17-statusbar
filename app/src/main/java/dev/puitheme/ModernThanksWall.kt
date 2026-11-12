@@ -56,7 +56,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.Random
 
@@ -170,7 +169,7 @@ private fun WallBody(app: ModernMainActivity, wall: ThanksWall.Wall, featured: L
                     if (others.isNotEmpty()) WallHeader(wall, others.size)
                 }
                 if (others.isNotEmpty()) DanmakuWall(app, wall, others, lanes, chipHeight, active, interactions, onPerson)
-                Text((if (wall.revision > 0) "第 ${wall.revision} 版 · ${wall.updatedAt}" else "内置名单") + " · " + app.thanksStatus,
+                Text((if (wall.revision > 0) trf("第 %1\$s 版 · %2\$s", wall.revision, wall.updatedAt) else "内置名单") + " · " + app.thanksStatus,
                     fontSize = 12.sp, lineHeight = 17.sp, color = palette.muted,
                     modifier = Modifier.onSizeChanged { metadataHeight = it.height }.padding(start = 4.dp, top = 2.dp))
             }
@@ -229,8 +228,8 @@ private fun WallHeader(wall: ThanksWall.Wall, count: Int) {
     val palette = wallPalette()
     Column(Modifier.padding(start = 4.dp, top = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("感谢每一位伙伴", Modifier.semantics { heading() }, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = palette.ink)
-            Text("$count 位", Modifier.clip(CircleShape).background(palette.gold.copy(alpha = .14f))
+            Text(tr("感谢每一位伙伴"), Modifier.semantics { heading() }, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = palette.ink)
+            Text(trf("%s 位", count), Modifier.clip(CircleShape).background(palette.gold.copy(alpha = .14f))
                 .padding(horizontal = 9.dp, vertical = 2.dp), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = palette.gold)
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -315,7 +314,7 @@ private fun FeaturedCard(app: ModernMainActivity, wall: ThanksWall.Wall, person:
                     .padding(start = 9.dp, end = 13.dp, top = 5.dp, bottom = 5.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Box(Modifier.size(12.dp).drawBehind { drawPath(sparklePath(size.width / 2f, size.height / 2f, size.width / 2f), palette.onGold) })
-                    Text("特别鸣谢", Modifier.semantics { heading() }, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = palette.onGold)
+                    Text(tr("特别鸣谢"), Modifier.semantics { heading() }, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = palette.onGold)
                 }
             }
             val dedication: @Composable () -> Unit = {

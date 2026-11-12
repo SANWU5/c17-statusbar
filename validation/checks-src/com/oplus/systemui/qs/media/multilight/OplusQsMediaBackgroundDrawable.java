@@ -10,5 +10,6 @@ public class OplusQsMediaBackgroundDrawable extends TileLayerDrawable implements
     public Float lightWeight;
     public int cornerUpdates,failCorners;
     public OplusQsMediaBackgroundDrawable(CornerOutlineProvider provider){super(provider);lightRadius=provider.radius;lightWeight=provider.weight;}
+    @Override public void draw(android.graphics.Canvas canvas){super.draw(canvas);}
     public void setCornerParams(float radius,Float weight){cornerUpdates++;lightRadius=radius;lightWeight=weight;if(failCorners>0){failCorners--;throw new IllegalStateException("native media corners");}}
 }

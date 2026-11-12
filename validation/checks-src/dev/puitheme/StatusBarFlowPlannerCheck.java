@@ -28,7 +28,8 @@ public final class StatusBarFlowPlannerCheck {
         double left = 0d, right = 0d;
         for (StatusBarFlowPlanner.Placement p : result.placements) {
             check(Float.isFinite(p.x) && Float.isFinite(p.width) && Float.isFinite(p.reservedWidth)
-                    && Float.isFinite(p.leftMargin) && Float.isFinite(p.rightMargin), "all fields finite");
+                    && Float.isFinite(p.leftMargin) && Float.isFinite(p.rightMargin) && Float.isFinite(p.heldWidth), "all fields finite");
+            check(p.heldWidth >= 0f, "extra radio allocation is nonnegative");
             check(p.width >= 0f && p.reservedWidth >= 0f, "real allocation never has a negative budget");
             near(Math.max(0f, p.width + p.leftMargin + p.rightMargin), p.reservedWidth,
                     "signed margins change the allocation width without creating negative capacity");
@@ -36,7 +37,7 @@ public final class StatusBarFlowPlannerCheck {
             check(b.valid, "invalid bounds never show content");
             float start = LEFT.equals(p.side) || b.shared ? b.leftStart : b.rightStart;
             float end = RIGHT.equals(p.side) || b.shared ? b.rightEnd : b.leftEnd;
-            check(p.x - p.shift - p.leftMargin >= start - .02f && p.x - p.shift - p.leftMargin + p.reservedWidth <= end + .02f,
+            check(p.x - p.shift - p.leftMargin >= start - .02f && p.x - p.shift - p.leftMargin + p.reservedWidth + p.heldWidth <= end + .02f,
                     "allocation stays inside its safe interval; negative margins may deliberately overlap paint");
             if (p.shift != 0f) {
                 float natural = p.x - p.shift;
@@ -45,7 +46,7 @@ public final class StatusBarFlowPlannerCheck {
             }
             if (p.leftMargin >= 0f && p.rightMargin >= 0f)
                 check(p.x >= start - .02f && p.x + p.width <= end + .02f, "ordinary positive gaps retain paint inside safe bounds");
-            if (LEFT.equals(p.side)) left += p.reservedWidth; else right += p.reservedWidth;
+            if (LEFT.equals(p.side)) left += p.reservedWidth + p.heldWidth; else right += p.reservedWidth + p.heldWidth;
         }
         near((float) left, result.leftUsed, "left accounting"); near((float) right, result.rightUsed, "right accounting");
         if (b.valid && b.shared) check(left + right <= b.rightEnd - b.leftStart + .02f, "shared budget cannot collide");
@@ -53,7 +54,7 @@ public final class StatusBarFlowPlannerCheck {
             StatusBarFlowPlanner.Placement first = result.placements.get(i), second = result.placements.get(j);
             if (!first.visible || !second.visible) continue;
             float firstSlot = first.x - first.shift - first.leftMargin, secondSlot = second.x - second.shift - second.leftMargin;
-            check(firstSlot + first.reservedWidth <= secondSlot + .02f || secondSlot + second.reservedWidth <= firstSlot + .02f,
+            check(firstSlot + first.reservedWidth + first.heldWidth <= secondSlot + .02f || secondSlot + second.reservedWidth + second.heldWidth <= firstSlot + .02f,
                     "allocations never double-spend capacity even when negative margins deliberately overlap paint");
         }
     }
@@ -234,6 +235,10 @@ public final class StatusBarFlowPlannerCheck {
             boolean hole = random.nextBoolean(); float gap = hole ? 20f : 0f;
             StatusBarFlowPlanner.Bounds bounds = new StatusBarFlowPlanner.Bounds(3f, split - gap / 2, split + gap / 2, rootWidth - 3f);
             ArrayList<StatusBarFlowPlanner.Node> nodes = new ArrayList<>(); Bundle config = enabled();
+            config.putBoolean("speed_enabled", random.nextBoolean());
+            config.putBoolean("speed_position_enabled", random.nextBoolean());
+            config.putBoolean(SpeedPosition.SAFE_GAP_ENABLED, random.nextBoolean());
+            config.putFloat(SpeedPosition.EDGE_RESERVE, random.nextFloat() * 160f);
             for (int index = 0; index < StatusBarLayoutSettings.TOKENS.size(); index++) {
                 String token = StatusBarLayoutSettings.TOKENS.get(index);
                 config.putString(StatusBarLayoutSettings.key(token, "side"), random.nextBoolean() ? LEFT : RIGHT);

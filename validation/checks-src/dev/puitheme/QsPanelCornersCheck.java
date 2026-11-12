@@ -206,7 +206,7 @@ public final class QsPanelCornersCheck {
         check(card.body.layoutRequests==0&&card.layoutRequests==0&&card.body.getClipBounds()==null,"device contents and input layout retained");
         check(card.getOutlineProvider()==oldOuter.getPathProvider()&&card.body.getOutlineProvider()==card.outline,"actual native provider references retained");
         corners.configure(settings(false,0f));near(79f,oldOuter.pathProvider.radius,"off restores old outer's own native radius");check(oldOuter.weight==null,"off restores old outer null weight");near(53f,current.radius,"off restores current glass's independent original");near(51f,card.outline.radius,"off restores independent smooth original");
-        corners.configure(settings(true,10f));oldOuter.pathProvider.update(78f,.2f);current.setCornerRadius(52f,.8f);card.outline.setSmoothCorner(new com.oplus.deviceplugin.sdk.entity.SmoothRoundCorner(50f,.5f));corners.onNativeUpdate(card);
+        corners.configure(settings(true,10f));oldOuter.pathProvider.radius=78f;oldOuter.pathProvider.weight=.2f;current.setCornerRadius(52f,.8f);card.outline.setSmoothCorner(new com.oplus.deviceplugin.sdk.entity.SmoothRoundCorner(50f,.5f));corners.onNativeUpdate(card);
         Bundle safe=settings(true,10f);safe.putBoolean(StatusBarSettings.SAFE_MODE,true);corners.configure(safe);near(78f,oldOuter.radius,"safe restores latest original old outline");near(52f,current.radius,"safe restores latest native theme glass");near(50f,card.outline.radius,"safe restores latest native smooth shape");
         safe.putBoolean(StatusBarSettings.SAFE_MODE,false);corners.configure(safe);near(10f,current.radius,"safe exit rebinds surface radius");
         android.graphics.drawable.GradientDrawable theme=new android.graphics.drawable.GradientDrawable();float[] nativeCorners={13f,13f,17f,17f,19f,19f,23f,23f};theme.setCornerRadii(nativeCorners);theme.setColor(0xff123456);
@@ -451,7 +451,7 @@ public final class QsPanelCornersCheck {
         int setters=mix.cornerUpdates,apply=proxy.applied,weightSetters=config.weightUpdates;
         for(int i=0;i<1000;i++)owner.refresh(card,12f,QSConstant.weight);
         check(mix.cornerUpdates==setters&&proxy.applied==apply&&config.weightUpdates==weightSetters,"1000 unchanged native callbacks do not rebuild device material or shape");
-        config.radiusWeight=.9f;mix.pathProvider.update(mix.radius,.85f);owner.refresh(card,12f,QSConstant.weight);
+        config.radiusWeight=.9f;mix.pathProvider.radius=mix.radius;mix.pathProvider.weight=.85f;owner.refresh(card,12f,QSConstant.weight);
         near(.6f,mix.weight,"live native path update reapplies common static coefficient");near(.6f,proxy.visibleWeight,"live native blur update reapplies common coefficient");
         owner.restore();near(.85f,mix.weight,"restore preserves latest native weight-only path change");near(56f,mix.radius,"weight-only update never captures module radius as native baseline");
         near(.9f,proxy.visibleWeight,"restore preserves latest independent native blur coefficient");nativeCurves(nativeRadius,config,"weight-only update preserves native asymmetric radii");

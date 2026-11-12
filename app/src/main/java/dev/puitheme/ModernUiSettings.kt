@@ -54,7 +54,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.roundToInt
 
@@ -96,7 +95,7 @@ fun UiSettingsPage(app: ModernMainActivity) {
             item { UiGroupCard {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("配色方案", Modifier.weight(1f), fontSize = 16.sp)
+                        Text(tr("配色方案"), Modifier.weight(1f), fontSize = 16.sp)
                         Text(ui.scheme(ui.scheme).title, fontSize = 14.sp, color = MiuixTheme.colorScheme.primary)
                     }
                     // Keep labels readable on narrow screens and with the user's larger text setting.
@@ -120,7 +119,7 @@ fun UiSettingsPage(app: ModernMainActivity) {
             } }
             item { UiSectionTitle("名称") }
             item { UiGroupCard {
-                UiSwitchRow("恢复旧名称", "桌面图标显示“${LauncherIcon.LEGACY_NAME}”；系统设置和 LSPosed 里的应用名仍是 ${LauncherIcon.NAME}",
+                UiSwitchRow("恢复旧名称", trf("桌面图标显示“%1\$s”；系统设置和 LSPosed 里的应用名仍是 %2\$s", LauncherIcon.LEGACY_NAME, LauncherIcon.NAME),
                     app.legacyName, enabled = app.desktopIconAvailable && !app.busy && !app.maintenanceRunning,
                     onChecked = app::requestLegacyName)
             } }
@@ -128,14 +127,18 @@ fun UiSettingsPage(app: ModernMainActivity) {
             item { UiGroupCard {
                 UiThemes.ALL.forEach { theme -> ThemeRow(ui, theme) }
             } }
-            item { UiSectionTitle("主题配色来自开源项目，保持原作颜色；选用后色彩风格不再适用，深浅色与深色背景仍然有效。") }
+            item { UiSectionNote("主题配色来自开源项目，保持原作颜色；选用后色彩风格不再适用，深浅色与深色背景仍然有效。") }
             item { UiSectionTitle("显示") }
             item { UiGroupCard {
                 UiTypableSlider("界面字号", ui.textScale.toFloat(), 80f..130f, "${ui.textScale}%", onType = { typing = "scale" }) { ui.updateTextScale(it.roundToInt()) }
                 UiSwitchRow("滚动渐隐", checked = ui.edgeFade) { ui.updateEdgeFade(it) }
                 val glass = GlassNavigationPreference.supported()
-                UiSwitchRow("液态玻璃底栏", if (glass) "" else "需要 Android 13 或更新版本",
-                    checked = app.glassNavigation, enabled = glass) { app.updateGlassNavigation(it) }
+                val material = ui.style == C17UiStyle.MATERIAL
+                UiSwitchRow("液态玻璃底栏", when {
+                    !glass -> "需要 Android 13 或更新版本"
+                    material -> "Material 风格使用贴底导航栏，切换到其他风格后生效"
+                    else -> ""
+                }, checked = app.glassNavigation && !material, enabled = glass && !material) { app.updateGlassNavigation(it) }
             } }
             item { UiGroupCard {
                 UiRow("恢复默认", icon = Icons.Outlined.RestartAlt) { app.resetUi(); app.toast("界面设置已恢复默认") }
@@ -143,9 +146,10 @@ fun UiSettingsPage(app: ModernMainActivity) {
         }
         if (choosingUi) UiChoiceDialog(
             title = "界面风格",
-            values = listOf(UiSettings.MIUIX, UiSettings.COUI),
-            labels = listOf("Miuix", "COUI"),
+            values = C17UiStyle.entries.map { it.id },
+            labels = C17UiStyle.entries.map { it.title },
             selected = ui.uiStyle,
+            optionSummary = { id -> C17UiStyle.of(id).summary },
             onDismiss = { choosingUi = false },
             onChoice = { app.updateUiStyle(it) },
         )
@@ -184,9 +188,7 @@ private fun UiTypableSlider(title: String, value: Float, range: ClosedFloatingPo
 }
 
 @Composable
-private fun UiSectionTitle(title: String) {
-    Text(title, Modifier.padding(start = 12.dp, top = 4.dp, bottom = 0.dp), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-}
+private fun UiSectionTitle(title: String) = UiSectionHeader(title)
 
 /** The choices grow with the labels and font scale, sharing the content-sized tab control. */
 @Composable
@@ -238,7 +240,7 @@ private fun SchemeSwatch(ui: UiSettings, scheme: UiScheme) {
     val fill: Brush = when {
         scheme.dynamic -> Brush.sweepGradient(listOf(Color(0xFFFF5F57), Color(0xFFFFBD2E), Color(0xFF28C840), Color(0xFF30B0C7), Color(0xFF3482FF), Color(0xFFAF52DE), Color(0xFFFF5F57)))
         scheme.key == null -> {
-            val blue = if (ui.coui) Color(0xFF0066FF) else UiSettings.STOCK_BLUE
+            val blue = c17StockBlue(ui.style)
             Brush.linearGradient(listOf(blue, blue))
         }
         else -> Brush.linearGradient(listOf(scheme.key, scheme.key))

@@ -59,5 +59,16 @@ public final class IconNativeAppearanceCheck {
         for(Object node:(Object[])nodes.get(cached))for(String name:new String[]{"current","filter"}){Field slot=node.getClass().getDeclaredField(name);slot.setAccessible(true);equal(null,slot.get(node));}
         IconNativeAppearance.releaseRuntime();equal(0,cache().size());
     }
-    public static void main(String[] args)throws Exception{leaves();layers();cacheAndOverlap();System.out.println("IconNativeAppearance checks passed: "+checks);}
+    private static void recoverNativeTree()throws Exception{
+        Canvas canvas=new Canvas();IconManagementSelection.ColorPlan custom=plan("custom",50);
+        DrawableWrapper pending=new DrawableWrapper(null);IconNativeAppearance.draw(pending,canvas,custom);
+        Object waiting=cache().get(pending);for(int i=0;i<100;i++)IconNativeAppearance.draw(pending,canvas,custom);equal(waiting,cache().get(pending));
+        Glyph first=new Glyph(200,tint(0xff112233));pending.setDrawable(first);IconNativeAppearance.draw(pending,canvas,custom);
+        equal(100,first.drawAlpha);equal(200,first.alpha);equal(0xff123456,IconManagementRuntime.filterColor(first.drawFilter));
+        pending.setDrawable(null);IconNativeAppearance.draw(pending,canvas,custom);
+        Glyph second=new Glyph(80,tint(0xff445566));pending.setDrawable(second);IconNativeAppearance.draw(pending,canvas,custom);
+        equal(40,second.drawAlpha);equal(80,second.alpha);equal(200,first.alpha);
+        Object reused=cache().get(pending);for(int i=0;i<100;i++)IconNativeAppearance.draw(pending,canvas,custom);equal(reused,cache().get(pending));
+    }
+    public static void main(String[] args)throws Exception{leaves();layers();cacheAndOverlap();recoverNativeTree();System.out.println("IconNativeAppearance checks passed: "+checks);}
 }

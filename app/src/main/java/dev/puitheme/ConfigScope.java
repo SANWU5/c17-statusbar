@@ -71,6 +71,8 @@ public final class ConfigScope {
                 case "data": candidates.add(StatusBarSettings.DATA_OFFSET_X); break;
                 case "wifi": candidates.add(StatusBarSettings.WIFI_OFFSET_X); break;
                 case "label": candidates.add(StatusBarSettings.LABEL_OFFSET_X); break;
+                case "network": candidates.add(StatusBarSettings.WIFI_OFFSET_X); candidates.add(StatusBarSettings.LABEL_OFFSET_X);
+                    candidates.add(StatusBarSettings.SLOT_WIDTH); break; // Historical width stays in its original partial backups.
                 case "battery": candidates.add(StatusBarSettings.BATTERY_OFFSET_X); break;
                 case "notification_icons": candidates.add(NotificationIconArea.X); break;
                 case "status_hint_icons": candidates.add(NativeStatusIcons.X); break;
@@ -78,7 +80,9 @@ public final class ConfigScope {
             }
             // The page's feature switches (what makes its values count) travel with the page, shown as items or not.
             for (Map.Entry<String, String> owner : FeatureOptions.GROUP_BY_KEY.entrySet())
-                if (group.id.equals(owner.getValue())) candidates.add(owner.getKey());
+                if (!"network".equals(group.id) && group.id.equals(owner.getValue())
+                        || "network".equals(group.id) && ("wifi".equals(owner.getValue()) || "label".equals(owner.getValue())))
+                    candidates.add(owner.getKey());
             for (String key : candidates)
                 if (portable.containsKey(key) && claimed.add(key)) keys.add(key);
             if (!keys.isEmpty()) result.add(new Section(group.id, group.title, categoryLabel(group.category), keys));
@@ -93,6 +97,15 @@ public final class ConfigScope {
 
     public static Section section(String id) {
         for (Section section : sections()) if (section.id.equals(id)) return section;
+        // Previously saved export selections retain their exact old subset,
+        // while the current checklist exposes one actual network page.
+        if("wifi".equals(id)||"label".equals(id)||"native_network_badge".equals(id)){
+            Section network=null;for(Section section:sections())if("network".equals(section.id)){network=section;break;}
+            if(network!=null){Set<String> keys=new LinkedHashSet<>();
+                for(String key:network.keys)if(id.equals(SettingsCatalog.networkOwner(key)))keys.add(key);
+                if(!keys.isEmpty())return new Section(id,"wifi".equals(id)?"Wi-Fi 图标":"label".equals(id)?"网络制式文字":"原生角标调整","状态栏",keys);
+            }
+        }
         return null;
     }
 
@@ -101,6 +114,9 @@ public final class ConfigScope {
         Set<String> result = new LinkedHashSet<>();
         if (ids == null) return result;
         for (Section section : sections()) if (ids.contains(section.id)) result.addAll(section.keys);
+        for(String legacy:new String[]{"wifi","label","native_network_badge"})if(ids.contains(legacy)){
+            Section section=section(legacy);if(section!=null)result.addAll(section.keys);
+        }
         return result;
     }
 

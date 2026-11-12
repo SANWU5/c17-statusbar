@@ -39,6 +39,8 @@ public final class FeatureOptionsCheck {
         expectedBooleans.putAll(QsTileFullFill.BOOLEANS);
         expectedBooleans.putAll(QsTileCorners.BOOLEANS);
         expectedBooleans.putAll(QsMediaAppearance.BOOLEANS);
+        expectedBooleans.putAll(QsCardSettings.BOOLEANS);
+        expectedBooleans.put(QsWifiAlias.ENABLED,false);
         expectedBooleans.putAll(NotificationBigClockSettings.BOOLEANS);
         expectedBooleans.putAll(BigClockWidgetsSettings.BOOLEANS);
         expectedBooleans.putAll(FeatureGroups.BOOLEANS);
@@ -60,6 +62,11 @@ public final class FeatureOptionsCheck {
         expectedBooleans.put(ResidentCache.INSTALLED, false);
         expectedBooleans.put(ResidentCache.RUNNING, false);
         equal(expectedBooleans, StatusBarSettings.BOOLEAN_DEFAULTS);
+        equal(6, QsCardSettings.BOOLEANS.size()); // Five current switches and the preserved code195 key.
+        for (String key : QsCardSettings.BOOLEANS.keySet()) {
+            equal(false, StatusBarSettings.BOOLEAN_DEFAULTS.get(key));
+            equal(false, FeatureOptions.DEFAULTS.containsKey(key));
+        }
         equal(false, StatusBarSettings.BOOLEAN_DEFAULTS.get(StatusBarLayoutSettings.MASTER));
         equal(false, FeatureOptions.DEFAULTS.containsKey(StatusBarLayoutSettings.MASTER));
         Bundle layoutOnly = new Bundle(); layoutOnly.putBoolean(StatusBarLayoutSettings.MASTER, true);
@@ -81,7 +88,7 @@ public final class FeatureOptionsCheck {
         equal(false, defaults.enabled("unknown"));
         equal(false, defaults.isEnabled("unknown"));
         equal(11, FeatureOptions.GROUPS.length);
-        equal(152, FeatureOptions.DEFAULTS.size());
+        equal(158, FeatureOptions.DEFAULTS.size());
         equal(false,FeatureOptions.DEFAULTS.get(NetworkLabelFormats.ENABLED));
         equal("label",FeatureOptions.GROUP_BY_KEY.get(NetworkLabelFormats.ENABLED));
         Map<String,Object> gradeSettings=new HashMap<>();gradeSettings.put("label_enabled",true);

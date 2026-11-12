@@ -90,17 +90,80 @@ public final class WifiLabelSharedPositionCheck {
         equal(-9.25f, imported.get(left), "independent negative label setting stays distinct during sharing");
         raw.values.put(StatusBarLayoutSettings.WIFI_LABEL_SHARED, false);
         equal(-9.25f, SettingEditor.storedValue(labelLeft, raw.getAll()), "closing sharing recovers the prior signed independent setting");
+        raw.values.put(StatusBarLayoutSettings.WIFI_LABEL_SHARED,true);
+        raw.values.put(StatusBarSettings.WIFI_OFFSET_Y,-3.25f);raw.values.put(StatusBarSettings.LABEL_OFFSET_Y,12.5f);
+        trialKey=StatusBarLayoutSettings.editingKey(StatusBarSettings.LABEL_OFFSET_Y,raw.getAll());
+        check(NumericTrial.begin(storage,raw,raw,trialKey,-8.125f),"shared vertical trial uses the same actual preference path");
+        equal(-8.125f,raw.values.get(StatusBarSettings.WIFI_OFFSET_Y),"trial changes canonical Y");
+        equal(12.5f,raw.values.get(StatusBarSettings.LABEL_OFFSET_Y),"trial preserves independent label Y");
+        check(NumericTrial.rollback(),"shared vertical trial can cancel");equal(-3.25f,raw.values.get(StatusBarSettings.WIFI_OFFSET_Y),"trial rollback restores canonical Y");
+    }
+    private static void sharedVerticalPosition() throws Exception {
+        Map<String,Object> saved=new LinkedHashMap<>();saved.put(StatusBarLayoutSettings.WIFI_LABEL_SHARED,true);
+        saved.put(StatusBarSettings.WIFI_OFFSET_Y,-3.25f);saved.put(StatusBarSettings.LABEL_OFFSET_Y,12.5f);
+        saved.put("wifi_position_enabled",true);saved.put("label_position_enabled",false);
+        saved.put("wifi_size_enabled",false);saved.put("label_size_enabled",true);
+        saved.put(StatusBarSettings.WIFI_ICON_SCALE,145f);saved.put(StatusBarSettings.LABEL_SCALE,80f);
+        equal(StatusBarSettings.WIFI_OFFSET_Y,StatusBarLayoutSettings.editingKey(StatusBarSettings.LABEL_OFFSET_Y,saved),"shared label vertical editor uses canonical Wi-Fi offset");
+        equal("wifi_position_enabled",StatusBarLayoutSettings.editingKey("label_position_enabled",saved),"shared label position toggle edits the same canonical switch");
+        equal(-3.25f,SettingEditor.storedValue(SettingsCatalog.item(StatusBarSettings.LABEL_OFFSET_Y),saved),"label slider reads canonical Wi-Fi Y");
+        equal(true,SettingEditor.storedValue(SettingsCatalog.item("label_position_enabled"),saved),"label switch reads canonical Wi-Fi intent");
+        for(String key:Arrays.asList("wifi_enabled","label_enabled","wifi_size_enabled","label_size_enabled",
+                StatusBarSettings.WIFI_ICON_SCALE,StatusBarSettings.LABEL_SCALE,StatusBarSettings.SLOT_WIDTH,StatusBarSettings.DATA_OFFSET_Y))
+            equal(key,StatusBarLayoutSettings.editingKey(key,saved),"sharing does not alias independent size/master field "+key);
+        equal(StatusBarSettings.WIFI_OFFSET_X,StatusBarLayoutSettings.editingKey(StatusBarSettings.LABEL_OFFSET_X,saved),"shared horizontal editor uses the same canonical position");
+        for(String key:Arrays.asList(StatusBarSettings.WIFI_OFFSET_Y,StatusBarSettings.LABEL_OFFSET_Y)){
+            SettingsCatalog.Item item=SettingsCatalog.item(key);
+            check(SettingsCatalog.displayTitle(item,saved).contains("共用"),"both vertical rows show shared state");
+            check(SettingEditor.forItem(item,saved).description.contains("共用"),"both numeric editors explain shared vertical state");
+        }
+        check(!SettingsCatalog.displayTitle(SettingsCatalog.item(StatusBarSettings.LABEL_SCALE),saved).contains("共用"),"independent label scale is not presented as shared");
+        check(SettingsCatalog.item(StatusBarLayoutSettings.WIFI_LABEL_SHARED).description.contains("大小"),"shared switch explains independent size controls");
+        for(int masters=0;masters<4;masters++)for(boolean position:new boolean[]{false,true}){
+            saved.put("wifi_enabled",(masters&1)!=0);saved.put("label_enabled",(masters&2)!=0);
+            saved.put("wifi_position_enabled",position);saved.put("label_position_enabled",!position);
+            Bundle raw=bundle(saved),runtime=StatusBarLayoutSettings.runtime(raw);FeatureOptions effective=FeatureOptions.from(runtime);
+            equal(-3.25f,runtime.getFloat(StatusBarSettings.LABEL_OFFSET_Y),"runtime label Y uses canonical value independently of either master");
+            equal(12.5f,raw.getFloat(StatusBarSettings.LABEL_OFFSET_Y),"runtime never overwrites saved independent label Y");
+            equal(!position,raw.getBoolean("label_position_enabled"),"runtime never overwrites saved independent label switch");
+            equal((masters&1)!=0&&position,effective.position("wifi"),"Wi-Fi position keeps its own feature master");
+            equal((masters&2)!=0&&position,effective.position("label"),"label position keeps its own feature master");
+            equal(false,effective.size("wifi"),"Wi-Fi size switch stays independent");
+            equal((masters&2)!=0,effective.size("label"),"label size remains independently enabled");
+            equal(145f,runtime.getFloat(StatusBarSettings.WIFI_ICON_SCALE),"Wi-Fi scale remains independently stored");
+            equal(80f,runtime.getFloat(StatusBarSettings.LABEL_SCALE),"label scale remains independently stored");
+            raw.putBoolean(StatusBarLayoutSettings.WIFI_LABEL_SHARED,false);Bundle restored=StatusBarLayoutSettings.runtime(raw);
+            equal(!position,restored.getBoolean("label_position_enabled"),"closing sharing restores either independently saved label switch state");
+            equal(12.5f,restored.getFloat(StatusBarSettings.LABEL_OFFSET_Y),"closing sharing restores saved label Y for every independent-master combination");
+        }
+        Map<String,Object> defaults=new LinkedHashMap<>(saved);defaults.remove("wifi_position_enabled");defaults.remove(StatusBarSettings.WIFI_OFFSET_Y);
+        Bundle inherited=StatusBarLayoutSettings.runtime(bundle(defaults));
+        equal(true,inherited.getBoolean("label_position_enabled"),"missing canonical switch uses its existing enabled default");
+        equal(0f,inherited.getFloat(StatusBarSettings.LABEL_OFFSET_Y),"missing canonical Y uses Wi-Fi default rather than old label Y");
+        saved.put(StatusBarSettings.SAFE_MODE,true);Bundle paused=StatusBarLayoutSettings.runtime(bundle(saved));
+        equal(12.5f,paused.getFloat(StatusBarSettings.LABEL_OFFSET_Y),"safe mode suspends effective vertical sharing");
+        check(!FeatureOptions.from(paused).position("label")&&!FeatureOptions.from(paused).position("wifi"),"safe mode suspends both position effects");
+        saved.remove(StatusBarSettings.SAFE_MODE);saved.put(StatusBarLayoutSettings.WIFI_LABEL_SHARED,false);
+        Bundle independent=StatusBarLayoutSettings.runtime(bundle(saved));
+        equal(12.5f,independent.getFloat(StatusBarSettings.LABEL_OFFSET_Y),"closing sharing restores original independent label Y");
+        equal(false,independent.getBoolean("label_position_enabled"),"closing sharing restores original independent label switch");
+        equal(StatusBarSettings.LABEL_OFFSET_Y,StatusBarLayoutSettings.editingKey(StatusBarSettings.LABEL_OFFSET_Y,saved),"closing sharing restores independent editor");
+        Map<String,Object> imported=ConfigTransfer.prepare(ConfigTransfer.exportJson(saved),true).values();
+        equal(12.5f,imported.get(StatusBarSettings.LABEL_OFFSET_Y),"export retains independent label Y");
+        equal(-3.25f,imported.get(StatusBarSettings.WIFI_OFFSET_Y),"export retains canonical Wi-Fi Y");
     }
     public static void main(String[] ignored) throws Exception {
+        sharedVerticalPosition();
         equal(false, StatusBarLayoutSettings.BOOLEANS.get(StatusBarLayoutSettings.WIFI_LABEL_SHARED), "sharing is opt-in");
         check(StatusBarLayoutSettings.owns(StatusBarLayoutSettings.WIFI_LABEL_SHARED), "protocol recognizes its Boolean key");
         check(!StatusBarLayoutSettings.Snapshot.parse(new Bundle()).wifiLabelShared, "empty configuration is independent");
         SettingsCatalog.Item toggle = SettingsCatalog.item(StatusBarLayoutSettings.WIFI_LABEL_SHARED);
         check(toggle != null && SettingsCatalog.BOOLEAN.equals(toggle.type), "visible switch has the Boolean protocol");
-        for (String group : Arrays.asList("wifi", "label")) {
-            check(SettingsCatalog.commonDetailItems(SettingsCatalog.group(group)).contains(toggle), "same switch is reachable on both relevant pages");
-            equal("", SettingsCatalog.unavailableReason(toggle.key, Collections.emptyMap()), "sharing requires neither page style nor sorting");
-        }
+        check(SettingsCatalog.items("network").contains(toggle), "shared switch belongs to the single actual network editor");
+        equal("common",SettingsCatalog.networkDetailPageId(toggle.key),"shared position is grouped in the common position tab");
+        equal("", SettingsCatalog.unavailableReason(toggle.key, Collections.emptyMap()), "sharing requires neither style nor sorting");
+        for(String old:new String[]{"wifi","label","native_network_badge"})
+            equal("network",SettingsCatalog.canonicalGroupId(old),"old network destinations still reach the unified page");
         equal(ConfigTransfer.Type.BOOLEAN, ConfigTransfer.types().get(toggle.key), "switch is portable as Boolean");
         check(ConfigScope.section("wifi").keys().contains(toggle.key), "shared switch has a stable export owner");
         Map<String, Object> values = new LinkedHashMap<>(); values.put(toggle.key, true);

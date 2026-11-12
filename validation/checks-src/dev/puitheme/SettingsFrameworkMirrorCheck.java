@@ -61,7 +61,7 @@ public final class SettingsFrameworkMirrorCheck {
         Map<String,Object> values=wire(snapshot,revision);
         values.remove(FluidCloudStyle.BACKGROUND_COLOR_CUSTOMIZED);
         values.remove(FluidCloudStyle.FOLLOW_MEDIA);values.put(SettingsFrameworkMirror.SCHEMA,1);
-        for(String key:Upgrade103.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade105.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade106.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade107.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade108.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade117.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade118.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade135.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade136.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade144.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade146.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade154.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade157.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade160.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade168.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade169.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade171.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade172.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade173.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade174.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade175.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade177.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade184.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade185.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade186.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade187.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade188.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade166.DEFAULTS.keySet())values.remove(key);
+        for(String key:Upgrade103.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade105.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade106.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade107.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade108.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade117.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade118.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade135.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade136.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade144.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade146.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade154.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade157.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade160.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade168.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade169.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade171.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade172.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade173.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade174.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade175.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade177.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade184.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade185.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade186.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade187.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade188.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade195.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade196.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade209.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade279.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade166.DEFAULTS.keySet())values.remove(key);
         for(String key:Upgrade65.DEFAULTS.keySet())values.remove(key);
         for(String key:Upgrade66.DEFAULTS.keySet())values.remove(key);
         for(String key:Upgrade67.DEFAULTS.keySet())values.remove(key);
@@ -79,9 +79,9 @@ public final class SettingsFrameworkMirrorCheck {
         for(String key:Upgrade99.DEFAULTS.keySet())values.remove(key);
         for(String key:Upgrade100.DEFAULTS.keySet())values.remove(key);
         for(String key:Upgrade101.DEFAULTS.keySet())values.remove(key);
-        for(String key:Upgrade103.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade105.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade106.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade107.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade108.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade117.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade118.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade135.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade136.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade144.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade146.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade154.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade157.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade160.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade168.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade169.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade171.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade172.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade173.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade174.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade175.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade177.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade184.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade185.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade186.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade187.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade188.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade166.DEFAULTS.keySet())values.remove(key);
+        for(String key:Upgrade103.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade105.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade106.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade107.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade108.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade117.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade118.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade135.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade136.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade144.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade146.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade154.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade157.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade160.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade168.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade169.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade171.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade172.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade173.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade174.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade175.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade177.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade184.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade185.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade186.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade187.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade188.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade195.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade196.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade209.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade279.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade166.DEFAULTS.keySet())values.remove(key);
         for(String key:Upgrade93.DEFAULTS.keySet())values.remove(key);
-        for(String key:Upgrade117.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade118.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade135.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade136.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade144.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade146.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade154.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade157.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade160.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade168.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade169.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade171.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade172.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade173.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade174.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade175.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade177.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade184.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade185.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade186.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade187.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade188.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade166.DEFAULTS.keySet())values.remove(key);
+        for(String key:Upgrade117.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade118.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade135.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade136.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade144.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade146.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade154.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade157.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade160.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade168.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade169.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade171.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade172.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade173.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade174.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade175.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade177.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade184.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade185.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade186.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade187.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade188.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade195.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade196.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade209.DEFAULTS.keySet())values.remove(key);for(String key:Upgrade279.DEFAULTS.keySet())values.remove(key); for(String key:Upgrade166.DEFAULTS.keySet())values.remove(key);
         return values;
     }
     private static Object legacyExpected(Bundle current,String key){
@@ -138,7 +138,7 @@ public final class SettingsFrameworkMirrorCheck {
         }
         Map<String,Object> wrong=new LinkedHashMap<>(legacy);wrong.put(StatusBarSettings.DATA_OFFSET_X,138);equal(null,SettingsFrameworkMirror.decode(wrong));
         wrong=new LinkedHashMap<>(legacy);wrong.put(SettingsFrameworkMirror.SCHEMA,3);
-        for(String key:Upgrade103.DEFAULTS.keySet())wrong.remove(key);for(String key:Upgrade105.DEFAULTS.keySet())wrong.remove(key);for(String key:Upgrade106.DEFAULTS.keySet())wrong.remove(key);for(String key:Upgrade107.DEFAULTS.keySet())wrong.remove(key);for(String key:Upgrade108.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade117.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade118.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade135.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade136.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade144.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade146.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade154.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade157.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade160.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade168.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade169.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade171.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade172.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade173.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade174.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade175.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade177.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade184.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade185.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade186.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade187.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade188.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade166.DEFAULTS.keySet())wrong.remove(key);equal(null,SettingsFrameworkMirror.decode(wrong));
+        for(String key:Upgrade103.DEFAULTS.keySet())wrong.remove(key);for(String key:Upgrade105.DEFAULTS.keySet())wrong.remove(key);for(String key:Upgrade106.DEFAULTS.keySet())wrong.remove(key);for(String key:Upgrade107.DEFAULTS.keySet())wrong.remove(key);for(String key:Upgrade108.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade117.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade118.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade135.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade136.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade144.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade146.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade154.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade157.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade160.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade168.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade169.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade171.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade172.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade173.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade174.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade175.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade177.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade184.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade185.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade186.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade187.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade188.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade195.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade196.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade209.DEFAULTS.keySet())wrong.remove(key);for(String key:Upgrade279.DEFAULTS.keySet())wrong.remove(key); for(String key:Upgrade166.DEFAULTS.keySet())wrong.remove(key);equal(null,SettingsFrameworkMirror.decode(wrong));
         for(String key:defaults.keySet())if(added58(key)) {
             Map<String,Object> partial=new LinkedHashMap<>(legacy);partial.put(key,defaults.get(key));equal(null,SettingsFrameworkMirror.decode(partial));
             Map<String,Object> missing=new LinkedHashMap<>(wire(current,5800L));missing.remove(key);equal(null,SettingsFrameworkMirror.decode(missing));
@@ -528,9 +528,59 @@ public final class SettingsFrameworkMirrorCheck {
         equal(null,absent.read());equal(false,absent.observed());absent.stop();
 
         // Same-service reconnection uses the SDK's same cached, failed-memory preferences.
-        Store remote=new Store();remote.replace(wire(first,20L));XposedService service=new XposedService(remote.preferences);
-        Context context=new Context();SettingsFrameworkMirror.confirmed(context,first);SettingsFrameworkMirror.bound(service);settle();
+        Store remote=new Store();XposedService service=new XposedService(remote.preferences);
+        java.nio.file.Path root=java.nio.file.Files.createTempDirectory("c17-shared-boot-");
+        root.toFile().deleteOnExit();
+        Context context=new Context(root.toFile());
+        CustomPluginRepository repository=new CustomPluginRepository(context);
+        java.nio.file.Path library=java.nio.file.Files.createDirectory(root.resolve("custom_plugins"));
+        library.toFile().deleteOnExit();
+        java.nio.file.Path database=library.resolve("library.json");database.toFile().deleteOnExit();
+        byte[] emptyLibrary="{\"format\":1,\"revision\":0,\"plugins\":{}}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        Store newRemote=new Store(),olderRemote=new Store();
+        olderRemote.replace(wire(first,17L));
+        XposedService newService=new XposedService(newRemote.preferences),olderService=new XposedService(olderRemote.preferences);
+        ActivationGuardPreferencesCheck.MemoryPreferences raw=new ActivationGuardPreferencesCheck.MemoryPreferences();
+        ActivationGuardPreferencesCheck.MemoryPreferences credential=new ActivationGuardPreferencesCheck.MemoryPreferences();
+        ActivationGuardPreferencesCheck.MemoryPreferences backup=new ActivationGuardPreferencesCheck.MemoryPreferences();
+        Map<String,SharedPreferences> other=new HashMap<>();
+        android.os.UserManager users=new android.os.UserManager();
+        Context fresh=new Context(root.toFile()){
+            @Override public Object getSystemService(String name){return users;}
+            @Override public Context createPackageContext(String name,int flags){return new Context(){
+                @Override public boolean isDeviceProtectedStorage(){return false;}
+                @Override public SharedPreferences getSharedPreferences(String name,int mode){return credential;}
+            };}
+            @Override public SharedPreferences getSharedPreferences(String name,int mode){
+                if(StatusBarSettings.PREFS.equals(name))return raw;
+                if("statusbar_settings_last_good".equals(name))return backup;
+                return other.computeIfAbsent(name,ignored->new ActivationGuardPreferencesCheck.MemoryPreferences());
+            }
+        };
+        users.unlocked=false;equal(false,SettingsSnapshot.freshForFramework(fresh,raw));
+        users.unlocked=true;credential.edit().putBoolean(StatusBarSettings.SAFE_MODE,true).commit();
+        equal(false,SettingsSnapshot.freshForFramework(fresh,raw));
+        credential.edit().clear().commit();backup.edit().putBoolean(StatusBarSettings.SAFE_MODE,true).commit();
+        equal(false,SettingsSnapshot.freshForFramework(fresh,raw));
+        backup.edit().clear().commit();equal(true,SettingsSnapshot.freshForFramework(fresh,raw));
+        SettingsFrameworkMirror.offerDefaults(fresh,raw);
+        SettingsFrameworkMirror.bound(newService);SettingsFrameworkMirror.bound(olderService);settle();
+        equal(0,newRemote.commits);equal(0,olderRemote.commits);
+        java.nio.file.Files.write(database,emptyLibrary);repository.setAllDisabled();settle();
+        equal(1,newRemote.commits);equal(0,olderRemote.commits);
+        equal(true,raw.getAll().isEmpty());
+        equal(false,newRemote.disk.get(StatusBarSettings.SAFE_MODE));
+        equal(1L,new org.json.JSONObject((String)newRemote.disk.get(CustomPluginFrameworkPublisher.KEY)).getLong("revision"));
+        SettingsFrameworkMirror.unbound(newService);SettingsFrameworkMirror.unbound(olderService);
+        java.nio.file.Files.write(database,emptyLibrary);
+        Map<String,Object> initial=wire(first,20L);
+        initial.put(CustomPluginFrameworkPublisher.KEY,CustomPluginFrameworkPublisher.stage(service,
+                repository.frameworkPlans(true),java.util.Collections.emptySet()).metadata);
+        remote.replace(initial);
+        SettingsFrameworkMirror.confirmed(context,first);SettingsFrameworkMirror.bound(service);settle();
         equal(true,SettingsFrameworkMirror.status().get("ready"));equal(0,remote.commits);
+        equal(true,SettingsFrameworkMirror.status().get("plugin_boot_ready"));
+        equal(1,SettingsFrameworkMirror.status().get("plugin_boot_scopes"));
         remote.fail=4;SettingsFrameworkMirror.confirmed(context,second);settle();
         equal(false,SettingsFrameworkMirror.status().get("ready"));equal(-8.24f,remote.disk.get(StatusBarSettings.DATA_OFFSET_X));
         int before=remote.commits;
@@ -544,6 +594,32 @@ public final class SettingsFrameworkMirrorCheck {
         settle();equal(before,remote.commits);equal(reads,remote.reads);
         trial(true);SettingsFrameworkMirror.confirmed(context,saved(77f,false));settle();
         equal(3.25f,remote.disk.get(StatusBarSettings.DATA_OFFSET_X));equal(before,remote.commits);trial(false);
+        // A plugin-only durability event advances the shared revision and has a matching safe-mode value.
+        long previousRevision=(Long)remote.disk.get(SettingsFrameworkMirror.REVISION);
+        repository.setAllDisabled();settle();
+        equal(true,(Long)remote.disk.get(SettingsFrameworkMirror.REVISION)>previousRevision);
+        org.json.JSONObject boot=new org.json.JSONObject((String)remote.disk.get(CustomPluginFrameworkPublisher.KEY));
+        equal(1L,boot.getLong("revision"));equal(false,boot.getBoolean("safeMode"));
+        org.json.JSONObject reference=boot.getJSONObject("plans").getJSONObject(ModuleRuntimeStatus.SYSTEM_UI);
+        String file=reference.getString("file");
+        try(java.io.InputStream stream=new android.os.ParcelFileDescriptor.AutoCloseInputStream(service.openRemoteFileForCheck(file))) {
+            byte[] bytes=stream.readAllBytes();
+            equal(bytes.length,reference.getInt("bytes"));
+            org.json.JSONObject plan=new org.json.JSONObject(new String(bytes,java.nio.charset.StandardCharsets.UTF_8));
+            equal(1L,plan.getLong("revision"));equal(false,plan.getBoolean("safeMode"));
+            equal(ModuleRuntimeStatus.SYSTEM_UI,plan.getString("targetPackage"));
+            equal(0,plan.getJSONArray("runtimes").length());
+        }
+        service.filesUnavailable=true;
+        repository.setAllDisabled();settle();
+        equal(CustomPluginFrameworkPublisher.WITHDRAWN,remote.disk.get(CustomPluginFrameworkPublisher.KEY));
+        equal(true,SettingsFrameworkMirror.status().get("ready"));
+        equal(false,SettingsFrameworkMirror.status().get("plugin_boot_ready"));
+        service.filesUnavailable=false;
+        SettingsFrameworkMirror.retryConfirmed(context);settle();
+        boot=new org.json.JSONObject((String)remote.disk.get(CustomPluginFrameworkPublisher.KEY));
+        equal(2L,boot.getLong("revision"));equal(true,SettingsFrameworkMirror.status().get("plugin_boot_ready"));
+        before=remote.commits;
         SettingsFrameworkMirror.unbound(service);equal(false,SettingsFrameworkMirror.status().get("ready"));
         equal(0,SettingsFrameworkMirror.status().get("available_targets"));
         SettingsFrameworkMirror.retryConfirmed(context);settle();equal(before,remote.commits);

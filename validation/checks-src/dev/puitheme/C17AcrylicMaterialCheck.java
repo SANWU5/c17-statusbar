@@ -83,7 +83,26 @@ public final class C17AcrylicMaterialCheck {
         Bundle safe=settings(true,true);safe.putBoolean(StatusBarSettings.SAFE_MODE,true);helper.configure(safe);helper.drawContent(engine,new Canvas(),c->{engine.onDrawContent(c);return null;});same(original,engine.recorded);
         helper.configure(settings(true,true));helper.detach(view);helper.drawContent(engine,new Canvas(),c->{engine.onDrawContent(c);return null;});same(original,engine.recorded);
         helper.release();view.getResources().getConfiguration().uiMode=Configuration.UI_MODE_NIGHT_NO;
-        return checks;
+        moreDetail();return checks;
+    }
+    private static void moreDetail() throws Throwable {
+        C17HighlightRemoval helper=new C17HighlightRemoval();
+        com.oplus.systemui.qs.base.widget.MaxHeightAndWidthLinearLayout frame=new com.oplus.systemui.qs.base.widget.MaxHeightAndWidthLinearLayout();
+        android.widget.FrameLayout body=new android.widget.FrameLayout(null),wrapper=new android.widget.FrameLayout(null);
+        android.widget.TextView title=new android.widget.TextView(null);title.setId(android.R.id.title);title.setTextColor(0xffffffff);frame.addView(title);frame.addView(body);body.addView(wrapper);
+        equal(false,helper.isSurface(frame));
+        View content=new dev.c17.plugins.freeedit.QsMoreWindow.Panel();wrapper.addView(content);equal(true,helper.isSurface(frame));
+        BlendDrawable engine=new BlendDrawable();NativeMaterial material=new NativeMaterial();QsTileAppearance.setField(engine,"drawableShader",material);RuntimeShader original=material.shader;
+        try(C17HighlightRemoval.SurfaceScope scope=helper.beginSurface(frame)){helper.bindDrawable(engine);}
+        helper.configure(settings(true,false));helper.drawContent(engine,new Canvas(),c->{engine.onDrawContent(c);return null;});
+        RuntimeShader variant=engine.recorded;equal(false,variant==original);near(0f,variant.floats.get("c17AcrylicTint")[3]);same(original,material.shader);
+        title.setTextColor(0xff000000);helper.drawContent(engine,new Canvas(),c->{engine.onDrawContent(c);return null;});same(variant,engine.recorded);near(0f,variant.floats.get("c17AcrylicTint")[3]);
+        frame.getResources().getConfiguration().uiMode=Configuration.UI_MODE_NIGHT_YES;helper.configure(settings(true,true));
+        helper.drawContent(engine,new Canvas(),c->{engine.onDrawContent(c);return null;});near(0x11/255f,variant.floats.get("c17AcrylicTint")[0]);near(0x40/255f,variant.floats.get("c17AcrylicTint")[3]);
+        Bundle off=settings(true,true);off.putBoolean(C17HighlightRemoval.CONTROL_ENABLED,false);helper.configure(off);
+        helper.drawContent(engine,new Canvas(),c->{engine.onDrawContent(c);return null;});same(original,engine.recorded);
+        helper.configure(settings(true,true));wrapper.removeView(content);equal(false,helper.isSurface(frame));helper.drawContent(engine,new Canvas(),c->{engine.onDrawContent(c);return null;});same(original,engine.recorded);
+        helper.release();frame.getResources().getConfiguration().uiMode=Configuration.UI_MODE_NIGHT_NO;
     }
     public static void main(String[] args) throws Throwable {System.out.println("C17AcrylicMaterialCheck: "+run()+" checks passed");}
 }

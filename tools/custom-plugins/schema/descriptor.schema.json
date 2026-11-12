@@ -1,0 +1,1200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:c17:plugin-descriptor:1",
+  "title": "C17.define output API 1/2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "version",
+    "versionCode",
+    "apiVersion",
+    "ui"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 80,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "versionCode": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "apiVersion": {
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 1024
+    },
+    "author": {
+      "type": "string",
+      "maxLength": 80
+    },
+    "capabilities": {
+      "type": "array",
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "settings",
+          "systemui",
+          "runtime"
+        ]
+      }
+    },
+    "ui": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/control"
+      }
+    },
+    "settings": {
+      "type": "object",
+      "maxProperties": 64,
+      "additionalProperties": {
+        "type": [
+          "boolean",
+          "number",
+          "string"
+        ]
+      }
+    },
+    "hooks": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/hook"
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 4096,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*[\\\\:])(?!.*//).+\\.js$"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "preferences": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{2,119}$"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "entry"
+          ],
+          "not": {
+            "required": [
+              "source"
+            ]
+          }
+        },
+        {
+          "required": [
+            "source"
+          ],
+          "not": {
+            "required": [
+              "entry"
+            ]
+          }
+        }
+      ]
+    },
+    "configurationAliases": {
+      "type": "object",
+      "maxProperties": 512,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^(?!(?:constructor|prototype)$)[a-zA-Z][a-zA-Z0-9_.-]{0,63}(?![\\s\\S])"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^(?!(?:constructor|prototype)$)[a-zA-Z][a-zA-Z0-9_.-]{0,63}(?![\\s\\S])"
+      }
+    },
+    "minimumHost": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "features": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "maxLength": 80,
+        "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+      }
+    },
+    "usage": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "scopes": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(?:android|[a-zA-Z][a-zA-Z0-9_]*(?:\\.[a-zA-Z][a-zA-Z0-9_]*)+)$",
+        "maxLength": 240
+      }
+    },
+    "nativeSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dex",
+        "className"
+      ],
+      "properties": {
+        "dex": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 4096,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)[a-zA-Z0-9_./-]+\\.(?:dex|jar)$"
+        },
+        "className": {
+          "type": "string",
+          "maxLength": 240,
+          "pattern": "^[a-zA-Z_$][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_$][a-zA-Z0-9_$]*)+$"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"required": ["configurationAliases"]},
+      "then": {
+        "required": ["minimumHost", "features"],
+        "properties": {
+          "apiVersion": {"const": 2},
+          "minimumHost": {"minimum": 265},
+          "features": {"contains": {"const": "config.aliases"}}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          }
+        },
+        "required": [
+          "apiVersion"
+        ]
+      },
+      "then": {
+        "properties": {
+          "capabilities": {
+            "maxItems": 2,
+            "items": {
+              "enum": [
+                "settings",
+                "systemui"
+              ]
+            }
+          },
+          "ui": {
+            "maxItems": 64,
+            "items": {
+              "properties": {
+                "type": {
+                  "not": {
+                    "enum": [
+                      "action",
+                      "status"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "settings": {
+            "maxProperties": 64
+          },
+          "hooks": {
+            "maxItems": 32
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "runtime"
+              ]
+            },
+            {
+              "required": [
+                "nativeSettings"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "apiVersion": {
+            "const": 2
+          }
+        },
+        "required": [
+          "apiVersion"
+        ]
+      },
+      "then": {
+        "required": [
+          "runtime",
+          "capabilities"
+        ],
+        "properties": {
+          "capabilities": {
+            "contains": {
+              "const": "runtime"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "not": {
+          "required": [
+            "nativeSettings"
+          ]
+        }
+      },
+      "then": {
+        "properties": {
+          "ui": {
+            "minItems": 1,
+            "contains": {
+              "type": "object",
+              "required": [
+                "type"
+              ],
+              "properties": {
+                "type": {
+                  "enum": [
+                    "switch",
+                    "slider",
+                    "input",
+                    "select",
+                    "color",
+                    "app",
+                    "sort"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "ui": {
+            "items": {
+              "properties": {
+                "type": {
+                  "not": {
+                    "const": "sort"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "state": {
+      "type": [
+        "boolean",
+        "number",
+        "string"
+      ],
+      "maxLength": 4096
+    },
+    "control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "title"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "text",
+            "switch",
+            "slider",
+            "input",
+            "select",
+            "button",
+            "action",
+            "status",
+            "color",
+            "preset",
+            "app",
+            "sort"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$",
+          "not": {
+            "enum": [
+              "constructor",
+              "prototype"
+            ]
+          }
+        },
+        "default": {
+          "type": [
+            "boolean",
+            "number",
+            "string"
+          ],
+          "maxLength": 65536
+        },
+        "value": {
+          "$ref": "#/$defs/state"
+        },
+        "min": {
+          "type": "number",
+          "minimum": -100000,
+          "maximum": 100000
+        },
+        "max": {
+          "type": "number",
+          "minimum": -100000,
+          "maximum": 100000
+        },
+        "step": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "unit": {
+          "type": "string",
+          "maxLength": 16
+        },
+        "unboundedInput": {
+          "type": "boolean"
+        },
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "value",
+              "label"
+            ],
+            "properties": {
+              "value": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              }
+            }
+          }
+        },
+        "section": {
+          "enum": [
+            "features",
+            "management"
+          ],
+          "default": "features"
+        },
+        "group": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "groupPath": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^(?!.*\\u0000).*\\S.*$"
+          }
+        },
+        "values": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 512,
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$",
+            "not": {
+              "enum": [
+                "constructor",
+                "prototype"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/state"
+          }
+        },
+        "enableOnEdit": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$"
+          }
+        },
+        "optionsAction": {
+          "type": "string",
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$",
+          "not": {
+            "enum": [
+              "constructor",
+              "prototype"
+            ]
+          }
+        },
+        "confirmation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "not": {
+                  "const": "text"
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "key"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "switch"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "default": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "slider"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "min",
+              "max"
+            ],
+            "properties": {
+              "default": {
+                "type": "number"
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "unit"
+                  ]
+                },
+                {
+                  "required": [
+                    "unboundedInput"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "input"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "default": {
+                "type": "string",
+                "maxLength": 4096
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "select"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "options"
+            ],
+            "properties": {
+              "default": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "action",
+                  "status"
+                ]
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "default"
+                  ]
+                },
+                {
+                  "required": [
+                    "value"
+                  ]
+                },
+                {
+                  "required": [
+                    "min"
+                  ]
+                },
+                {
+                  "required": [
+                    "max"
+                  ]
+                },
+                {
+                  "required": [
+                    "step"
+                  ]
+                },
+                {
+                  "required": [
+                    "unit"
+                  ]
+                },
+                {
+                  "required": [
+                    "unboundedInput"
+                  ]
+                },
+                {
+                  "required": [
+                    "options"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "color"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "default": {
+                "type": "string",
+                "pattern": "^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "preset"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "values"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "default"
+                  ]
+                },
+                {
+                  "required": [
+                    "value"
+                  ]
+                },
+                {
+                  "required": [
+                    "min"
+                  ]
+                },
+                {
+                  "required": [
+                    "max"
+                  ]
+                },
+                {
+                  "required": [
+                    "step"
+                  ]
+                },
+                {
+                  "required": [
+                    "unit"
+                  ]
+                },
+                {
+                  "required": [
+                    "unboundedInput"
+                  ]
+                },
+                {
+                  "required": [
+                    "options"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "values"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "enableOnEdit"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "switch",
+                  "slider",
+                  "color",
+                  "select"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "sort"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "optionsAction"
+            ],
+            "properties": {
+              "default": {
+                "type": "string",
+                "maxLength": 65536
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "min"
+                  ]
+                },
+                {
+                  "required": [
+                    "max"
+                  ]
+                },
+                {
+                  "required": [
+                    "step"
+                  ]
+                },
+                {
+                  "required": [
+                    "unit"
+                  ]
+                },
+                {
+                  "required": [
+                    "options"
+                  ]
+                },
+                {
+                  "required": [
+                    "value"
+                  ]
+                },
+                {
+                  "required": [
+                    "values"
+                  ]
+                },
+                {
+                  "required": [
+                    "enableOnEdit"
+                  ]
+                },
+                {
+                  "required": [
+                    "unboundedInput"
+                  ]
+                },
+                {
+                  "required": [
+                    "confirmation"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "properties": {
+              "default": {
+                "$ref": "#/$defs/state"
+              }
+            },
+            "not": {
+              "required": [
+                "optionsAction"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "confirmation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "const": "action"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "app"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "default": {
+                "type": "string",
+                "maxLength": 4096,
+                "pattern": "^(?:|[a-zA-Z][a-zA-Z0-9_]*(?:\\.[a-zA-Z][a-zA-Z0-9_]*)+)$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "hook": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "className",
+        "method",
+        "argCount",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_.-]{1,80}$"
+        },
+        "className": {
+          "type": "string",
+          "maxLength": 240,
+          "pattern": "^(?:com\\.android\\.systemui|com\\.oplus\\.systemui|com\\.oplusos\\.systemui|com\\.oplus\\.keyguard)\\.[a-zA-Z_$][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_$][a-zA-Z0-9_$]*)*$"
+        },
+        "method": {
+          "type": "string",
+          "maxLength": 100,
+          "pattern": "^[a-zA-Z_$][a-zA-Z0-9_$]*$",
+          "not": {
+            "enum": [
+              "getClass",
+              "clone",
+              "finalize",
+              "wait",
+              "notify",
+              "notifyAll",
+              "equals",
+              "hashCode",
+              "toString"
+            ]
+          }
+        },
+        "argCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "kind": {
+          "enum": [
+            "text",
+            "property",
+            "result"
+          ]
+        },
+        "find": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "replace": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "prefix": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "suffix": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "property": {
+          "enum": [
+            "alpha",
+            "translationX",
+            "translationY",
+            "scaleX",
+            "scaleY"
+          ]
+        },
+        "value": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "text"
+              }
+            }
+          },
+          "then": {
+            "dependentRequired": {
+              "find": [
+                "replace"
+              ],
+              "replace": [
+                "find"
+              ]
+            },
+            "anyOf": [
+              {
+                "required": [
+                  "find"
+                ]
+              },
+              {
+                "required": [
+                  "prefix"
+                ],
+                "properties": {
+                  "prefix": {
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "required": [
+                  "suffix"
+                ],
+                "properties": {
+                  "suffix": {
+                    "minLength": 1
+                  }
+                }
+              }
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "property"
+                  ]
+                },
+                {
+                  "required": [
+                    "value"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "property"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "property",
+              "value"
+            ],
+            "properties": {
+              "value": {
+                "type": "number",
+                "minimum": -200,
+                "maximum": 200
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "find"
+                  ]
+                },
+                {
+                  "required": [
+                    "replace"
+                  ]
+                },
+                {
+                  "required": [
+                    "prefix"
+                  ]
+                },
+                {
+                  "required": [
+                    "suffix"
+                  ]
+                }
+              ]
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "property": {
+                      "const": "alpha"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "value": {
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "property": {
+                      "enum": [
+                        "scaleX",
+                        "scaleY"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "value": {
+                      "minimum": 0.1,
+                      "maximum": 4
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "result"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "value"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "property"
+                  ]
+                },
+                {
+                  "required": [
+                    "find"
+                  ]
+                },
+                {
+                  "required": [
+                    "replace"
+                  ]
+                },
+                {
+                  "required": [
+                    "prefix"
+                  ]
+                },
+                {
+                  "required": [
+                    "suffix"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$comment": "API 1/2 结构契约；统一详情页以宿主 code261 为基线。跨控件引用、排序 JSON 内容、字段类型关联与运行能力由 pack.py 和真实宿主共同核验。minimumHost 是展示说明，features 是宿主能力准入。"
+}
